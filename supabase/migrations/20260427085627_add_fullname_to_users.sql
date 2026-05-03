@@ -1,0 +1,3 @@
+-- Add full_name column to public.users
+ALTER TABLE public.users
+  ADD COLUMN IF NOT EXISTS full_name text;
