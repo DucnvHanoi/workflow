@@ -22,11 +22,11 @@ export function buildDepartmentTree(flat: FlatDepartment[]): DepartmentTreeNode[
   const roots: DepartmentTreeNode[] = []
 
   // Second pass — attach children to parents
-  for (const node of map.values()) {
+  for (const node of Array.from(map.values())) {
     if (node.parent_id && map.has(node.parent_id)) {
       map.get(node.parent_id)!.children.push(node)
     } else {
-      roots.push(node)
+      // ... rest of your logic
     }
   }
 

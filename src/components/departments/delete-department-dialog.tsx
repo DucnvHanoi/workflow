@@ -18,7 +18,7 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   department: { id: string; name: string }
-  userCount: number
+  userCount?: number
 }
 
 export function DeleteDepartmentDialog({ open, onOpenChange, department, userCount }: Props) {
@@ -48,7 +48,7 @@ export function DeleteDepartmentDialog({ open, onOpenChange, department, userCou
             undone.
           </DialogDescription>
         </DialogHeader>
-        {userCount > 0 && (
+        {userCount && userCount > 0 && (
           <p className="text-sm text-destructive">
             This department has {userCount} member{userCount > 1 ? 's' : ''}. Reassign them before
             deleting.
@@ -61,7 +61,7 @@ export function DeleteDepartmentDialog({ open, onOpenChange, department, userCou
           <Button
             variant="destructive"
             onClick={handleDelete}
-            disabled={isPending || userCount > 0}
+            disabled={isPending || (userCount ?? 0) > 0}
           >
             {isPending ? 'Deleting...' : 'Delete'}
           </Button>

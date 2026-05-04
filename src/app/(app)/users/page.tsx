@@ -45,9 +45,9 @@ export default async function UsersPage() {
   const rawUsers = data ?? []
 
   // Query 2 — fetch managers for all manager_ids in one query
-  const managerIds = [
-    ...new Set(rawUsers.map((u) => u.manager_id).filter((id): id is string => id !== null)),
-  ]
+  const managerIds = Array.from(
+    new Set(rawUsers.map((u) => u.manager_id).filter((id): id is string => id !== null))
+  )
 
   const managerMap: Record<string, { id: string; full_name: string | null; email: string }> = {}
 
