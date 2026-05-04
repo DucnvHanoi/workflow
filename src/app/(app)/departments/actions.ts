@@ -147,7 +147,7 @@ export async function editDepartment(
     if (parentDepth === 0) return { error: 'Parent department not found.' }
 
     // Find max depth of children under this dept
-    function maxChildDepth(id: string, currentDepth: number): number {
+    const maxChildDepth = (id: string, currentDepth: number): number => {
       const children = depts.filter((d) => d.parent_id === id)
       if (children.length === 0) return currentDepth
       return Math.max(...children.map((c) => maxChildDepth(c.id, currentDepth + 1)))

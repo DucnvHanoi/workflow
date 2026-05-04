@@ -31,10 +31,6 @@ export async function inviteUser(email: string, role: 'admin' | 'user'): Promise
       redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/confirm`,
     },
   })
-  // TEMPORARY: log the actual invite link for dev testing
-  console.log('=== INVITE LINK ===')
-  console.log(inviteData?.properties?.action_link)
-  console.log('===================')
   if (inviteError || !inviteData.user) {
     return {
       success: false,
