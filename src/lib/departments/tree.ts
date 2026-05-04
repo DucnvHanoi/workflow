@@ -26,7 +26,7 @@ export function buildDepartmentTree(flat: FlatDepartment[]): DepartmentTreeNode[
     if (node.parent_id && map.has(node.parent_id)) {
       map.get(node.parent_id)!.children.push(node)
     } else {
-      // ... rest of your logic
+      roots.push(node)
     }
   }
 

@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr'
+import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
@@ -8,20 +8,21 @@ import { buildDepartmentTree, flattenTree, type FlatDepartment } from '@/lib/dep
 
 export default async function DepartmentsPage() {
   const cookieStore = cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (toSet) => {
-          try {
-            toSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
-          } catch {}
-        },
-      },
-    }
-  )
+  const supabase = createClient()
+  // const supabase = createClient(
+  //   process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  //   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  //   {
+  //     cookies: {
+  //       getAll: () => cookieStore.getAll(),
+  //       setAll: (toSet) => {
+  //         try {
+  //           toSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
+  //         } catch {}
+  //       },
+  //     },
+  //   }
+  // )
 
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
@@ -56,6 +57,7 @@ export default async function DepartmentsPage() {
 
   const tree = buildDepartmentTree(flat)
   const rows = flattenTree(tree)
+  console.log(tree)
 
   // Pass flat list to dialogs for parent selector
   const allDepartments = flat.map((d) => ({ id: d.id, name: d.name, parent_id: d.parent_id }))
