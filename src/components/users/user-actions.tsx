@@ -8,11 +8,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { EditRoleDialog } from './edit-role-dialog'
 import { DeleteUserDialog } from './delete-user-dialog'
 import { EditManagerDialog } from './edit-manager-dialog'
+import { EditProfileDialog } from './edit-profile-dialog'
+import { EditDepartmentDialog } from './edit-department-dialog'
 
 type UserOption = {
   id: string
@@ -27,15 +30,19 @@ type Props = {
     email: string
     role: 'admin' | 'user'
     manager_id: string | null
+    department_id: string | null
   }
   currentUserId: string
   allUsers: UserOption[]
+  allDepartments: { id: string; name: string; parent_id: string | null }[]
 }
 
-export function UserActions({ user, currentUserId, allUsers }: Props) {
+export function UserActions({ user, currentUserId, allUsers, allDepartments }: Props) {
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [deptOpen, setDeptOpen] = useState(false)
   const [roleOpen, setRoleOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const [managerOpen, setManagerOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const isSelf = user.id === currentUserId
 
   return (
@@ -48,6 +55,17 @@ export function UserActions({ user, currentUserId, allUsers }: Props) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+            Profile
+          </DropdownMenuLabel>
+          <DropdownMenuItem onSelect={() => setProfileOpen(true)}>
+            Edit Name & Email
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setDeptOpen(true)}>Edit Department</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+            Access
+          </DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => setRoleOpen(true)}>Edit Role</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setManagerOpen(true)}>Edit Manager</DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -60,6 +78,15 @@ export function UserActions({ user, currentUserId, allUsers }: Props) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <EditProfileDialog open={profileOpen} onOpenChange={setProfileOpen} user={user} />
+
+      <EditDepartmentDialog
+        open={deptOpen}
+        onOpenChange={setDeptOpen}
+        user={{ ...user }}
+        allDepartments={allDepartments}
+      />
 
       <EditRoleDialog
         open={roleOpen}

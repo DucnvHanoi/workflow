@@ -1,50 +1,35 @@
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+// src/app/(app)/users/page.tsx
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { createClient } from '@/lib/supabase/server'
 import { UsersTable, type UserRow } from '@/components/users/users-table'
 import { Button } from '@/components/ui/button'
 
 export default async function UsersPage() {
-  const cookieStore = cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (toSet) => {
-          try {
-            toSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
-          } catch {}
-        },
-      },
-    }
-  )
-
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
   if (claims.role !== 'admin') redirect('/unauthorized')
 
-  // Query 1 — fetch all users with department (no self-join)
+  // Use the shared server client — handles cookies and session correctly
+  const supabase = createClient()
+
+  // Query 1 — all users with department
   const { data, error } = await supabase
     .from('users')
     .select(
       `
-      id, email, full_name, role, created_at, manager_id,
+      id, email, full_name, role, created_at, manager_id, department_id,
       departments ( id, name )
     `
     )
     .order('full_name', { ascending: true, nullsFirst: false })
 
-  if (error) {
-    console.error('Failed to fetch users:', error.message)
-  }
+  if (error) console.error('Failed to fetch users:', error.message)
 
   const rawUsers = data ?? []
 
-  // Query 2 — fetch managers for all manager_ids in one query
+  // Query 2 — fetch managers in one query (avoid N+1)
   const managerIds = Array.from(
     new Set(rawUsers.map((u) => u.manager_id).filter((id): id is string => id !== null))
   )
@@ -58,15 +43,23 @@ export default async function UsersPage() {
       .in('id', managerIds)
 
     for (const m of managerRows ?? []) {
-      managerMap[m.id] = {
-        id: m.id,
-        full_name: m.full_name ?? null,
-        email: m.email,
-      }
+      managerMap[m.id] = { id: m.id, full_name: m.full_name ?? null, email: m.email }
     }
   }
 
-  // Build UserRow[] — no join ambiguity
+  // Query 3 — all departments for the edit department dropdown
+  const { data: deptRows } = await supabase
+    .from('departments')
+    .select('id, name, parent_id')
+    .order('name', { ascending: true })
+
+  const allDepartments = (deptRows ?? []).map((d) => ({
+    id: d.id,
+    name: d.name,
+    parent_id: d.parent_id,
+  }))
+
+  // Build UserRow[]
   const users = rawUsers.map((u) => {
     const dept =
       Array.isArray(u.departments) && u.departments.length > 0
@@ -81,6 +74,7 @@ export default async function UsersPage() {
       full_name: (u.full_name ?? null) as string | null,
       role: u.role as string,
       created_at: u.created_at as string,
+      department_id: (u.department_id ?? null) as string | null,
       departments: dept ? { id: dept.id as string, name: dept.name as string } : null,
       manager: u.manager_id ? (managerMap[u.manager_id] ?? null) : null,
     }
@@ -103,11 +97,8 @@ export default async function UsersPage() {
       <UsersTable
         rows={users}
         currentUserId={user.id}
-        allUsers={users.map((u) => ({
-          id: u.id,
-          full_name: u.full_name,
-          email: u.email,
-        }))}
+        allUsers={users.map((u) => ({ id: u.id, full_name: u.full_name, email: u.email }))}
+        allDepartments={allDepartments}
       />
     </div>
   )

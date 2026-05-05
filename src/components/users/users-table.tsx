@@ -22,7 +22,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { UserActions } from './user-actions'
 
-// ─── types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type UserRow = {
   id: string
@@ -30,7 +30,8 @@ export type UserRow = {
   full_name: string | null
   role: string
   created_at: string
-  departments: { id: string; name: string } | null // single object, not array
+  department_id: string | null
+  departments: { id: string; name: string } | null
   manager: { id: string; full_name: string | null; email: string } | null
 }
 
@@ -38,21 +39,10 @@ type UsersTableProps = {
   rows: UserRow[]
   currentUserId: string
   allUsers: { id: string; full_name: string | null; email: string }[]
+  allDepartments: { id: string; name: string; parent_id: string | null }[]
 }
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
-function initials(name: string | null, email: string) {
-  if (name) {
-    return name
-      .split(' ')
-      .map((w) => w[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2)
-  }
-  return email.slice(0, 2).toUpperCase()
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -62,9 +52,9 @@ function formatDate(iso: string) {
   })
 }
 
-// ─── component ────────────────────────────────────────────────────────────────
+// ─── Component ────────────────────────────────────────────────────────────────
 
-export function UsersTable({ rows, currentUserId, allUsers }: UsersTableProps) {
+export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: UsersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
 
@@ -98,13 +88,6 @@ export function UsersTable({ rows, currentUserId, allUsers }: UsersTableProps) {
         },
       },
       {
-        accessorKey: 'email',
-        header: 'Email',
-        cell: ({ getValue }) => (
-          <span className="text-muted-foreground">{getValue() as string}</span>
-        ),
-      },
-      {
         accessorKey: 'role',
         header: 'Role',
         cell: ({ getValue }) => {
@@ -121,6 +104,7 @@ export function UsersTable({ rows, currentUserId, allUsers }: UsersTableProps) {
       {
         accessorKey: 'manager',
         header: 'Manager',
+        enableSorting: false,
         cell: ({ row }) => {
           const manager = row.original.manager
           if (!manager) return <span className="text-muted-foreground">—</span>
@@ -148,16 +132,18 @@ export function UsersTable({ rows, currentUserId, allUsers }: UsersTableProps) {
                 full_name: r.full_name,
                 email: r.email,
                 role: r.role as 'admin' | 'user',
-                manager_id: r.manager?.id ?? null, // now clean — no cast needed
+                manager_id: r.manager?.id ?? null,
+                department_id: r.department_id,
               }}
               currentUserId={currentUserId}
               allUsers={allUsers}
+              allDepartments={allDepartments}
             />
           )
         },
       },
     ],
-    [currentUserId]
+    [currentUserId, allUsers, allDepartments]
   )
 
   const table = useReactTable({
@@ -173,7 +159,6 @@ export function UsersTable({ rows, currentUserId, allUsers }: UsersTableProps) {
 
   return (
     <div className="space-y-4">
-      {/* Search */}
       <Input
         placeholder="Search by name or email…"
         value={globalFilter}
@@ -181,7 +166,6 @@ export function UsersTable({ rows, currentUserId, allUsers }: UsersTableProps) {
         className="max-w-sm"
       />
 
-      {/* Table */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
