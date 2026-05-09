@@ -24,7 +24,7 @@ import { createDepartment } from '@/app/(app)/departments/actions'
 
 interface Props {
   open: boolean
-  onOpenChange: (open: boolean) => void
+  onOpenChange: (_open: boolean) => void
   allDepartments: { id: string; name: string; parent_id: string | null }[]
 }
 

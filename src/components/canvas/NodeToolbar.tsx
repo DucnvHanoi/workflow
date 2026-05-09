@@ -1,9 +1,9 @@
 'use client'
 
 import { Play, CheckSquare, GitBranch, Flag } from 'lucide-react'
-import { useCanvasStore, type NodeType } from '@/store/canvas-store'
+import { useCanvasStore } from '@/store/canvas-store'
 
-const NODE_TYPES: { type: NodeType; label: string; icon: React.ReactNode; color: string }[] = [
+const NODE_TYPES: { type: string; label: string; icon: React.ReactNode; color: string }[] = [
   {
     type: 'trigger',
     label: 'Trigger',

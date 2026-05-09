@@ -15,7 +15,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
   complete: { label: 'End', color: 'bg-purple-100 text-purple-700' },
 }
 
-export function StepConfigPanel({ node }: Props) {
+export default function StepConfigPanel({ node }: Props) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData)
   const data = node.data as NodeData
 

@@ -1,38 +1,37 @@
 'use client'
 
-import { useCallback, useEffect } from 'react'
-import {
-  ReactFlow,
-  MiniMap,
-  Controls,
-  Background,
-  BackgroundVariant,
-  type NodeTypes,
-  type Node,
-} from '@xyflow/react'
+import { useEffect } from 'react'
+import { useCanvasStore, type TenantUser, type TenantDepartment } from '@/store/canvas-store'
+import { ReactFlow, Background, BackgroundVariant, Controls, MiniMap } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-
-import { useCanvasStore } from '@/store/canvas-store'
 import { TriggerNode } from './nodes/TriggerNode'
 import { ActionNode } from './nodes/ActionNode'
 import { BranchNode } from './nodes/BranchNode'
 import { CompleteNode } from './nodes/CompleteNode'
 import { NodeToolbar } from './NodeToolbar'
-import { ConfigSidebar } from './panels/ConfigSidebar'
+import ConfigSidebar from './panels/ConfigSidebar'
 
-// Must be outside component — React Flow requirement
-const nodeTypes: NodeTypes = {
+// ─── Node types must be defined OUTSIDE the component ────────────────────────
+// Defining inside causes React Flow to re-register on every render → flickering
+
+const nodeTypes = {
   trigger: TriggerNode,
   action: ActionNode,
   branch: BranchNode,
   complete: CompleteNode,
 }
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 interface FlowCanvasProps {
   flowId: string
+  users: TenantUser[]
+  departments: TenantDepartment[]
 }
 
-export function FlowCanvas({ flowId }: FlowCanvasProps) {
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export default function FlowCanvas({ flowId, users, departments }: FlowCanvasProps) {
   const {
     nodes,
     edges,
@@ -44,62 +43,57 @@ export function FlowCanvas({ flowId }: FlowCanvasProps) {
     reset,
   } = useCanvasStore()
 
+  // Reset canvas state when navigating to a different flow
   useEffect(() => {
     reset()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowId])
+  }, [flowId, reset])
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null
-
-  const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
-      setSelectedNodeId(node.id)
-    },
-    [setSelectedNodeId]
-  )
-
-  const onPaneClick = useCallback(() => {
-    setSelectedNodeId(null)
-  }, [setSelectedNodeId])
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId)
 
   return (
-    // position:relative so sidebar can use position:absolute within this container
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative flex h-full w-full overflow-hidden">
+      {/* ── Canvas area — shrinks when sidebar is open ─────────────── */}
+      <div
+        className="h-full transition-all duration-200"
+        style={{ width: selectedNode ? 'calc(100% - 288px)' : '100%' }}
+      >
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+          onPaneClick={() => setSelectedNodeId(null)}
+          fitView
+        >
+          <Background variant={BackgroundVariant.Dots} gap={16} color="#d1d5db" />
+          <MiniMap
+            nodeColor={(node) => {
+              switch (node.type) {
+                case 'trigger':
+                  return '#10b981' // emerald-500
+                case 'action':
+                  return '#3b82f6' // blue-500
+                case 'branch':
+                  return '#f59e0b' // amber-500
+                case 'complete':
+                  return '#8b5cf6' // violet-500
+                default:
+                  return '#6b7280'
+              }
+            }}
+          />
+          <Controls />
+        </ReactFlow>
+      </div>
+
+      {/* ── Node toolbar — left edge ───────────────────────────────── */}
       <NodeToolbar />
 
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={onNodeClick}
-        onPaneClick={onPaneClick}
-        nodeTypes={nodeTypes}
-        fitView
-        deleteKeyCode="Delete"
-        // Shrink the canvas area when sidebar is open to avoid overlap
-        style={{ width: selectedNode ? 'calc(100% - 288px)' : '100%' }}
-        className="bg-gray-50"
-      >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#d1d5db" />
-        <Controls />
-        <MiniMap
-          nodeColor={(node) => {
-            const colors: Record<string, string> = {
-              trigger: '#10b981',
-              action: '#3b82f6',
-              branch: '#f59e0b',
-              complete: '#8b5cf6',
-            }
-            return colors[node.type ?? ''] ?? '#9ca3af'
-          }}
-          className="!bottom-4 !right-4"
-        />
-      </ReactFlow>
-
-      {/* Sidebar overlays the right edge of the container */}
-      <ConfigSidebar selectedNode={selectedNode} />
+      {/* ── Config sidebar — right edge ────────────────────────────── */}
+      <ConfigSidebar selectedNode={selectedNode} users={users} departments={departments} />
     </div>
   )
 }

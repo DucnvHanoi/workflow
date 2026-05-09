@@ -11,7 +11,7 @@ interface Props {
 
 const generateId = () => `cond_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 
-export function BranchConfigPanel({ node }: Props) {
+export default function BranchConfigPanel({ node }: Props) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData)
   const data = node.data as NodeData
 

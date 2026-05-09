@@ -1,24 +1,41 @@
 import { create } from 'zustand'
 import {
   addEdge,
-  applyNodeChanges,
   applyEdgeChanges,
-  type Node,
+  applyNodeChanges,
+  type Connection,
   type Edge,
-  type OnNodesChange,
-  type OnEdgesChange,
-  type OnConnect,
+  type EdgeChange,
+  type Node,
+  type NodeChange,
 } from '@xyflow/react'
 
-export type NodeType = 'trigger' | 'action' | 'branch' | 'complete'
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-export type BranchCondition = {
+export type FormFieldType = 'text' | 'dropdown' | 'radio' | 'checkbox' | 'file'
+
+export interface FormField {
+  id: string
+  type: FormFieldType
+  label: string
+  required: boolean
+  options?: string[] // only for dropdown and radio
+}
+
+export interface BranchCondition {
   id: string
   fieldId: string
   operator: 'eq'
   value: string
   handleId: 'yes' | 'no'
 }
+
+export type AssigneeRuleType =
+  | 'fixed'
+  | 'manager_of_requestor'
+  | 'skip_level'
+  | 'department_head'
+  | 'role_in_dept'
 
 export type AssigneeRule =
   | { type: 'fixed'; email: string }
@@ -28,70 +45,104 @@ export type AssigneeRule =
   | { type: 'role_in_dept'; departmentId: string; role: string }
   | null
 
-export type FormField = {
-  id: string
-  type: 'text' | 'dropdown' | 'radio' | 'checkbox' | 'file'
-  label: string
-  required: boolean
-  options?: string[]
-}
-
-export type NodeData = {
+export interface NodeData {
   label: string
   description?: string
   formSchema: FormField[]
   assigneeRule: AssigneeRule
   branchConditions: BranchCondition[]
+  [key: string]: unknown // required by React Flow's NodeData constraint
 }
 
-export interface CanvasState {
+// ─── Tenant data types (passed in from server) ───────────────────────────────
+
+export interface TenantUser {
+  id: string
+  full_name: string | null
+  email: string
+}
+
+export interface TenantDepartment {
+  id: string
+  name: string
+  parent_id: string | null
+}
+
+// ─── Store ───────────────────────────────────────────────────────────────────
+
+interface CanvasStore {
   nodes: Node[]
   edges: Edge[]
   selectedNodeId: string | null
-  onNodesChange: OnNodesChange
-  onEdgesChange: OnEdgesChange
-  onConnect: OnConnect
-  setNodes: (nodes: Node[]) => void
-  setEdges: (edges: Edge[]) => void
+  // React Flow handlers
+  onNodesChange: (changes: NodeChange[]) => void
+  onEdgesChange: (changes: EdgeChange[]) => void
+  onConnect: (connection: Connection) => void
+
+  // Node helpers
   setSelectedNodeId: (id: string | null) => void
-  updateNodeData: (id: string, data: Partial<NodeData>) => void
-  addNode: (type: NodeType, position?: { x: number; y: number }) => void
+  addNode: (type: string, position?: { x: number; y: number }) => void
+  updateNodeData: (id: string, partialData: Partial<NodeData>) => void
+
+  // Form field actions
+  addFormField: (nodeId: string, type: FormFieldType) => void
+  updateFormField: (nodeId: string, fieldId: string, patch: Partial<FormField>) => void
+  removeFormField: (nodeId: string, fieldId: string) => void
+  reorderFormFields: (nodeId: string, fields: FormField[]) => void
+
+  // Assignee action
+  setAssigneeRule: (nodeId: string, rule: AssigneeRule) => void
+
+  // Reset
   reset: () => void
 }
 
-let nodeIdCounter = 1
-const getId = () => `node_${Date.now()}_${nodeIdCounter++}`
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export const useCanvasStore = create<CanvasState>((set, get) => ({
+function generateId(): string {
+  return Math.random().toString(36).slice(2, 9)
+}
+
+function defaultData(): NodeData {
+  return {
+    label: 'New Step',
+    description: '',
+    formSchema: [],
+    assigneeRule: null,
+    branchConditions: [],
+  }
+}
+
+// ─── Store implementation ─────────────────────────────────────────────────────
+
+export const useCanvasStore = create<CanvasStore>((set) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
 
-  onNodesChange: (changes) => set({ nodes: applyNodeChanges(changes, get().nodes) }),
+  // ── React Flow handlers ──────────────────────────────────────────────────
 
-  onEdgesChange: (changes) => set({ edges: applyEdgeChanges(changes, get().edges) }),
+  onNodesChange: (changes) => {
+    set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) }))
+  },
 
-  onConnect: (connection) =>
-    set({ edges: addEdge({ ...connection, animated: false }, get().edges) }),
+  onEdgesChange: (changes) => {
+    set((state) => ({ edges: applyEdgeChanges(changes, state.edges) }))
+  },
 
-  setNodes: (nodes) => set({ nodes }),
-  setEdges: (edges) => set({ edges }),
+  onConnect: (connection) => {
+    set((state) => ({ edges: addEdge(connection, state.edges) }))
+  },
+
+  // ── Node helpers ─────────────────────────────────────────────────────────
 
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),
 
-  // Merges partial data into existing node.data — preserves all other fields
-  updateNodeData: (id, partialData) =>
-    set({
-      nodes: get().nodes.map((node) =>
-        node.id === id ? { ...node, data: { ...node.data, ...partialData } } : node
-      ),
-    }),
-
   addNode: (type, position = { x: 250, y: 150 }) => {
-    const id = getId()
-    const labels: Record<NodeType, string> = {
-      trigger: 'Start',
-      action: 'Action',
+    const id = generateId()
+    const labelMap: Record<string, string> = {
+      trigger: 'Trigger',
+      action: 'New Action',
       branch: 'Branch',
       complete: 'Complete',
     }
@@ -100,15 +151,102 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       type,
       position,
       data: {
-        label: labels[type],
-        description: '',
-        formSchema: [],
-        assigneeRule: null,
-        branchConditions: [],
+        ...defaultData(),
+        label: labelMap[type] ?? 'New Step',
       },
     }
-    set({ nodes: [...get().nodes, newNode] })
+    set((state) => ({ nodes: [...state.nodes, newNode] }))
   },
+
+  updateNodeData: (id, partialData) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) =>
+        node.id === id ? { ...node, data: { ...node.data, ...partialData } } : node
+      ),
+    }))
+  },
+
+  // ── Form field actions ───────────────────────────────────────────────────
+
+  addFormField: (nodeId, type) => {
+    const fieldId = generateId()
+    const newField: FormField = {
+      id: fieldId,
+      type,
+      label: '',
+      required: false,
+      ...(type === 'dropdown' || type === 'radio' ? { options: ['', ''] } : {}),
+    }
+    set((state) => ({
+      nodes: state.nodes.map((node) => {
+        if (node.id !== nodeId) return node
+        const data = node.data as NodeData
+        return {
+          ...node,
+          data: { ...data, formSchema: [...data.formSchema, newField] },
+        }
+      }),
+    }))
+  },
+
+  updateFormField: (nodeId, fieldId, patch) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) => {
+        if (node.id !== nodeId) return node
+        const data = node.data as NodeData
+        return {
+          ...node,
+          data: {
+            ...data,
+            formSchema: data.formSchema.map((f) => (f.id === fieldId ? { ...f, ...patch } : f)),
+          },
+        }
+      }),
+    }))
+  },
+
+  removeFormField: (nodeId, fieldId) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) => {
+        if (node.id !== nodeId) return node
+        const data = node.data as NodeData
+        return {
+          ...node,
+          data: {
+            ...data,
+            formSchema: data.formSchema.filter((f) => f.id !== fieldId),
+          },
+        }
+      }),
+    }))
+  },
+
+  reorderFormFields: (nodeId, fields) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) => {
+        if (node.id !== nodeId) return node
+        const data = node.data as NodeData
+        return { ...node, data: { ...data, formSchema: fields } }
+      }),
+    }))
+  },
+
+  // ── Assignee action ──────────────────────────────────────────────────────
+
+  /**
+   * Sets the assigneeRule on a node. Passing null clears the rule.
+   * Called by AssigneePanel whenever the admin changes the rule type
+   * or any sub-field (email, departmentId, role).
+   */
+  setAssigneeRule: (nodeId, rule) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) =>
+        node.id === nodeId ? { ...node, data: { ...node.data, assigneeRule: rule } } : node
+      ),
+    }))
+  },
+
+  // ── Reset ────────────────────────────────────────────────────────────────
 
   reset: () => set({ nodes: [], edges: [], selectedNodeId: null }),
 }))
