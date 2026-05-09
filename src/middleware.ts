@@ -10,6 +10,7 @@ const ADMIN_ONLY_ROUTES = [
   '/users',
   '/departments',
   '/admin',
+  '/flows',
   // Add more admin routes here as the project grows
 ]
 
