@@ -21,13 +21,13 @@ interface ConfigSidebarProps {
   selectedNode: Node | undefined
   users: TenantUser[]
   departments: TenantDepartment[]
-  // Day 30 additions:
   flowId: string
   flowStatus: 'draft' | 'published'
   onFlowStatusChange: (status: 'draft' | 'published') => void
+  onVersionRestored: () => void
 }
 
-// ─── No-node-selected panel (Publish + Versions tabs) ────────────────────────
+// ─── Idle panel (no node selected) — Publish + Versions tabs ─────────────────
 
 type SidebarTab = 'publish' | 'versions'
 
@@ -88,38 +88,21 @@ export default function ConfigSidebar({
   flowId,
   flowStatus,
   onFlowStatusChange,
+  onVersionRestored,
 }: ConfigSidebarProps) {
-  const { setSelectedNodeId, setReadOnly } = useCanvasStore()
+  const { setSelectedNodeId } = useCanvasStore()
 
-  const isOpen = !!selectedNode
   const hasFormAndAssignee = selectedNode?.type === 'action' || selectedNode?.type === 'branch'
 
-  // Re-hydrates the canvas from the DB after a version restore or preview exit.
-  // Defined here so it can be passed down to both IdlePanel → VersionListPanel.
-  const handleVersionRestored = useCallback(async () => {
-    const { graph } = await getLatestDraftGraph(flowId)
-    if (!graph) return
-    const { nodes, edges } = deserializeGraph(graph)
-    // Update the store directly — same pattern as FlowCanvas hydration on mount
-    const store = useCanvasStore.getState()
-    store.reset()
-    store.setFlowId(flowId)
-    setReadOnly(false)
-    // Manually set nodes/edges via the store's internal setter
-    useCanvasStore.setState({ nodes, edges, isReadOnly: false })
-  }, [flowId, setReadOnly])
-
   return (
-    <div
-      className={`
-        absolute right-0 top-0 h-full w-72 border-l border-border bg-background
-        transition-transform duration-200 ease-in-out
-        ${isOpen ? 'translate-x-0' : 'translate-x-full'}
-        overflow-hidden shadow-md flex flex-col
-      `}
-    >
+    // FIX: removed translate-x-full / isOpen logic.
+    // Sidebar is now always visible — it has content in both states
+    // (node selected → config panels, no node → Publish/Versions tabs).
+    // FlowCanvas already subtracts 288px (w-72) from the ReactFlow width
+    // at all times, so the canvas never overlaps the sidebar.
+    <div className="absolute right-0 top-0 h-full w-72 border-l border-border bg-background overflow-hidden shadow-md flex flex-col">
       {selectedNode ? (
-        /* ── Node selected: show config panels ──────────────────────── */
+        /* ── Node selected: step config panels ──────────────────────── */
         <>
           <div className="flex items-center justify-between border-b border-border px-3 py-2.5 shrink-0">
             <p className="text-sm font-semibold text-foreground">Configure step</p>
@@ -154,15 +137,12 @@ export default function ConfigSidebar({
           </div>
         </>
       ) : (
-        /* ── No node selected: show Publish + Versions tabs ─────────── */
-        // The sidebar is always mounted but hidden via translate-x-full when
-        // isOpen is false. We render IdlePanel unconditionally so its state
-        // (selected tab) persists across node selection/deselection.
+        /* ── No node selected: Publish + Versions tabs ───────────────── */
         <IdlePanel
           flowId={flowId}
           flowStatus={flowStatus}
           onFlowStatusChange={onFlowStatusChange}
-          onVersionRestored={handleVersionRestored}
+          onVersionRestored={onVersionRestored}
         />
       )}
     </div>

@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { serializeGraph, validateGraph, type ValidationError } from '@/lib/flows/graph'
 import { publishFlow, unpublishFlow } from '@/lib/flows/actions'
-import { useCanvasStore } from '@/store/canvas-store'
+import { useCanvasStore, type NodeData } from '@/store/canvas-store'
+import type { Node } from '@xyflow/react'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -25,8 +26,10 @@ export default function PublishPanel({ flowId, flowStatus, onStatusChange }: Pub
   const edges = useCanvasStore((s) => s.edges)
   const [isPending, startTransition] = useTransition()
 
-  // Run validation on the current canvas state (no DB round-trip needed)
-  const { nodes: sNodes, edges: sEdges } = serializeGraph(nodes, edges)
+  // The Zustand store types nodes as Node[] (React Flow base type) but our
+  // serializeGraph expects Node<NodeData>[]. The data shape is always NodeData
+  // at runtime — we just need to tell TypeScript that explicitly.
+  const { nodes: sNodes, edges: sEdges } = serializeGraph(nodes as Node<NodeData>[], edges)
   const errors: ValidationError[] = validateGraph(sNodes, sEdges)
   const isValid = errors.length === 0
 

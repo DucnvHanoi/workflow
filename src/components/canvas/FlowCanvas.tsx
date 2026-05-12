@@ -80,7 +80,7 @@ export default function FlowCanvas({
     reset,
   } = useCanvasStore()
 
-  // flowStatus lives in local state so publish/unpublish updates the badge
+  // flowStatus lives in local state so publish/unpublish updates the UI
   // without a full page reload.
   const [currentFlowStatus, setCurrentFlowStatus] = useState<'draft' | 'published'>(
     initialFlowStatus
@@ -201,7 +201,7 @@ export default function FlowCanvas({
     [nodes, edges]
   )
 
-  // ── Re-hydrate helper (used by ConfigSidebar after version restore) ───────
+  // ── Re-hydrate after version restore / preview exit ───────────────────────
 
   const handleVersionRestored = useCallback(async () => {
     const { graph } = await getLatestDraftGraph(flowId)
@@ -211,56 +211,59 @@ export default function FlowCanvas({
   }, [flowId])
 
   // ── Render ────────────────────────────────────────────────────────────────
+  // FIX: use flex row so ReactFlow and sidebar sit side by side.
+  // Sidebar is always visible — no more translate-x-full hiding.
+  // ReactFlow fills the remaining width naturally via flex-1.
 
   return (
-    <div className="relative h-full w-full">
-      {/* Read-only overlay banner */}
-      {isReadOnly && (
-        <div className="absolute top-0 left-0 right-72 z-10 bg-amber-50 border-b border-amber-200 text-center py-1.5 text-xs text-amber-700 font-medium pointer-events-none">
-          Read-only preview — use the Versions panel to restore
-        </div>
-      )}
+    <div className="h-full w-full flex">
+      {/* ── Canvas area ───────────────────────────────────────────────── */}
+      <div className="flex-1 relative min-w-0">
+        {/* Read-only banner */}
+        {isReadOnly && (
+          <div className="absolute top-0 left-0 right-0 z-10 bg-amber-50 border-b border-amber-200 text-center py-1.5 text-xs text-amber-700 font-medium pointer-events-none">
+            Read-only preview — use the Versions panel to restore
+          </div>
+        )}
 
-      {/* Add-node toolbar — top-left of canvas */}
-      {!isReadOnly && <NodeToolbar />}
+        {/* Add-node toolbar */}
+        {!isReadOnly && <NodeToolbar />}
 
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={handleNodesChange}
-        onEdgesChange={handleEdgesChange}
-        onConnect={handleConnect}
-        isValidConnection={isValidConnection}
-        onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-        onPaneClick={() => setSelectedNodeId(null)}
-        // Disable all interactions during version preview
-        nodesDraggable={!isReadOnly}
-        nodesConnectable={!isReadOnly}
-        elementsSelectable={!isReadOnly}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        // Shrink canvas width to make room for the sidebar when a node is selected
-        style={{
-          width: selectedNode ? 'calc(100% - 288px)' : '100%',
-          transition: 'width 200ms ease-in-out',
-        }}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-        <Controls />
-        <MiniMap zoomable pannable />
-      </ReactFlow>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
+          onConnect={handleConnect}
+          isValidConnection={isValidConnection}
+          onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+          onPaneClick={() => setSelectedNodeId(null)}
+          nodesDraggable={!isReadOnly}
+          nodesConnectable={!isReadOnly}
+          elementsSelectable={!isReadOnly}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          style={{ width: '100%', height: '100%' }}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+          <Controls />
+          <MiniMap zoomable pannable />
+        </ReactFlow>
+      </div>
 
-      {/* Config sidebar — always mounted, slides in/out via CSS transform */}
-      <ConfigSidebar
-        selectedNode={selectedNode}
-        users={users}
-        departments={departments}
-        flowId={flowId}
-        flowStatus={currentFlowStatus}
-        onFlowStatusChange={setCurrentFlowStatus}
-        onVersionRestored={handleVersionRestored}
-      />
+      {/* ── Sidebar — always visible, fixed 288px width ───────────────── */}
+      <div className="w-72 shrink-0 h-full border-l border-border bg-background flex flex-col overflow-hidden">
+        <ConfigSidebar
+          selectedNode={selectedNode}
+          users={users}
+          departments={departments}
+          flowId={flowId}
+          flowStatus={currentFlowStatus}
+          onFlowStatusChange={setCurrentFlowStatus}
+          onVersionRestored={handleVersionRestored}
+        />
+      </div>
     </div>
   )
 }
