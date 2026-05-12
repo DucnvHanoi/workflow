@@ -12,8 +12,6 @@ import type { TenantUser, TenantDepartment } from '@/store/canvas-store'
 import { getLatestDraftGraph } from '@/lib/flows/actions'
 import { deserializeGraph } from '@/lib/flows/graph'
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default async function FlowEditPage({ params }: { params: { id: string } }) {
   // ── Auth guard ────────────────────────────────────────────────────────────
   const { user, claims } = await getSessionClaims()
@@ -24,7 +22,7 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
   const supabase = createClient()
   const adminClient = createAdminClient()
 
-  // ── Fetch flow (include status for publish panel) ─────────────────────────
+  // ── Fetch flow ────────────────────────────────────────────────────────────
   const { data: flow } = await supabase
     .from('flows')
     .select('id, name, status')
@@ -34,12 +32,12 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
 
   if (!flow) redirect('/flows')
 
-  // ── Fetch latest saved graph to hydrate canvas on load ────────────────────
+  // ── Fetch latest graph ────────────────────────────────────────────────────
   const { graph } = await getLatestDraftGraph(params.id)
   const initialNodes = graph ? deserializeGraph(graph).nodes : []
   const initialEdges = graph ? deserializeGraph(graph).edges : []
 
-  // ── Fetch tenant users (for Fixed-person assignee picker) ─────────────────
+  // ── Fetch users + departments ─────────────────────────────────────────────
   const { data: rawUsers } = await adminClient
     .from('users')
     .select('id, full_name, email')
@@ -48,7 +46,6 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
 
   const users: TenantUser[] = rawUsers ?? []
 
-  // ── Fetch tenant departments (for dept-based assignee rules) ──────────────
   const { data: rawDepts } = await supabase
     .from('departments')
     .select('id, name, parent_id')
@@ -63,6 +60,7 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
     <div className="flex h-screen flex-col">
       {/* ── Top bar ──────────────────────────────────────────────────── */}
       <div className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-border bg-background px-4">
+        {/* Back link */}
         <Link
           href="/flows"
           className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -73,25 +71,23 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
 
         <span className="text-muted-foreground">/</span>
 
+        {/* Flow name */}
         <span className="text-sm font-medium text-foreground">{flow.name}</span>
 
-        {/* Status badge — rendered server-side as initial state.
-            FlowCanvas updates this via onFlowStatusChange when publish/unpublish fires. */}
+        {/* Publish status badge */}
         <span
           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
             flow.status === 'published'
               ? 'bg-emerald-100 text-emerald-700'
               : 'bg-gray-100 text-gray-600'
           }`}
-          id="flow-status-badge"
         >
           {flow.status}
         </span>
 
-        {/* Save indicator — reads saveStatus from Zustand, no props needed */}
-        <div className="ml-auto">
-          <CanvasToolbar />
-        </div>
+        {/* Save indicator — sits right after the badge, no ml-auto.
+            This keeps it away from the right edge where the sidebar lives. */}
+        <CanvasToolbar />
       </div>
 
       {/* ── Canvas ───────────────────────────────────────────────────── */}
