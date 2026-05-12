@@ -8,16 +8,47 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import type { SerializedGraph } from '@/lib/flows/graph'
 
+type AdminDb = ReturnType<typeof createAdminClient>
+
+async function requireAdminWithTenant(): Promise<
+  { ok: true; tenantId: string; db: AdminDb } | { ok: false; error: string }
+> {
+  const { user, claims } = await getSessionClaims()
+  if (!user) return { ok: false, error: 'Unauthenticated' }
+  if (claims.role !== 'admin') return { ok: false, error: 'Unauthorized' }
+  if (!claims.tenant_id) return { ok: false, error: 'Tenant not found' }
+  return { ok: true, tenantId: claims.tenant_id, db: createAdminClient() }
+}
+
+async function assertFlowInTenant(
+  db: AdminDb,
+  flowId: string,
+  tenantId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data, error } = await db
+    .from('flows')
+    .select('id')
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  if (error) return { ok: false, error: error.message }
+  if (!data) return { ok: false, error: 'Flow not found or access denied' }
+  return { ok: true }
+}
+
 // ─── Save a draft version ─────────────────────────────────────────────────────
 
 export async function saveDraftVersion(
   flowId: string,
   graph: SerializedGraph
 ): Promise<{ versionId: string; versionNumber: number; error?: string }> {
-  const claims = await getSessionClaims()
-  if (!claims) return { versionId: '', versionNumber: 0, error: 'Unauthenticated' }
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { versionId: '', versionNumber: 0, error: gate.error }
 
-  const db = createAdminClient()
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { versionId: '', versionNumber: 0, error: access.error }
 
   // Get current max version_number for this flow
   const { data: existing } = await db
@@ -57,6 +88,7 @@ export async function saveDraftVersion(
       updated_at: new Date().toISOString(),
     })
     .eq('id', flowId)
+    .eq('tenant_id', tenantId)
 
   return { versionId: version.id, versionNumber: version.version_number }
 }
@@ -66,9 +98,12 @@ export async function saveDraftVersion(
 export async function getLatestDraftGraph(
   flowId: string
 ): Promise<{ graph: SerializedGraph | null; error?: string }> {
-  // adminClient — createClient() requires a session cookie which is not
-  // guaranteed when called from server actions triggered by client components.
-  const db = createAdminClient()
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { graph: null, error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { graph: null, error: access.error }
 
   const { data, error } = await db
     .from('flow_versions')
@@ -97,7 +132,12 @@ export async function getFlowVersions(flowId: string): Promise<{
   }[]
   error?: string
 }> {
-  const db = createAdminClient()
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { versions: [], error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { versions: [], error: access.error }
 
   const { data, error } = await db
     .from('flow_versions')
@@ -115,13 +155,19 @@ export async function getFlowVersions(flowId: string): Promise<{
 // Caller must validate the graph before calling this.
 
 export async function publishFlow(flowId: string): Promise<{ error: string | null }> {
-  const db = createAdminClient()
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { error: access.error }
 
   // Get the latest_version_id from the flows row
   const { data: flow, error: flowError } = await db
     .from('flows')
     .select('latest_version_id')
     .eq('id', flowId)
+    .eq('tenant_id', tenantId)
     .single()
 
   if (flowError || !flow?.latest_version_id) {
@@ -133,6 +179,7 @@ export async function publishFlow(flowId: string): Promise<{ error: string | nul
     .from('flow_versions')
     .update({ published_at: new Date().toISOString() })
     .eq('id', flow.latest_version_id)
+    .eq('flow_id', flowId)
 
   if (verError) return { error: verError.message }
 
@@ -144,6 +191,7 @@ export async function publishFlow(flowId: string): Promise<{ error: string | nul
       updated_at: new Date().toISOString(),
     })
     .eq('id', flowId)
+    .eq('tenant_id', tenantId)
 
   if (statusError) return { error: statusError.message }
 
@@ -155,7 +203,12 @@ export async function publishFlow(flowId: string): Promise<{ error: string | nul
 // Running flow_instances are unaffected — they hold their own flow_version_id snapshot.
 
 export async function unpublishFlow(flowId: string): Promise<{ error: string | null }> {
-  const db = createAdminClient()
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { error: access.error }
 
   const { error } = await db
     .from('flows')
@@ -164,6 +217,7 @@ export async function unpublishFlow(flowId: string): Promise<{ error: string | n
       updated_at: new Date().toISOString(),
     })
     .eq('id', flowId)
+    .eq('tenant_id', tenantId)
 
   return { error: error?.message ?? null }
 }
@@ -176,13 +230,19 @@ export async function restoreVersion(
   flowId: string,
   versionId: string
 ): Promise<{ error: string | null }> {
-  const db = createAdminClient()
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
 
-  // Fetch the graph from the target version
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { error: access.error }
+
+  // Fetch the graph from the target version (must belong to this flow)
   const { data: ver, error: verError } = await db
     .from('flow_versions')
     .select('graph, version_number')
     .eq('id', versionId)
+    .eq('flow_id', flowId)
     .single()
 
   if (verError || !ver) return { error: 'Version not found.' }
@@ -222,6 +282,7 @@ export async function restoreVersion(
       updated_at: new Date().toISOString(),
     })
     .eq('id', flowId)
+    .eq('tenant_id', tenantId)
 
   if (updateError) return { error: updateError.message }
 
