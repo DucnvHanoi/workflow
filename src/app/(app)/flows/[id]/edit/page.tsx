@@ -8,6 +8,7 @@ import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { createAdminClient } from '@/lib/supabase/admin'
 import FlowCanvas from '@/components/canvas/FlowCanvas'
 import { CanvasToolbar } from '@/components/canvas/CanvasToolbar'
+import { FlowNameEditor } from '@/components/canvas/FlowNameEditor'
 import type { TenantUser, TenantDepartment } from '@/store/canvas-store'
 import { getLatestDraftGraph } from '@/lib/flows/actions'
 import { deserializeGraph } from '@/lib/flows/graph'
@@ -71,8 +72,9 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
 
         <span className="text-muted-foreground">/</span>
 
-        {/* Flow name */}
-        <span className="text-sm font-medium text-foreground">{flow.name}</span>
+        {/* Flow name — now inline-editable. Replaces the static <span>.
+            FlowNameEditor is a client component that handles optimistic rename. */}
+        <FlowNameEditor flowId={flow.id} initialName={flow.name} />
 
         {/* Publish status badge */}
         <span

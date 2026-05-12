@@ -8,6 +8,35 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import type { SerializedGraph } from '@/lib/flows/graph'
 
+export type FlowListItem = {
+  id: string
+  name: string
+  status: 'draft' | 'published'
+  createdAt: string
+  updatedAt: string
+  versionNumber: number | null
+  publishedAt: string | null
+}
+
+type FlowVersionRow = {
+  version_number: number
+  published_at: string | null
+}
+
+/** PostgREST may return an embedded FK row as object or single-element array. */
+type FlowRow = {
+  id: string
+  name: string
+  status: string
+  created_at: string
+  updated_at: string
+  flow_versions: FlowVersionRow | FlowVersionRow[] | null
+}
+
+function embeddedFlowVersion(v: FlowRow['flow_versions']): FlowVersionRow | null {
+  if (v == null) return null
+  return Array.isArray(v) ? (v[0] ?? null) : v
+}
 type AdminDb = ReturnType<typeof createAdminClient>
 
 async function requireAdminWithTenant(): Promise<
@@ -285,6 +314,148 @@ export async function restoreVersion(
     .eq('tenant_id', tenantId)
 
   if (updateError) return { error: updateError.message }
+
+  return { error: null }
+}
+// ─── getFlows ────────────────────────────────────────────────────────────────
+// Fetches all flows for the current tenant with version info for the list page.
+export async function getFlows(): Promise<{
+  flows: FlowListItem[]
+  error: string | null
+}> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { flows: [], error: gate.error }
+
+  const { tenantId, db } = gate
+
+  const { data, error } = await db
+    .from('flows')
+    .select(
+      `
+      id,
+      name,
+      status,
+      created_at,
+      updated_at,
+      flow_versions!latest_version_id (
+        version_number,
+        published_at
+      )
+    `
+    )
+    .eq('tenant_id', tenantId)
+    .order('updated_at', { ascending: false })
+
+  if (error) return { flows: [], error: error.message }
+
+  const flows =
+    (data as FlowRow[] | null)?.map((f) => {
+      const latest = embeddedFlowVersion(f.flow_versions)
+      return {
+        id: f.id,
+        name: f.name,
+        status: f.status as 'draft' | 'published',
+        createdAt: f.created_at,
+        updatedAt: f.updated_at,
+        versionNumber: latest?.version_number ?? null,
+        publishedAt: latest?.published_at ?? null,
+      }
+    }) ?? []
+
+  return { flows, error: null }
+}
+
+// ─── deleteFlow ──────────────────────────────────────────────────────────────
+// Deletes a flow. Blocks if any flow_instances with status=pending exist.
+export async function deleteFlow(flowId: string): Promise<{ error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { error: access.error }
+
+  const { data: versions } = await db.from('flow_versions').select('id').eq('flow_id', flowId)
+
+  const versionIds = (versions ?? []).map((v: { id: string }) => v.id)
+
+  if (versionIds.length > 0) {
+    const { count: activeCount, error: activeError } = await db
+      .from('flow_instances')
+      .select('id', { count: 'exact', head: true })
+      .in('flow_version_id', versionIds)
+      .eq('status', 'pending')
+
+    if (activeError) return { error: activeError.message }
+    if ((activeCount ?? 0) > 0) {
+      return {
+        error: 'Cannot delete: this flow has active running instances. Cancel them first.',
+      }
+    }
+  }
+
+  if (versionIds.length > 0) {
+    const { data: instances } = await db
+      .from('flow_instances')
+      .select('id')
+      .in('flow_version_id', versionIds)
+
+    const instanceIds = (instances ?? []).map((i: { id: string }) => i.id)
+
+    if (instanceIds.length > 0) {
+      await db.from('step_instances').delete().in('instance_id', instanceIds)
+      await db.from('flow_instances').delete().in('id', instanceIds)
+    }
+
+    await db.from('flow_versions').delete().in('id', versionIds)
+  }
+
+  await db
+    .from('flows')
+    .update({ latest_version_id: null })
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+
+  const { error } = await db.from('flows').delete().eq('id', flowId).eq('tenant_id', tenantId)
+  if (error) return { error: error.message }
+
+  return { error: null }
+}
+// ─── updateFlowName ───────────────────────────────────────────────────────────
+// Renames a flow. Called by FlowNameEditor in the canvas top bar.
+// Validates: non-empty, max 100 chars, admin only, must belong to caller's tenant.
+// Add this function to the bottom of: src/lib/flows/actions.ts
+export async function updateFlowName(
+  flowId: string,
+  newName: string
+): Promise<{ error: string | null }> {
+  const { user, claims } = await getSessionClaims()
+  if (!user) return { error: 'Unauthenticated' }
+  if (claims.role !== 'admin') return { error: 'Unauthorized' }
+  if (!claims.tenant_id) return { error: 'Tenant not found' }
+
+  const trimmed = newName.trim()
+  if (!trimmed) return { error: 'Flow name cannot be empty' }
+  if (trimmed.length > 100) return { error: 'Flow name must be 100 characters or fewer' }
+
+  const admin = createAdminClient()
+
+  // Verify the flow belongs to this tenant before updating
+  const { data: existing, error: fetchError } = await admin
+    .from('flows')
+    .select('id')
+    .eq('id', flowId)
+    .eq('tenant_id', claims.tenant_id)
+    .single()
+
+  if (fetchError || !existing) return { error: 'Flow not found' }
+
+  const { error } = await admin
+    .from('flows')
+    .update({ name: trimmed, updated_at: new Date().toISOString() })
+    .eq('id', flowId)
+
+  if (error) return { error: error.message }
 
   return { error: null }
 }
