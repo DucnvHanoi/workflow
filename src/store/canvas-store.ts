@@ -283,7 +283,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   setReadOnly: (val) => set({ isReadOnly: val }),
 
   // Loads an old version's graph into the canvas and locks it read-only.
-  // Called by VersionListPanel when the user clicks a version row.
   loadVersion: (graph: SerializedGraph) => {
     const { nodes, edges } = deserializeGraph(graph)
     set({
@@ -295,13 +294,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   // ── triggerSave ──────────────────────────────────────────────────────────
-  // Debounced 300 ms. Suppressed when isReadOnly is true (version preview).
-  // All callers share one _debounceTimer so rapid mutations collapse to one save.
+  // Debounced 300ms. Suppressed when isReadOnly (version preview).
 
   triggerSave: () => {
     const state = get()
     if (!state.flowId) return
-    if (state.isReadOnly) return // never save during version preview
+    if (state.isReadOnly) return
 
     if (state._debounceTimer) clearTimeout(state._debounceTimer)
 
@@ -312,7 +310,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       if (!flowId) return
 
       try {
-        const graph = serializeGraph(nodes, edges)
+        // Cast needed: store types nodes as Node[] (React Flow base) but
+        // serializeGraph expects Node<NodeData>[]. Data is always NodeData
+        // at runtime — the cast is safe.
+        const graph = serializeGraph(nodes as Node<NodeData>[], edges)
         const result = await saveDraftVersion(flowId, graph)
         if (result.error) {
           set({ saveStatus: 'error' })
