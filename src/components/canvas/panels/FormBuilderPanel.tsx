@@ -1,3 +1,5 @@
+// FILE PATH: src/components/canvas/panels/FormBuilderPanel.tsx  (REPLACE EXISTING FILE)
+
 'use client'
 
 import { useState } from 'react'
@@ -40,6 +42,9 @@ const FIELD_TYPES: { type: FormFieldType; label: string; description: string }[]
 
 export default function FormBuilderPanel({ node }: FormBuilderPanelProps) {
   const { addFormField, updateFormField, removeFormField, reorderFormFields } = useCanvasStore()
+  // FIX: read triggerSave from the store — called after every field mutation
+  // so form field changes are persisted, not just held in Zustand memory.
+  const triggerSave = useCanvasStore((s) => s.triggerSave)
 
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -47,8 +52,6 @@ export default function FormBuilderPanel({ node }: FormBuilderPanelProps) {
   const fields: FormField[] = data.formSchema ?? []
 
   // ── dnd-kit sensors ─────────────────────────────────────────────────────
-  // PointerSensor with a 5px activation distance prevents accidental drags
-  // when clicking inputs inside the field row.
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 },
@@ -67,6 +70,7 @@ export default function FormBuilderPanel({ node }: FormBuilderPanelProps) {
 
     const reordered = arrayMove(fields, oldIndex, newIndex)
     reorderFormFields(node.id, reordered)
+    triggerSave() // FIX: persist after reorder
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -95,7 +99,6 @@ export default function FormBuilderPanel({ node }: FormBuilderPanelProps) {
           {/* Dropdown menu */}
           {menuOpen && (
             <>
-              {/* Backdrop to close menu on outside click */}
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
               <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-md border border-border bg-popover shadow-md">
                 {FIELD_TYPES.map(({ type, label, description }) => (
@@ -104,6 +107,7 @@ export default function FormBuilderPanel({ node }: FormBuilderPanelProps) {
                     onClick={() => {
                       addFormField(node.id, type)
                       setMenuOpen(false)
+                      triggerSave() // FIX: persist after adding a field
                     }}
                     className="flex w-full flex-col px-3 py-2 text-left transition-colors hover:bg-muted first:rounded-t-md last:rounded-b-md"
                   >
@@ -136,8 +140,14 @@ export default function FormBuilderPanel({ node }: FormBuilderPanelProps) {
                   key={field.id}
                   nodeId={node.id}
                   field={field}
-                  onUpdate={(fieldId, patch) => updateFormField(node.id, fieldId, patch)}
-                  onRemove={(fieldId) => removeFormField(node.id, fieldId)}
+                  onUpdate={(fieldId, patch) => {
+                    updateFormField(node.id, fieldId, patch)
+                    triggerSave() // FIX: persist after updating a field
+                  }}
+                  onRemove={(fieldId) => {
+                    removeFormField(node.id, fieldId)
+                    triggerSave() // FIX: persist after removing a field
+                  }}
                 />
               ))}
             </div>

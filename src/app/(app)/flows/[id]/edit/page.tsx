@@ -1,3 +1,5 @@
+// FILE PATH: src/app/(app)/flows/[id]/edit/page.tsx
+
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
@@ -5,7 +7,10 @@ import { createClient } from '@/lib/supabase/server'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { createAdminClient } from '@/lib/supabase/admin'
 import FlowCanvas from '@/components/canvas/FlowCanvas'
+import { CanvasToolbar } from '@/components/canvas/CanvasToolbar'
 import type { TenantUser, TenantDepartment } from '@/store/canvas-store'
+import { getLatestDraftGraph } from '@/lib/flows/actions'
+import { deserializeGraph } from '@/lib/flows/graph'
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -19,7 +24,7 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
   const supabase = createClient()
   const adminClient = createAdminClient()
 
-  // ── Fetch flow ────────────────────────────────────────────────────────────
+  // ── Fetch flow (include status for publish panel) ─────────────────────────
   const { data: flow } = await supabase
     .from('flows')
     .select('id, name, status')
@@ -29,9 +34,12 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
 
   if (!flow) redirect('/flows')
 
-  // ── Fetch tenant users (for Fixed person assignee picker) ─────────────────
-  // Use adminClient so we get all users regardless of RLS session context.
-  // Only id, full_name, email are needed — no sensitive data exposed to client.
+  // ── Fetch latest saved graph to hydrate canvas on load ────────────────────
+  const { graph } = await getLatestDraftGraph(params.id)
+  const initialNodes = graph ? deserializeGraph(graph).nodes : []
+  const initialEdges = graph ? deserializeGraph(graph).edges : []
+
+  // ── Fetch tenant users (for Fixed-person assignee picker) ─────────────────
   const { data: rawUsers } = await adminClient
     .from('users')
     .select('id, full_name, email')
@@ -67,21 +75,35 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
 
         <span className="text-sm font-medium text-foreground">{flow.name}</span>
 
-        {/* Status badge */}
+        {/* Status badge — rendered server-side as initial state.
+            FlowCanvas updates this via onFlowStatusChange when publish/unpublish fires. */}
         <span
           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
             flow.status === 'published'
               ? 'bg-emerald-100 text-emerald-700'
               : 'bg-gray-100 text-gray-600'
           }`}
+          id="flow-status-badge"
         >
           {flow.status}
         </span>
+
+        {/* Save indicator — reads saveStatus from Zustand, no props needed */}
+        <div className="ml-auto">
+          <CanvasToolbar />
+        </div>
       </div>
 
-      {/* ── Canvas — fills remaining height ──────────────────────────── */}
+      {/* ── Canvas ───────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
-        <FlowCanvas flowId={flow.id} users={users} departments={departments} />
+        <FlowCanvas
+          flowId={flow.id}
+          flowStatus={flow.status as 'draft' | 'published'}
+          users={users}
+          departments={departments}
+          initialNodes={initialNodes}
+          initialEdges={initialEdges}
+        />
       </div>
     </div>
   )

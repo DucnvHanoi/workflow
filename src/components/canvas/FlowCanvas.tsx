@@ -1,9 +1,29 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useCanvasStore, type TenantUser, type TenantDepartment } from '@/store/canvas-store'
-import { ReactFlow, Background, BackgroundVariant, Controls, MiniMap } from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
+// FILE PATH: src/components/canvas/FlowCanvas.tsx
+// nodeTypes MUST be defined outside this component — defining inside causes
+// React Flow to re-register on every render, causing node flicker.
+
+import { useEffect, useCallback, useState } from 'react'
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  type Connection,
+  type NodeChange,
+  type EdgeChange,
+  type IsValidConnection,
+  BackgroundVariant,
+} from '@xyflow/react'
+// import '@xyflow/react/dist/style.css'
+
+import { useCanvasStore } from '@/store/canvas-store'
+import type { TenantUser, TenantDepartment } from '@/store/canvas-store'
+import type { Node, Edge } from '@xyflow/react'
+import { deserializeGraph } from '@/lib/flows/graph'
+import { getLatestDraftGraph } from '@/lib/flows/actions'
+
 import { TriggerNode } from './nodes/TriggerNode'
 import { ActionNode } from './nodes/ActionNode'
 import { BranchNode } from './nodes/BranchNode'
@@ -11,8 +31,7 @@ import { CompleteNode } from './nodes/CompleteNode'
 import { NodeToolbar } from './NodeToolbar'
 import ConfigSidebar from './panels/ConfigSidebar'
 
-// ─── Node types must be defined OUTSIDE the component ────────────────────────
-// Defining inside causes React Flow to re-register on every render → flickering
+// ─── nodeTypes outside component (required by React Flow) ────────────────────
 
 const nodeTypes = {
   trigger: TriggerNode,
@@ -21,79 +40,227 @@ const nodeTypes = {
   complete: CompleteNode,
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Change types that should trigger auto-save ───────────────────────────────
+// 'select' and 'dimensions' fire on every click/layout — must NOT save on those.
+
+const SAVE_NODE_CHANGES = new Set(['add', 'remove', 'position', 'reset'])
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface FlowCanvasProps {
   flowId: string
+  flowStatus: 'draft' | 'published'
   users: TenantUser[]
   departments: TenantDepartment[]
+  initialNodes: Node[]
+  initialEdges: Edge[]
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function FlowCanvas({ flowId, users, departments }: FlowCanvasProps) {
+export default function FlowCanvas({
+  flowId,
+  flowStatus: initialFlowStatus,
+  users,
+  departments,
+  initialNodes,
+  initialEdges,
+}: FlowCanvasProps) {
   const {
     nodes,
     edges,
     selectedNodeId,
-    onNodesChange,
-    onEdgesChange,
-    onConnect,
+    isReadOnly,
+    onNodesChange: storeOnNodesChange,
+    onEdgesChange: storeOnEdgesChange,
+    onConnect: storeOnConnect,
     setSelectedNodeId,
+    triggerSave,
+    setFlowId,
     reset,
   } = useCanvasStore()
 
-  // Reset canvas state when navigating to a different flow
+  // flowStatus lives in local state so publish/unpublish updates the badge
+  // without a full page reload.
+  const [currentFlowStatus, setCurrentFlowStatus] = useState<'draft' | 'published'>(
+    initialFlowStatus
+  )
+
+  // ── Hydrate store from DB on mount ────────────────────────────────────────
+  // Always hydrate from DB — never trust React Flow's default empty state.
+
   useEffect(() => {
     reset()
-  }, [flowId, reset])
+    setFlowId(flowId)
+    if (initialNodes.length > 0 || initialEdges.length > 0) {
+      useCanvasStore.setState({ nodes: initialNodes, edges: initialEdges })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flowId])
+
+  // ── Selected node ─────────────────────────────────────────────────────────
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId)
 
+  // ── onNodesChange — filter to save-worthy changes only ───────────────────
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      storeOnNodesChange(changes)
+      const shouldSave = changes.some((c) => SAVE_NODE_CHANGES.has(c.type))
+      if (shouldSave && !isReadOnly) triggerSave()
+    },
+    [storeOnNodesChange, triggerSave, isReadOnly]
+  )
+
+  // ── onEdgesChange ─────────────────────────────────────────────────────────
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      storeOnEdgesChange(changes)
+      if (!isReadOnly) triggerSave()
+    },
+    [storeOnEdgesChange, triggerSave, isReadOnly]
+  )
+
+  // ── onConnect ─────────────────────────────────────────────────────────────
+
+  const handleConnect = useCallback(
+    (connection: Connection) => {
+      storeOnConnect(connection)
+      if (!isReadOnly) triggerSave()
+    },
+    [storeOnConnect, triggerSave, isReadOnly]
+  )
+
+  // ── isValidConnection — 8 connection rules ────────────────────────────────
+
+  const isValidConnection: IsValidConnection = useCallback(
+    (connection) => {
+      const { source, target, sourceHandle } = connection
+      if (!source || !target) return false
+
+      // Rule 1: no self-loops
+      if (source === target) return false
+
+      // Rule 2: no cycles — BFS from target; if we can reach source, block
+      const adjacency = new Map<string, string[]>()
+      for (const edge of edges) {
+        if (!adjacency.has(edge.source)) adjacency.set(edge.source, [])
+        adjacency.get(edge.source)!.push(edge.target)
+      }
+      const visited = new Set<string>()
+      const queue = [target]
+      while (queue.length > 0) {
+        const current = queue.shift()!
+        if (current === source) return false
+        if (visited.has(current)) continue
+        visited.add(current)
+        for (const next of adjacency.get(current) ?? []) queue.push(next)
+      }
+
+      const sourceNode = nodes.find((n) => n.id === source)
+      const targetNode = nodes.find((n) => n.id === target)
+      if (!sourceNode || !targetNode) return false
+
+      // Rule 3: trigger node cannot have inbound edges
+      if (targetNode.type === 'trigger') return false
+
+      // Rule 4: complete node cannot have outbound edges
+      if (sourceNode.type === 'complete') return false
+
+      const outboundFromSource = edges.filter((e) => e.source === source)
+
+      // Rule 5: trigger and action nodes max 1 outbound edge
+      if (
+        (sourceNode.type === 'trigger' || sourceNode.type === 'action') &&
+        outboundFromSource.length >= 1
+      ) {
+        return false
+      }
+
+      // Rule 6: branch node max 2 outbound, one per handle (yes/no)
+      if (sourceNode.type === 'branch') {
+        if (outboundFromSource.length >= 2) return false
+        const handleAlreadyUsed = outboundFromSource.some((e) => e.sourceHandle === sourceHandle)
+        if (handleAlreadyUsed) return false
+      }
+
+      // Rule 7: no duplicate edges (same source + target pair)
+      const duplicate = edges.some((e) => e.source === source && e.target === target)
+      if (duplicate) return false
+
+      // Rule 8: branch yes/no handles must connect to different target nodes
+      if (sourceNode.type === 'branch') {
+        const otherHandle = outboundFromSource.find((e) => e.sourceHandle !== sourceHandle)
+        if (otherHandle && otherHandle.target === target) return false
+      }
+
+      return true
+    },
+    [nodes, edges]
+  )
+
+  // ── Re-hydrate helper (used by ConfigSidebar after version restore) ───────
+
+  const handleVersionRestored = useCallback(async () => {
+    const { graph } = await getLatestDraftGraph(flowId)
+    if (!graph) return
+    const { nodes: n, edges: e } = deserializeGraph(graph)
+    useCanvasStore.setState({ nodes: n, edges: e, isReadOnly: false })
+  }, [flowId])
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
-    <div className="relative flex h-full w-full overflow-hidden">
-      {/* ── Canvas area — shrinks when sidebar is open ─────────────── */}
-      <div
-        className="h-full transition-all duration-200"
-        style={{ width: selectedNode ? 'calc(100% - 288px)' : '100%' }}
+    <div className="relative h-full w-full">
+      {/* Read-only overlay banner */}
+      {isReadOnly && (
+        <div className="absolute top-0 left-0 right-72 z-10 bg-amber-50 border-b border-amber-200 text-center py-1.5 text-xs text-amber-700 font-medium pointer-events-none">
+          Read-only preview — use the Versions panel to restore
+        </div>
+      )}
+
+      {/* Add-node toolbar — top-left of canvas */}
+      {!isReadOnly && <NodeToolbar />}
+
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
+        onConnect={handleConnect}
+        isValidConnection={isValidConnection}
+        onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+        onPaneClick={() => setSelectedNodeId(null)}
+        // Disable all interactions during version preview
+        nodesDraggable={!isReadOnly}
+        nodesConnectable={!isReadOnly}
+        elementsSelectable={!isReadOnly}
+        fitView
+        fitViewOptions={{ padding: 0.2 }}
+        // Shrink canvas width to make room for the sidebar when a node is selected
+        style={{
+          width: selectedNode ? 'calc(100% - 288px)' : '100%',
+          transition: 'width 200ms ease-in-out',
+        }}
       >
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-          onPaneClick={() => setSelectedNodeId(null)}
-          fitView
-        >
-          <Background variant={BackgroundVariant.Dots} gap={16} color="#d1d5db" />
-          <MiniMap
-            nodeColor={(node) => {
-              switch (node.type) {
-                case 'trigger':
-                  return '#10b981' // emerald-500
-                case 'action':
-                  return '#3b82f6' // blue-500
-                case 'branch':
-                  return '#f59e0b' // amber-500
-                case 'complete':
-                  return '#8b5cf6' // violet-500
-                default:
-                  return '#6b7280'
-              }
-            }}
-          />
-          <Controls />
-        </ReactFlow>
-      </div>
+        <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+        <Controls />
+        <MiniMap zoomable pannable />
+      </ReactFlow>
 
-      {/* ── Node toolbar — left edge ───────────────────────────────── */}
-      <NodeToolbar />
-
-      {/* ── Config sidebar — right edge ────────────────────────────── */}
-      <ConfigSidebar selectedNode={selectedNode} users={users} departments={departments} />
+      {/* Config sidebar — always mounted, slides in/out via CSS transform */}
+      <ConfigSidebar
+        selectedNode={selectedNode}
+        users={users}
+        departments={departments}
+        flowId={flowId}
+        flowStatus={currentFlowStatus}
+        onFlowStatusChange={setCurrentFlowStatus}
+        onVersionRestored={handleVersionRestored}
+      />
     </div>
   )
 }

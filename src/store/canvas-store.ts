@@ -1,3 +1,5 @@
+// FILE PATH: src/store/canvas-store.ts
+
 import { create } from 'zustand'
 import {
   addEdge,
@@ -9,6 +11,8 @@ import {
   type Node,
   type NodeChange,
 } from '@xyflow/react'
+import { serializeGraph, deserializeGraph, type SerializedGraph } from '@/lib/flows/graph'
+import { saveDraftVersion } from '@/lib/flows/actions'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -31,6 +35,7 @@ export interface BranchCondition {
 }
 
 export type AssigneeRuleType =
+  | 'requester'
   | 'fixed'
   | 'manager_of_requestor'
   | 'skip_level'
@@ -38,6 +43,7 @@ export type AssigneeRuleType =
   | 'role_in_dept'
 
 export type AssigneeRule =
+  | { type: 'requester' }
   | { type: 'fixed'; email: string }
   | { type: 'manager_of_requestor' }
   | { type: 'skip_level' }
@@ -70,10 +76,20 @@ export interface TenantDepartment {
 
 // ─── Store ───────────────────────────────────────────────────────────────────
 
-interface CanvasStore {
+export interface CanvasStore {
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error'
+  latestVersionId: string | null
+  flowId: string | null
+  _debounceTimer: ReturnType<typeof setTimeout> | null
+
+  // When true: canvas is showing a historical version preview.
+  // All panels hide their edit controls; auto-save is suppressed.
+  isReadOnly: boolean
+
   nodes: Node[]
   edges: Edge[]
   selectedNodeId: string | null
+
   // React Flow handlers
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
@@ -93,7 +109,16 @@ interface CanvasStore {
   // Assignee action
   setAssigneeRule: (nodeId: string, rule: AssigneeRule) => void
 
-  // Reset
+  // Save status + flowId setters
+  setSaveStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void
+  setLatestVersionId: (id: string | null) => void
+  setFlowId: (id: string) => void
+
+  // Read-only / version preview
+  setReadOnly: (val: boolean) => void
+  loadVersion: (graph: SerializedGraph) => void
+
+  triggerSave: () => void
   reset: () => void
 }
 
@@ -115,7 +140,13 @@ function defaultData(): NodeData {
 
 // ─── Store implementation ─────────────────────────────────────────────────────
 
-export const useCanvasStore = create<CanvasStore>((set) => ({
+export const useCanvasStore = create<CanvasStore>((set, get) => ({
+  saveStatus: 'idle',
+  latestVersionId: null,
+  flowId: null,
+  _debounceTimer: null,
+  isReadOnly: false,
+
   nodes: [],
   edges: [],
   selectedNodeId: null,
@@ -233,11 +264,6 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
 
   // ── Assignee action ──────────────────────────────────────────────────────
 
-  /**
-   * Sets the assigneeRule on a node. Passing null clears the rule.
-   * Called by AssigneePanel whenever the admin changes the rule type
-   * or any sub-field (email, departmentId, role).
-   */
   setAssigneeRule: (nodeId, rule) => {
     set((state) => ({
       nodes: state.nodes.map((node) =>
@@ -246,7 +272,76 @@ export const useCanvasStore = create<CanvasStore>((set) => ({
     }))
   },
 
+  // ── Save status + flowId ─────────────────────────────────────────────────
+
+  setSaveStatus: (status) => set({ saveStatus: status }),
+  setLatestVersionId: (id) => set({ latestVersionId: id }),
+  setFlowId: (id) => set({ flowId: id }),
+
+  // ── Read-only / version preview ──────────────────────────────────────────
+
+  setReadOnly: (val) => set({ isReadOnly: val }),
+
+  // Loads an old version's graph into the canvas and locks it read-only.
+  // Called by VersionListPanel when the user clicks a version row.
+  loadVersion: (graph: SerializedGraph) => {
+    const { nodes, edges } = deserializeGraph(graph)
+    set({
+      nodes,
+      edges,
+      selectedNodeId: null,
+      isReadOnly: true,
+    })
+  },
+
+  // ── triggerSave ──────────────────────────────────────────────────────────
+  // Debounced 300 ms. Suppressed when isReadOnly is true (version preview).
+  // All callers share one _debounceTimer so rapid mutations collapse to one save.
+
+  triggerSave: () => {
+    const state = get()
+    if (!state.flowId) return
+    if (state.isReadOnly) return // never save during version preview
+
+    if (state._debounceTimer) clearTimeout(state._debounceTimer)
+
+    set({ saveStatus: 'saving' })
+
+    const timer = setTimeout(async () => {
+      const { nodes, edges, flowId } = get()
+      if (!flowId) return
+
+      try {
+        const graph = serializeGraph(nodes, edges)
+        const result = await saveDraftVersion(flowId, graph)
+        if (result.error) {
+          set({ saveStatus: 'error' })
+        } else {
+          set({ saveStatus: 'saved', latestVersionId: result.versionId })
+          setTimeout(() => set({ saveStatus: 'idle' }), 2000)
+        }
+      } catch {
+        set({ saveStatus: 'error' })
+      }
+    }, 300)
+
+    set({ _debounceTimer: timer })
+  },
+
   // ── Reset ────────────────────────────────────────────────────────────────
 
-  reset: () => set({ nodes: [], edges: [], selectedNodeId: null }),
+  reset: () => {
+    const state = get()
+    if (state._debounceTimer) clearTimeout(state._debounceTimer)
+    set({
+      nodes: [],
+      edges: [],
+      selectedNodeId: null,
+      saveStatus: 'idle',
+      latestVersionId: null,
+      flowId: null,
+      _debounceTimer: null,
+      isReadOnly: false,
+    })
+  },
 }))

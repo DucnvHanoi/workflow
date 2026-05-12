@@ -1,3 +1,5 @@
+// FILE PATH: src/components/canvas/panels/AssigneePanel.tsx
+
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -19,9 +21,15 @@ interface AssigneePanelProps {
   departments: TenantDepartment[]
 }
 
-// ─── Rule type options shown in radio group ───────────────────────────────────
+// ─── Rule type options ────────────────────────────────────────────────────────
+// ADD: 'requester' at the top — most common self-service use case
 
 const RULE_OPTIONS: { type: AssigneeRuleType; label: string; description: string }[] = [
+  {
+    type: 'requester',
+    label: 'Requester',
+    description: 'Assigned back to whoever triggered the flow',
+  },
   {
     type: 'fixed',
     label: 'Fixed person',
@@ -53,10 +61,11 @@ const RULE_OPTIONS: { type: AssigneeRuleType; label: string; description: string
 
 export default function AssigneePanel({ node, users, departments }: AssigneePanelProps) {
   const { setAssigneeRule } = useCanvasStore()
+  const triggerSave = useCanvasStore((s) => s.triggerSave)
+
   const data = node.data as NodeData
   const currentRule = data.assigneeRule
 
-  // Local state mirrors the saved rule so inputs stay responsive
   const [selectedType, setSelectedType] = useState<AssigneeRuleType | null>(
     currentRule?.type ?? null
   )
@@ -89,15 +98,10 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
           : ''
     )
     setRoleValue(rule?.type === 'role_in_dept' ? rule.role : '')
-  }, [node.id]) // intentionally only node.id — re-sync when node switches
+  }, [node.id])
 
-  // ── Save helpers ─────────────────────────────────────────────────────────
+  // ── Persist helper ───────────────────────────────────────────────────────
 
-  /**
-   * Called whenever a sub-field changes. Builds the full AssigneeRule and
-   * persists it to Zustand. We never save a partial/invalid rule — if
-   * required fields are empty the store receives null instead.
-   */
   function persist(
     type: AssigneeRuleType | null,
     email: string,
@@ -107,6 +111,9 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
     let rule: AssigneeRule = null
 
     switch (type) {
+      case 'requester': // ADD
+        rule = { type: 'requester' } // ADD
+        break // ADD
       case 'fixed':
         rule = email ? { type: 'fixed', email } : null
         break
@@ -127,13 +134,13 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
     }
 
     setAssigneeRule(node.id, rule)
+    triggerSave()
   }
 
   // ── Rule type change ─────────────────────────────────────────────────────
 
   function handleTypeChange(type: AssigneeRuleType) {
     setSelectedType(type)
-    // Reset sub-fields when switching rule type
     setFixedEmail('')
     setFixedSearch('')
     setDeptId('')
@@ -163,11 +170,13 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
     return dept.name
   }
 
-  // ── Current rule summary (shown at top when a rule is saved) ─────────────
+  // ── Current rule summary ──────────────────────────────────────────────────
 
   function ruleSummary(): string | null {
     if (!currentRule) return null
     switch (currentRule.type) {
+      case 'requester':
+        return 'Requester (self)' // ADD
       case 'fixed':
         return `Fixed: ${currentRule.email}`
       case 'manager_of_requestor':
@@ -201,6 +210,7 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
               setDeptId('')
               setRoleValue('')
               setAssigneeRule(node.id, null)
+              triggerSave()
             }}
             className="text-[10px] text-muted-foreground underline-offset-2 hover:text-destructive hover:underline"
           >
@@ -231,7 +241,6 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
               }`}
             >
               <div className="flex items-center gap-2">
-                {/* Radio indicator */}
                 <span
                   className={`mt-0.5 flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border ${
                     isSelected ? 'border-primary' : 'border-muted-foreground'
@@ -345,8 +354,10 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
         </div>
       )}
 
-      {/* manager_of_requestor and skip_level need no sub-fields */}
-      {(selectedType === 'manager_of_requestor' || selectedType === 'skip_level') && (
+      {/* ADD: requester, manager_of_requestor, skip_level — no sub-fields needed */}
+      {(selectedType === 'requester' ||
+        selectedType === 'manager_of_requestor' ||
+        selectedType === 'skip_level') && (
         <p className="text-xs text-muted-foreground italic">
           No extra configuration needed for this rule.
         </p>

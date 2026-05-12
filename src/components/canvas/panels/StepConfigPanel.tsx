@@ -1,3 +1,5 @@
+// FILE PATH: src/components/canvas/panels/StepConfigPanel.tsx  (REPLACE EXISTING FILE)
+
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -17,6 +19,10 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
 
 export default function StepConfigPanel({ node }: Props) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData)
+  // FIX: read triggerSave from the store — called after every mutation so
+  // step name and description changes are persisted to the DB, not just
+  // kept in Zustand memory until the user happens to drag a node.
+  const triggerSave = useCanvasStore((s) => s.triggerSave)
   const data = node.data as NodeData
 
   const [label, setLabel] = useState(data.label ?? '')
@@ -31,11 +37,13 @@ export default function StepConfigPanel({ node }: Props) {
   const handleLabelChange = (value: string) => {
     setLabel(value)
     updateNodeData(node.id, { label: value })
+    triggerSave() // FIX: persist after every keystroke (debounced 300ms in store)
   }
 
   const handleDescriptionChange = (value: string) => {
     setDescription(value)
     updateNodeData(node.id, { description: value })
+    triggerSave() // FIX: persist after every keystroke (debounced 300ms in store)
   }
 
   const typeInfo = TYPE_LABELS[node.type ?? ''] ?? {
