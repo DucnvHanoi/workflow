@@ -96,7 +96,7 @@ export function FlowsClient({
     const result: { label: string; color: string | null; items: FlowListItem[] }[] = []
 
     // Sort category groups alphabetically
-    const sortedCatIds = [...catMap.keys()].sort((a, b) => {
+    const sortedCatIds = Array.from(catMap.keys()).sort((a, b) => {
       const na = flows.find((f) => f.categoryId === a)?.categoryName ?? ''
       const nb = flows.find((f) => f.categoryId === b)?.categoryName ?? ''
       return na.localeCompare(nb)
