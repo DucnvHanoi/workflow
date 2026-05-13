@@ -16,11 +16,21 @@ export type FlowListItem = {
   updatedAt: string
   versionNumber: number | null
   publishedAt: string | null
+  // ── Category (nullable — null means Uncategorized) ──────────────────────────
+  categoryId: string | null
+  categoryName: string | null
+  categoryColor: string | null
 }
 
 type FlowVersionRow = {
   version_number: number
   published_at: string | null
+}
+
+type FlowCategoryRow = {
+  id: string
+  name: string
+  color: string
 }
 
 /** PostgREST may return an embedded FK row as object or single-element array. */
@@ -31,12 +41,19 @@ type FlowRow = {
   created_at: string
   updated_at: string
   flow_versions: FlowVersionRow | FlowVersionRow[] | null
+  flow_categories: FlowCategoryRow | FlowCategoryRow[] | null
 }
 
 function embeddedFlowVersion(v: FlowRow['flow_versions']): FlowVersionRow | null {
   if (v == null) return null
   return Array.isArray(v) ? (v[0] ?? null) : v
 }
+
+function embeddedCategory(v: FlowRow['flow_categories']): FlowCategoryRow | null {
+  if (v == null) return null
+  return Array.isArray(v) ? (v[0] ?? null) : v
+}
+
 type AdminDb = ReturnType<typeof createAdminClient>
 
 async function requireAdminWithTenant(): Promise<
@@ -180,8 +197,6 @@ export async function getFlowVersions(flowId: string): Promise<{
 }
 
 // ─── Publish a flow ───────────────────────────────────────────────────────────
-// Stamps published_at on the latest version row and sets flows.status = published.
-// Caller must validate the graph before calling this.
 
 export async function publishFlow(flowId: string): Promise<{ error: string | null }> {
   const gate = await requireAdminWithTenant()
@@ -191,7 +206,6 @@ export async function publishFlow(flowId: string): Promise<{ error: string | nul
   const access = await assertFlowInTenant(db, flowId, tenantId)
   if (!access.ok) return { error: access.error }
 
-  // Get the latest_version_id from the flows row
   const { data: flow, error: flowError } = await db
     .from('flows')
     .select('latest_version_id')
@@ -203,7 +217,6 @@ export async function publishFlow(flowId: string): Promise<{ error: string | nul
     return { error: 'Could not find a saved version to publish.' }
   }
 
-  // Stamp published_at on the version row
   const { error: verError } = await db
     .from('flow_versions')
     .update({ published_at: new Date().toISOString() })
@@ -212,7 +225,6 @@ export async function publishFlow(flowId: string): Promise<{ error: string | nul
 
   if (verError) return { error: verError.message }
 
-  // Mark the flow itself as published
   const { error: statusError } = await db
     .from('flows')
     .update({
@@ -228,8 +240,6 @@ export async function publishFlow(flowId: string): Promise<{ error: string | nul
 }
 
 // ─── Unpublish a flow ─────────────────────────────────────────────────────────
-// Sets flows.status back to draft.
-// Running flow_instances are unaffected — they hold their own flow_version_id snapshot.
 
 export async function unpublishFlow(flowId: string): Promise<{ error: string | null }> {
   const gate = await requireAdminWithTenant()
@@ -252,8 +262,6 @@ export async function unpublishFlow(flowId: string): Promise<{ error: string | n
 }
 
 // ─── Restore a version ────────────────────────────────────────────────────────
-// Copies an old version's graph into a brand-new draft row (append-only).
-// After this returns, the caller re-hydrates the canvas via getLatestDraftGraph.
 
 export async function restoreVersion(
   flowId: string,
@@ -266,7 +274,6 @@ export async function restoreVersion(
   const access = await assertFlowInTenant(db, flowId, tenantId)
   if (!access.ok) return { error: access.error }
 
-  // Fetch the graph from the target version (must belong to this flow)
   const { data: ver, error: verError } = await db
     .from('flow_versions')
     .select('graph, version_number')
@@ -276,7 +283,6 @@ export async function restoreVersion(
 
   if (verError || !ver) return { error: 'Version not found.' }
 
-  // Get the current highest version_number
   const { data: maxRow } = await db
     .from('flow_versions')
     .select('version_number')
@@ -287,7 +293,6 @@ export async function restoreVersion(
 
   const nextVersion = (maxRow?.version_number ?? 0) + 1
 
-  // Insert as a new draft row — append-only, nothing is deleted or overwritten
   const { data: newVer, error: insertError } = await db
     .from('flow_versions')
     .insert({
@@ -303,7 +308,6 @@ export async function restoreVersion(
     return { error: insertError?.message ?? 'Insert failed.' }
   }
 
-  // Update flows.latest_version_id so the next page load gets the restored graph
   const { error: updateError } = await db
     .from('flows')
     .update({
@@ -317,8 +321,10 @@ export async function restoreVersion(
 
   return { error: null }
 }
+
 // ─── getFlows ────────────────────────────────────────────────────────────────
-// Fetches all flows for the current tenant with version info for the list page.
+// Fetches all flows for the current tenant with version + category info.
+// CHANGED: added category_id join and categoryId/categoryName/categoryColor fields.
 export async function getFlows(): Promise<{
   flows: FlowListItem[]
   error: string | null
@@ -340,6 +346,11 @@ export async function getFlows(): Promise<{
       flow_versions!latest_version_id (
         version_number,
         published_at
+      ),
+      flow_categories!category_id (
+        id,
+        name,
+        color
       )
     `
     )
@@ -351,6 +362,7 @@ export async function getFlows(): Promise<{
   const flows =
     (data as FlowRow[] | null)?.map((f) => {
       const latest = embeddedFlowVersion(f.flow_versions)
+      const cat = embeddedCategory(f.flow_categories)
       return {
         id: f.id,
         name: f.name,
@@ -359,6 +371,9 @@ export async function getFlows(): Promise<{
         updatedAt: f.updated_at,
         versionNumber: latest?.version_number ?? null,
         publishedAt: latest?.published_at ?? null,
+        categoryId: cat?.id ?? null,
+        categoryName: cat?.name ?? null,
+        categoryColor: cat?.color ?? null,
       }
     }) ?? []
 
@@ -366,7 +381,7 @@ export async function getFlows(): Promise<{
 }
 
 // ─── deleteFlow ──────────────────────────────────────────────────────────────
-// Deletes a flow. Blocks if any flow_instances with status=pending exist.
+
 export async function deleteFlow(flowId: string): Promise<{ error: string | null }> {
   const gate = await requireAdminWithTenant()
   if (!gate.ok) return { error: gate.error }
@@ -421,10 +436,9 @@ export async function deleteFlow(flowId: string): Promise<{ error: string | null
 
   return { error: null }
 }
+
 // ─── updateFlowName ───────────────────────────────────────────────────────────
-// Renames a flow. Called by FlowNameEditor in the canvas top bar.
-// Validates: non-empty, max 100 chars, admin only, must belong to caller's tenant.
-// Add this function to the bottom of: src/lib/flows/actions.ts
+
 export async function updateFlowName(
   flowId: string,
   newName: string
@@ -440,7 +454,6 @@ export async function updateFlowName(
 
   const admin = createAdminClient()
 
-  // Verify the flow belongs to this tenant before updating
   const { data: existing, error: fetchError } = await admin
     .from('flows')
     .select('id')

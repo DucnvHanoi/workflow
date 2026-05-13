@@ -1,5 +1,8 @@
-// src/components/flows/flow-row-actions.tsx
 'use client'
+
+// FILE PATH: src/components/flows/flow-row-actions.tsx
+// Row-level action dropdown for the flows list table.
+// Handles: Edit, Delete, Unpublish, Assign Category.
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
@@ -22,42 +25,63 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { MoreHorizontal, Pencil, Globe, EyeOff, Trash2 } from 'lucide-react'
+import { MoreHorizontalIcon, PencilIcon, Trash2Icon, EyeOffIcon, TagIcon } from 'lucide-react'
 import { deleteFlow, unpublishFlow } from '@/lib/flows/actions'
+import { AssignCategoryDialog } from '@/components/flows/assign-category-dialog'
+import type { FlowCategory } from '@/lib/flows/category-actions'
 
-interface FlowRowActionsProps {
+interface Props {
   flowId: string
   flowName: string
   status: 'draft' | 'published'
+  currentCategoryId: string | null
+  categories: FlowCategory[]
+  // Called when category is updated so FlowsClient can patch its local state
+  onCategoryUpdated: (
+    flowId: string,
+    categoryId: string | null,
+    categoryName: string | null,
+    categoryColor: string | null
+  ) => void
 }
 
-export function FlowRowActions({ flowId, flowName, status }: FlowRowActionsProps) {
+export function FlowRowActions({
+  flowId,
+  flowName,
+  status,
+  currentCategoryId,
+  categories,
+  onCategoryUpdated,
+}: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
-  function handleUnpublish() {
-    startTransition(async () => {
-      const result = await unpublishFlow(flowId)
-      if (result?.error) {
-        toast.error(result.error)
-      } else {
-        toast.success('Flow unpublished')
-        router.refresh()
-      }
-    })
-  }
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [categoryOpen, setCategoryOpen] = useState(false)
 
+  // ── Delete ────────────────────────────────────────────────────────────────
   function handleDelete() {
     startTransition(async () => {
       const result = await deleteFlow(flowId)
-      if (result?.error) {
+      if (result.error) {
         toast.error(result.error)
-      } else {
-        toast.success(`"${flowName}" deleted`)
-        router.refresh()
+        return
       }
-      setShowDeleteDialog(false)
+      toast.success(`"${flowName}" deleted`)
+      router.refresh()
+    })
+  }
+
+  // ── Unpublish ─────────────────────────────────────────────────────────────
+  function handleUnpublish() {
+    startTransition(async () => {
+      const result = await unpublishFlow(flowId)
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      toast.success(`"${flowName}" unpublished`)
+      router.refresh()
     })
   }
 
@@ -65,22 +89,32 @@ export function FlowRowActions({ flowId, flowName, status }: FlowRowActionsProps
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <MoreHorizontal className="h-4 w-4" />
-            <span className="sr-only">Open menu</span>
+          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isPending}>
+            <MoreHorizontalIcon className="h-4 w-4" />
+            <span className="sr-only">Actions</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
-          {/* Edit */}
+
+        <DropdownMenuContent align="end" className="w-48">
+          {/* Edit — navigate to canvas */}
           <DropdownMenuItem onClick={() => router.push(`/flows/${flowId}/edit`)}>
-            <Pencil className="mr-2 h-4 w-4" />
-            Edit
+            <PencilIcon className="mr-2 h-3.5 w-3.5" />
+            Edit flow
           </DropdownMenuItem>
 
-          {/* Unpublish — only shown when published */}
+          {/* Assign Category */}
+          <DropdownMenuItem
+            onClick={() => setCategoryOpen(true)}
+            onSelect={(e) => e.preventDefault()} // keep menu from closing before dialog opens
+          >
+            <TagIcon className="mr-2 h-3.5 w-3.5" />
+            Assign category
+          </DropdownMenuItem>
+
+          {/* Unpublish — only when published */}
           {status === 'published' && (
-            <DropdownMenuItem onClick={handleUnpublish} disabled={isPending}>
-              <EyeOff className="mr-2 h-4 w-4" />
+            <DropdownMenuItem onClick={handleUnpublish}>
+              <EyeOffIcon className="mr-2 h-3.5 w-3.5" />
               Unpublish
             </DropdownMenuItem>
           )}
@@ -89,23 +123,24 @@ export function FlowRowActions({ flowId, flowName, status }: FlowRowActionsProps
 
           {/* Delete */}
           <DropdownMenuItem
-            onClick={() => setShowDeleteDialog(true)}
+            onClick={() => setDeleteOpen(true)}
+            onSelect={(e) => e.preventDefault()}
             className="text-destructive focus:text-destructive"
           >
-            <Trash2 className="mr-2 h-4 w-4" />
+            <Trash2Icon className="mr-2 h-3.5 w-3.5" />
             Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Delete confirm dialog */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      {/* ── Delete confirm ── */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete &ldquo;{flowName}&rdquo;?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the flow and all its versions. Running instances will be
-              checked — deletion is blocked if any are still active.
+              All versions and non-active instances will be permanently deleted. Flows with active
+              (pending) instances cannot be deleted — cancel them first.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -115,11 +150,24 @@ export function FlowRowActions({ flowId, flowName, status }: FlowRowActionsProps
               disabled={isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isPending ? 'Deleting…' : 'Delete'}
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Assign Category ── */}
+      <AssignCategoryDialog
+        open={categoryOpen}
+        onOpenChange={setCategoryOpen}
+        flowId={flowId}
+        flowName={flowName}
+        currentCategoryId={currentCategoryId}
+        categories={categories}
+        onUpdated={(catId, catName, catColor) =>
+          onCategoryUpdated(flowId, catId, catName, catColor)
+        }
+      />
     </>
   )
 }
