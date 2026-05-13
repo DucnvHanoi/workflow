@@ -5,6 +5,7 @@ import {
   Users,
   Building2,
   UserPlus,
+  PlayCircle,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -16,9 +17,10 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  // Normal user items
+  // Normal user items (visible to all roles)
   { label: 'My Tasks', href: '/tasks', icon: CheckSquare, adminOnly: false },
   { label: 'My Flows', href: '/my-flows', icon: GitBranch, adminOnly: false },
+  { label: 'Start a Flow', href: '/flows', icon: PlayCircle, adminOnly: false },
   // Admin-only items
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, adminOnly: true },
   { label: 'Flow Builder', href: '/flows', icon: GitBranch, adminOnly: true },
@@ -28,6 +30,9 @@ export const NAV_ITEMS: NavItem[] = [
 ]
 
 export function getNavItems(role: string): NavItem[] {
-  if (role === 'admin') return NAV_ITEMS
+  if (role === 'admin')
+    return NAV_ITEMS.filter(
+      (item) => item.adminOnly || item.href === '/my-flows' || item.href === '/tasks'
+    )
   return NAV_ITEMS.filter((item) => !item.adminOnly)
 }

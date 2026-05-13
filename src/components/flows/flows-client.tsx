@@ -3,15 +3,19 @@
 // FILE PATH: src/components/flows/flows-client.tsx
 // Handles search + category tab filtering entirely in client state.
 // No DB round-trips on filter — all flows are loaded once on the server.
+// CHANGED (Day 33): Added "Start" button for regular users on published flows.
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FlowRowActions } from '@/components/flows/flow-row-actions'
 import { ManageCategoriesDialog } from '@/components/flows/manage-categories-dialog'
-import { PlusIcon, SearchIcon, XIcon } from 'lucide-react'
+import { PlusIcon, SearchIcon, XIcon, PlayIcon } from 'lucide-react'
+import { triggerFlow } from '@/lib/flows/actions'
 import type { FlowListItem } from '@/lib/flows/actions'
 import type { FlowCategory } from '@/lib/flows/category-actions'
 
@@ -72,14 +76,11 @@ export function FlowsClient({
   }, [flows, search, activeTab])
 
   // ── Group by category for display ────────────────────────────────────────
-  // When "All" tab is active we show a grouped layout.
-  // When a specific category tab is active we show a flat table (already filtered).
   const groups = useMemo<{ label: string; color: string | null; items: FlowListItem[] }[]>(() => {
     if (activeTab !== ALL_TAB) {
       return [{ label: '', color: null, items: filtered }]
     }
 
-    // Build ordered groups: categorised first (alpha by category name), then Uncategorized
     const catMap = new Map<string, FlowListItem[]>()
     const uncategorized: FlowListItem[] = []
 
@@ -95,7 +96,6 @@ export function FlowsClient({
 
     const result: { label: string; color: string | null; items: FlowListItem[] }[] = []
 
-    // Sort category groups alphabetically
     const sortedCatIds = Array.from(catMap.keys()).sort((a, b) => {
       const na = flows.find((f) => f.categoryId === a)?.categoryName ?? ''
       const nb = flows.find((f) => f.categoryId === b)?.categoryName ?? ''
@@ -119,7 +119,6 @@ export function FlowsClient({
   }, [activeTab, filtered, flows])
 
   // ── Tab list ──────────────────────────────────────────────────────────────
-  // Tabs = All + each category that has at least one flow + Uncategorized (if any)
   const tabs = useMemo(() => {
     const usedCatIds = new Set(flows.map((f) => f.categoryId).filter(Boolean))
     const hasUncategorized = flows.some((f) => f.categoryId === null)
@@ -139,9 +138,13 @@ export function FlowsClient({
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border bg-muted/20 py-20 text-center">
         <div className="mb-3 text-4xl">🔁</div>
-        <h2 className="text-lg font-medium">No flows yet</h2>
+        <h2 className="text-lg font-medium">
+          {isAdmin ? 'No flows yet' : 'No published flows available'}
+        </h2>
         <p className="mb-4 mt-1 text-sm text-muted-foreground">
-          Create your first workflow to get started.
+          {isAdmin
+            ? 'Create your first workflow to get started.'
+            : 'Ask an administrator to publish a flow so you can start it.'}
         </p>
         {isAdmin && (
           <form action={createFlowAction}>
@@ -204,7 +207,6 @@ export function FlowsClient({
                 />
               )}
               {tab.label}
-              {/* Count badge */}
               <span
                 className={`ml-0.5 text-xs tabular-nums ${activeTab === tab.id ? 'text-muted-foreground' : 'text-muted-foreground/70'}`}
               >
@@ -323,12 +325,26 @@ function FlowTableRow({
     categoryColor: string | null
   ) => void
 }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+
+  function handleStart() {
+    startTransition(async () => {
+      const result = await triggerFlow(flow.id)
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      // Redirect to the instance detail page
+      router.push(`/my-flows/${result.instanceId}`)
+    })
+  }
+
   return (
     <tr className="transition-colors hover:bg-muted/30">
       {/* Name */}
       <td className="px-4 py-3 font-medium">
         <div className="flex items-center gap-2">
-          {/* Category colour dot (subtle indicator inside the row) */}
           {flow.categoryColor && (
             <span
               className="h-2 w-2 shrink-0 rounded-full"
@@ -336,9 +352,14 @@ function FlowTableRow({
               title={flow.categoryName ?? ''}
             />
           )}
-          <Link href={`/flows/${flow.id}/edit`} className="text-foreground hover:underline">
-            {flow.name}
-          </Link>
+          {/* Admins can click through to the canvas editor; regular users see plain text */}
+          {isAdmin ? (
+            <Link href={`/flows/${flow.id}/edit`} className="text-foreground hover:underline">
+              {flow.name}
+            </Link>
+          ) : (
+            <span className="text-foreground">{flow.name}</span>
+          )}
         </div>
       </td>
 
@@ -373,7 +394,7 @@ function FlowTableRow({
 
       {/* Actions */}
       <td className="px-4 py-3">
-        {isAdmin && (
+        {isAdmin ? (
           <FlowRowActions
             flowId={flow.id}
             flowName={flow.name}
@@ -382,6 +403,20 @@ function FlowTableRow({
             categories={categories}
             onCategoryUpdated={onCategoryUpdated}
           />
+        ) : (
+          // Regular users: "Start" button on published flows only
+          flow.status === 'published' && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleStart}
+              disabled={isPending}
+              className="gap-1.5"
+            >
+              <PlayIcon className="h-3.5 w-3.5" />
+              {isPending ? 'Starting…' : 'Start'}
+            </Button>
+          )
         )}
       </td>
     </tr>

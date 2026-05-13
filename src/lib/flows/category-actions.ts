@@ -35,15 +35,18 @@ export async function getCategories(): Promise<{
   categories: FlowCategory[]
   error: string | null
 }> {
-  const gate = await requireAdmin()
-  if (!gate.ok) return { categories: [], error: gate.error }
+  // CHANGED (Day 33): all authenticated users need categories for display
+  // on the /flows page. Mutations (create/rename/delete) remain admin-only.
+  const { user, claims } = await getSessionClaims()
+  if (!user) return { categories: [], error: null } // not logged in — return empty silently
+  if (!claims.tenant_id) return { categories: [], error: null }
 
-  const { tenantId, db } = gate
+  const db = createAdminClient()
 
   const { data, error } = await db
     .from('flow_categories')
     .select('id, name, color')
-    .eq('tenant_id', tenantId)
+    .eq('tenant_id', claims.tenant_id)
     .order('name', { ascending: true })
 
   if (error) return { categories: [], error: error.message }

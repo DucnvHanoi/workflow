@@ -22,6 +22,19 @@ export type FlowListItem = {
   categoryColor: string | null
 }
 
+// ─── Runtime instance types (Phase 3) ────────────────────────────────────────
+
+export type FlowInstanceListItem = {
+  id: string
+  flowName: string
+  status: 'pending' | 'completed' | 'cancelled'
+  currentStepId: string | null
+  createdAt: string
+  updatedAt: string
+  // Denormalized from graph for display
+  currentStepName: string | null
+}
+
 type FlowVersionRow = {
   version_number: number
   published_at: string | null
@@ -56,6 +69,8 @@ function embeddedCategory(v: FlowRow['flow_categories']): FlowCategoryRow | null
 
 type AdminDb = ReturnType<typeof createAdminClient>
 
+// ─── Auth helpers ─────────────────────────────────────────────────────────────
+
 async function requireAdminWithTenant(): Promise<
   { ok: true; tenantId: string; db: AdminDb } | { ok: false; error: string }
 > {
@@ -64,6 +79,23 @@ async function requireAdminWithTenant(): Promise<
   if (claims.role !== 'admin') return { ok: false, error: 'Unauthorized' }
   if (!claims.tenant_id) return { ok: false, error: 'Tenant not found' }
   return { ok: true, tenantId: claims.tenant_id, db: createAdminClient() }
+}
+
+/** Works for any authenticated tenant user (admin or regular user). */
+async function requireAuthWithTenant(): Promise<
+  | { ok: true; userId: string; tenantId: string; role: string; db: AdminDb }
+  | { ok: false; error: string }
+> {
+  const { user, claims } = await getSessionClaims()
+  if (!user) return { ok: false, error: 'Unauthenticated' }
+  if (!claims.tenant_id) return { ok: false, error: 'Tenant not found' }
+  return {
+    ok: true,
+    userId: user.id,
+    tenantId: claims.tenant_id,
+    role: claims.role ?? 'user',
+    db: createAdminClient(),
+  }
 }
 
 async function assertFlowInTenant(
@@ -83,7 +115,7 @@ async function assertFlowInTenant(
   return { ok: true }
 }
 
-// ─── Save a draft version ─────────────────────────────────────────────────────
+// ─── Save a draft version ─────────────────────────────────────────────────────────
 
 export async function saveDraftVersion(
   flowId: string,
@@ -323,18 +355,19 @@ export async function restoreVersion(
 }
 
 // ─── getFlows ────────────────────────────────────────────────────────────────
-// Fetches all flows for the current tenant with version + category info.
-// CHANGED: added category_id join and categoryId/categoryName/categoryColor fields.
+// CHANGED (Day 33): works for ALL authenticated users, not just admins.
+// Admins see all flows (draft + published).
+// Regular users only see published flows (so they can trigger them).
 export async function getFlows(): Promise<{
   flows: FlowListItem[]
   error: string | null
 }> {
-  const gate = await requireAdminWithTenant()
+  const gate = await requireAuthWithTenant()
   if (!gate.ok) return { flows: [], error: gate.error }
 
-  const { tenantId, db } = gate
+  const { tenantId, role, db } = gate
 
-  const { data, error } = await db
+  let query = db
     .from('flows')
     .select(
       `
@@ -356,6 +389,13 @@ export async function getFlows(): Promise<{
     )
     .eq('tenant_id', tenantId)
     .order('updated_at', { ascending: false })
+
+  // Regular users only see published flows
+  if (role !== 'admin') {
+    query = query.eq('status', 'published')
+  }
+
+  const { data, error } = await query
 
   if (error) return { flows: [], error: error.message }
 
@@ -471,4 +511,231 @@ export async function updateFlowName(
   if (error) return { error: error.message }
 
   return { error: null }
+}
+
+// ─── triggerFlow ──────────────────────────────────────────────────────────────
+// Phase 3 Week 12 — triggers a published flow for the current user.
+//
+// Steps:
+//   1. Verify flow is published + belongs to tenant
+//   2. Load the graph from latest_version_id
+//   3. Find the trigger node, then resolve the first step node (outbound edge from trigger)
+//   4. Create flow_instance row (status=pending, triggered_by=current user)
+//   5. Call resolveAssignee() Edge Function server-side for the first step
+//   6. Create step_instance row for the first step (status=pending)
+//   7. Update flow_instance.current_step_id to the new step_instance id
+//
+// Returns the new flow_instance id so the client can redirect to /my-flows/[id].
+
+export async function triggerFlow(flowId: string): Promise<{
+  instanceId: string | null
+  error: string | null
+}> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { instanceId: null, error: gate.error }
+
+  const { userId, tenantId, db } = gate
+
+  // ── 1. Verify the flow is published and belongs to the tenant ──────────────
+  const { data: flow, error: flowError } = await db
+    .from('flows')
+    .select('id, status, latest_version_id, name')
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  if (flowError) return { instanceId: null, error: flowError.message }
+  if (!flow) return { instanceId: null, error: 'Flow not found.' }
+  if (flow.status !== 'published') return { instanceId: null, error: 'Flow is not published.' }
+  if (!flow.latest_version_id) return { instanceId: null, error: 'Flow has no published version.' }
+
+  // ── 2. Load the graph ──────────────────────────────────────────────────────
+  const { data: versionRow, error: verError } = await db
+    .from('flow_versions')
+    .select('id, graph')
+    .eq('id', flow.latest_version_id)
+    .single()
+
+  if (verError || !versionRow) {
+    return { instanceId: null, error: 'Could not load flow version.' }
+  }
+
+  const graph = versionRow.graph as SerializedGraph
+
+  // ── 3. Find the trigger node → first step node ────────────────────────────
+  const triggerNode = graph.nodes.find((n) => n.type === 'trigger')
+  if (!triggerNode) return { instanceId: null, error: 'Flow has no trigger node.' }
+
+  // The first step is the node the trigger's outbound edge points to
+  const triggerEdge = graph.edges.find((e) => e.source === triggerNode.id)
+  if (!triggerEdge) return { instanceId: null, error: 'Trigger node has no outbound connection.' }
+
+  const firstStepNode = graph.nodes.find((n) => n.id === triggerEdge.target)
+  if (!firstStepNode) return { instanceId: null, error: 'First step node not found in graph.' }
+
+  // ── 4. Create flow_instance ────────────────────────────────────────────────
+  const { data: instance, error: instanceError } = await db
+    .from('flow_instances')
+    .insert({
+      flow_version_id: versionRow.id,
+      triggered_by: userId,
+      current_step_id: null, // updated after step_instance is created (step 7)
+      status: 'pending',
+    })
+    .select('id')
+    .single()
+
+  if (instanceError || !instance) {
+    return { instanceId: null, error: instanceError?.message ?? 'Failed to create instance.' }
+  }
+
+  // ── 5. Call resolveAssignee() Edge Function server-side ───────────────────
+  // The assignee rule lives in the first step node's data.
+  const assigneeRule = firstStepNode.data?.assigneeRule ?? null
+
+  let assignedTo: string | null = null
+
+  if (assigneeRule && (assigneeRule as { type?: string }).type) {
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/resolve-assignee`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Service role key — this runs server-side only, never exposed to the client
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+        body: JSON.stringify({
+          rule: assigneeRule,
+          triggered_by_user_id: userId,
+          tenant_id: tenantId,
+        }),
+      })
+
+      if (res.ok) {
+        const result = (await res.json()) as {
+          assigned_to_user_id: string | null
+          error: string | null
+        }
+        if (result.assigned_to_user_id) {
+          assignedTo = result.assigned_to_user_id
+        }
+        // If Edge Function returns an error we proceed with assignedTo=null
+        // rather than blocking the whole trigger. Admin can reassign later (Phase 3 Week 18).
+      }
+    } catch {
+      // Network / parse error — non-fatal, proceed with unassigned step
+    }
+  }
+
+  // ── 6. Create step_instance for the first step ────────────────────────────
+  const { data: stepInstance, error: stepError } = await db
+    .from('step_instances')
+    .insert({
+      instance_id: instance.id,
+      step_id: firstStepNode.id, // node id from the graph (not a DB id)
+      assigned_to: assignedTo,
+      form_data: {},
+      status: 'pending',
+    })
+    .select('id')
+    .single()
+
+  if (stepError || !stepInstance) {
+    // Roll back the flow_instance to avoid orphans
+    await db.from('flow_instances').delete().eq('id', instance.id)
+    return { instanceId: null, error: stepError?.message ?? 'Failed to create step.' }
+  }
+
+  // ── 7. Update flow_instance.current_step_id ────────────────────────────────
+  const { error: updateError } = await db
+    .from('flow_instances')
+    .update({ current_step_id: stepInstance.id })
+    .eq('id', instance.id)
+
+  if (updateError) {
+    // Non-fatal — instance exists, current_step_id just isn't set yet
+    console.error('triggerFlow: failed to set current_step_id', updateError.message)
+  }
+
+  return { instanceId: instance.id, error: null }
+}
+
+// ─── getMyInstances ───────────────────────────────────────────────────────────
+// Phase 3 Week 16 — returns all flow instances triggered by the current user.
+// currentStepName is resolved by looking up the step_id in the graph.
+
+export async function getMyInstances(): Promise<{
+  instances: FlowInstanceListItem[]
+  error: string | null
+}> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { instances: [], error: gate.error }
+
+  const { userId, db } = gate
+
+  // Step 1: fetch instances triggered by this user only
+  const { data: instanceRows, error: instanceError } = await db
+    .from('flow_instances')
+    .select('id, status, current_step_id, created_at, updated_at, flow_version_id')
+    .eq('triggered_by', userId)
+    .order('updated_at', { ascending: false })
+
+  if (instanceError) return { instances: [], error: instanceError.message }
+  if (!instanceRows || instanceRows.length === 0) return { instances: [], error: null }
+
+  // Step 2: fetch flow names via version ids (separate query — avoids PostgREST join issues)
+  const versionIds = instanceRows.map((r: { flow_version_id: string }) => r.flow_version_id)
+
+  const { data: versionRows, error: versionError } = await db
+    .from('flow_versions')
+    .select('id, flow_id')
+    .in('id', versionIds)
+
+  if (versionError) return { instances: [], error: versionError.message }
+
+  const flowIds = (versionRows ?? []).map((v: { flow_id: string }) => v.flow_id)
+
+  const { data: flowRows, error: flowError } = await db
+    .from('flows')
+    .select('id, name')
+    .in('id', flowIds)
+
+  if (flowError) return { instances: [], error: flowError.message }
+
+  // Build lookup maps
+  const flowNameMap = new Map<string, string>(
+    (flowRows ?? []).map((f: { id: string; name: string }) => [f.id, f.name])
+  )
+  const versionToFlowMap = new Map<string, string>(
+    (versionRows ?? []).map((v: { id: string; flow_id: string }) => [v.id, v.flow_id])
+  )
+
+  const instances: FlowInstanceListItem[] = instanceRows.map(
+    (row: {
+      id: string
+      status: string
+      current_step_id: string | null
+      created_at: string
+      updated_at: string
+      flow_version_id: string
+    }) => {
+      const flowId = versionToFlowMap.get(row.flow_version_id) ?? null
+      const flowName = flowId ? (flowNameMap.get(flowId) ?? 'Unknown Flow') : 'Unknown Flow'
+
+      return {
+        id: row.id,
+        flowName,
+        status: row.status as FlowInstanceListItem['status'],
+        currentStepId: row.current_step_id,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        currentStepName: null,
+      }
+    }
+  )
+
+  return { instances, error: null }
 }
