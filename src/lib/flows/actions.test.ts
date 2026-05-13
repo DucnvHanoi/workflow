@@ -16,6 +16,7 @@ import {
   saveDraftVersion,
   getLatestDraftGraph,
   getFlowVersions,
+  getFlows,
   publishFlow,
   unpublishFlow,
   restoreVersion,
@@ -67,6 +68,16 @@ function mockAdminSession(tenantId = 'tenant-1', userId = 'user-1') {
 describe('flow server actions — auth gates', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('rejects unauthenticated callers for getFlows', async () => {
+    mockGetSessionClaims.mockResolvedValue({
+      user: null,
+      claims: { tenant_id: null, role: null },
+    })
+
+    expect((await getFlows()).error).toBe('Unauthenticated')
+    expect(mockCreateAdminClient).not.toHaveBeenCalled()
   })
 
   it('rejects unauthenticated callers for every action', async () => {
@@ -178,6 +189,67 @@ describe('getLatestDraftGraph', () => {
     const result = await getLatestDraftGraph('flow-1')
     expect(result.error).toBeUndefined()
     expect(result.graph).toBeNull()
+  })
+})
+
+describe('getFlows', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAdminSession()
+  })
+
+  it('maps rows to FlowListItem with category fields', async () => {
+    const rows = [
+      {
+        id: 'flow-1',
+        name: 'Approvals',
+        status: 'published',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+        flow_versions: { version_number: 2, published_at: '2026-01-01T12:00:00Z' },
+        flow_categories: { id: 'cat-1', name: 'HR', color: '#6366f1' },
+      },
+      {
+        id: 'flow-2',
+        name: 'Draft only',
+        status: 'draft',
+        created_at: '2026-01-03T00:00:00Z',
+        updated_at: '2026-01-04T00:00:00Z',
+        flow_versions: null,
+        flow_categories: null,
+      },
+    ]
+    mockCreateAdminClient.mockReturnValue(createQueuedSupabaseMock([{ data: rows, error: null }]))
+
+    const result = await getFlows()
+    expect(result.error).toBeNull()
+    expect(result.flows).toHaveLength(2)
+    expect(result.flows[0]).toMatchObject({
+      id: 'flow-1',
+      name: 'Approvals',
+      status: 'published',
+      categoryId: 'cat-1',
+      categoryName: 'HR',
+      categoryColor: '#6366f1',
+      versionNumber: 2,
+    })
+    expect(result.flows[1]).toMatchObject({
+      id: 'flow-2',
+      categoryId: null,
+      categoryName: null,
+      categoryColor: null,
+      versionNumber: null,
+    })
+  })
+
+  it('surfaces select errors', async () => {
+    mockCreateAdminClient.mockReturnValue(
+      createQueuedSupabaseMock([{ data: null, error: { message: 'relation missing' } }])
+    )
+
+    const result = await getFlows()
+    expect(result.flows).toEqual([])
+    expect(result.error).toBe('relation missing')
   })
 })
 
