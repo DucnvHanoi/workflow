@@ -49,7 +49,8 @@ export default function FormFieldRow({ field, onUpdate, onRemove }: FormFieldRow
 
   // ── Option helpers (dropdown / radio) ───────────────────────────────────
 
-  const hasOptions = field.type === 'dropdown' || field.type === 'radio'
+  const hasOptions =
+    field.type === 'dropdown' || field.type === 'radio' || field.type === 'checkbox'
 
   function addOption() {
     onUpdate(field.id, { options: [...(field.options ?? []), ''] })

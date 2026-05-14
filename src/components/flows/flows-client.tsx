@@ -4,6 +4,7 @@
 // Handles search + category tab filtering entirely in client state.
 // No DB round-trips on filter — all flows are loaded once on the server.
 // CHANGED (Day 33): Added "Start" button for regular users on published flows.
+// CHANGED: Added inline description editing for admins; description displayed for all users.
 
 import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
@@ -15,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { FlowRowActions } from '@/components/flows/flow-row-actions'
 import { ManageCategoriesDialog } from '@/components/flows/manage-categories-dialog'
 import { PlusIcon, SearchIcon, XIcon, PlayIcon } from 'lucide-react'
-import { triggerFlow } from '@/lib/flows/actions'
+import { triggerFlow, updateFlowDescription } from '@/lib/flows/actions'
 import type { FlowListItem } from '@/lib/flows/actions'
 import type { FlowCategory } from '@/lib/flows/category-actions'
 
@@ -55,15 +56,21 @@ export function FlowsClient({
     )
   }
 
+  // ── Patch a single flow's description without full reload ────────────────
+  function handleDescriptionUpdated(flowId: string, description: string | null) {
+    setFlows((prev) => prev.map((f) => (f.id === flowId ? { ...f, description } : f)))
+  }
+
   // ── Filtered flows (search + tab) ────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
 
     return flows.filter((f) => {
-      // Search filter: match name or category name
+      // Search filter: match name, description, or category name
       if (
         q &&
         !f.name.toLowerCase().includes(q) &&
+        !(f.description ?? '').toLowerCase().includes(q) &&
         !(f.categoryName ?? '').toLowerCase().includes(q)
       ) {
         return false
@@ -224,8 +231,8 @@ export function FlowsClient({
       )}
 
       {/* ── No search results ── */}
-      {filtered.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-lg border bg-muted/20 py-16 text-center">
+      {filtered.length === 0 && search && (
+        <div className="py-12 text-center">
           <p className="text-sm text-muted-foreground">
             No flows match <span className="font-medium">&ldquo;{search}&rdquo;</span>
           </p>
@@ -295,6 +302,7 @@ export function FlowsClient({
                         isAdmin={isAdmin}
                         categories={categories}
                         onCategoryUpdated={handleCategoryUpdated}
+                        onDescriptionUpdated={handleDescriptionUpdated}
                       />
                     ))}
                   </tbody>
@@ -308,12 +316,126 @@ export function FlowsClient({
   )
 }
 
+// ─── Inline description editor ────────────────────────────────────────────────
+// Shown below the flow name. Admins can click "Edit" / "Add" to edit inline.
+// Regular users see the description text only (read-only).
+
+function FlowDescription({
+  flow,
+  isAdmin,
+  onSaved,
+}: {
+  flow: FlowListItem
+  isAdmin: boolean
+  onSaved: (desc: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(flow.description ?? '')
+  const [isPending, startTransition] = useTransition()
+
+  // Live word count
+  const wordCount = draft.trim() ? draft.trim().split(/\s+/).filter(Boolean).length : 0
+  const overLimit = wordCount > 100
+
+  function handleSave() {
+    if (overLimit) return
+    startTransition(async () => {
+      const result = await updateFlowDescription(flow.id, draft)
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      onSaved(draft.trim() || null)
+      setEditing(false)
+    })
+  }
+
+  function handleCancel() {
+    setDraft(flow.description ?? '')
+    setEditing(false)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Escape') handleCancel()
+    // Cmd/Ctrl + Enter to save
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSave()
+  }
+
+  // ── View mode ──────────────────────────────────────────────────────────
+  if (!editing) {
+    return (
+      <div className="flex items-baseline gap-1.5 min-w-0 flex-wrap">
+        {flow.description ? (
+          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2 max-w-xs">
+            {flow.description}
+          </p>
+        ) : isAdmin ? (
+          <span className="text-[11px] italic text-muted-foreground/50">No description</span>
+        ) : null}
+        {isAdmin && (
+          <button
+            onClick={() => {
+              setDraft(flow.description ?? '')
+              setEditing(true)
+            }}
+            className="shrink-0 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline transition-colors"
+          >
+            {flow.description ? 'Edit' : 'Add'}
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  // ── Edit mode ──────────────────────────────────────────────────────────
+  return (
+    // Stop row click propagation so clicking inside the textarea doesn't
+    // accidentally trigger any parent row handlers
+    <div className="mt-1 flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
+      <textarea
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={handleKeyDown}
+        rows={2}
+        placeholder="Describe what this flow does… (max 100 words)"
+        className="w-full resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+      <div className="flex items-center justify-between gap-2">
+        {/* Word counter */}
+        <span
+          className={`text-[10px] tabular-nums ${overLimit ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}
+        >
+          {wordCount}/100 words
+        </span>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={handleCancel}
+            disabled={isPending}
+            className="rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={overLimit || isPending}
+            className="rounded bg-primary px-2.5 py-0.5 text-xs font-medium text-primary-foreground transition-opacity disabled:opacity-40"
+          >
+            {isPending ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Single table row ─────────────────────────────────────────────────────────
 function FlowTableRow({
   flow,
   isAdmin,
   categories,
   onCategoryUpdated,
+  onDescriptionUpdated,
 }: {
   flow: FlowListItem
   isAdmin: boolean
@@ -324,6 +446,7 @@ function FlowTableRow({
     categoryName: string | null,
     categoryColor: string | null
   ) => void
+  onDescriptionUpdated: (flowId: string, description: string | null) => void
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -335,31 +458,40 @@ function FlowTableRow({
         toast.error(result.error)
         return
       }
-      // Redirect to the instance detail page
       router.push(`/my-flows/${result.instanceId}`)
     })
   }
 
   return (
-    <tr className="transition-colors hover:bg-muted/30">
-      {/* Name */}
-      <td className="px-4 py-3 font-medium">
-        <div className="flex items-center gap-2">
+    <tr className="transition-colors hover:bg-muted/30 align-top">
+      {/* Name + description */}
+      <td className="px-4 py-3">
+        <div className="flex items-start gap-2">
           {flow.categoryColor && (
             <span
-              className="h-2 w-2 shrink-0 rounded-full"
+              className="mt-1 h-2 w-2 shrink-0 rounded-full"
               style={{ backgroundColor: flow.categoryColor }}
               title={flow.categoryName ?? ''}
             />
           )}
-          {/* Admins can click through to the canvas editor; regular users see plain text */}
-          {isAdmin ? (
-            <Link href={`/flows/${flow.id}/edit`} className="text-foreground hover:underline">
-              {flow.name}
-            </Link>
-          ) : (
-            <span className="text-foreground">{flow.name}</span>
-          )}
+          <div className="flex flex-col gap-0.5 min-w-0">
+            {/* Flow name */}
+            <div className="font-medium">
+              {isAdmin ? (
+                <Link href={`/flows/${flow.id}/edit`} className="text-foreground hover:underline">
+                  {flow.name}
+                </Link>
+              ) : (
+                <span className="text-foreground">{flow.name}</span>
+              )}
+            </div>
+            {/* Description (inline editable for admin, read-only for users) */}
+            <FlowDescription
+              flow={flow}
+              isAdmin={isAdmin}
+              onSaved={(desc) => onDescriptionUpdated(flow.id, desc)}
+            />
+          </div>
         </div>
       </td>
 

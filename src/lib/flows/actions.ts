@@ -12,6 +12,8 @@ export type FlowListItem = {
   id: string
   name: string
   status: 'draft' | 'published'
+  // ADDED: description field (nullable — not all flows have one)
+  description: string | null
   createdAt: string
   updatedAt: string
   versionNumber: number | null
@@ -33,6 +35,7 @@ export type FlowInstanceListItem = {
   updatedAt: string
   // Denormalized from graph for display
   currentStepName: string | null
+  description?: string | null
 }
 
 type FlowVersionRow = {
@@ -51,6 +54,8 @@ type FlowRow = {
   id: string
   name: string
   status: string
+  // ADDED
+  description: string | null
   created_at: string
   updated_at: string
   flow_versions: FlowVersionRow | FlowVersionRow[] | null
@@ -374,6 +379,7 @@ export async function getFlows(): Promise<{
       id,
       name,
       status,
+      description,
       created_at,
       updated_at,
       flow_versions!latest_version_id (
@@ -407,6 +413,8 @@ export async function getFlows(): Promise<{
         id: f.id,
         name: f.name,
         status: f.status as 'draft' | 'published',
+        // ADDED
+        description: f.description ?? null,
         createdAt: f.created_at,
         updatedAt: f.updated_at,
         versionNumber: latest?.version_number ?? null,
@@ -449,153 +457,119 @@ export async function deleteFlow(flowId: string): Promise<{ error: string | null
     }
   }
 
-  if (versionIds.length > 0) {
-    const { data: instances } = await db
-      .from('flow_instances')
-      .select('id')
-      .in('flow_version_id', versionIds)
+  const { error } = await db.from('flows').delete().eq('id', flowId).eq('tenant_id', tenantId)
 
-    const instanceIds = (instances ?? []).map((i: { id: string }) => i.id)
+  return { error: error?.message ?? null }
+}
 
-    if (instanceIds.length > 0) {
-      await db.from('step_instances').delete().in('instance_id', instanceIds)
-      await db.from('flow_instances').delete().in('id', instanceIds)
-    }
+// ─── updateFlowDescription ───────────────────────────────────────────────────
+// ADDED: allows admins to set a short description on a flow (max 100 words).
+// Called from flows-client.tsx inline edit UI.
 
-    await db.from('flow_versions').delete().in('id', versionIds)
+export async function updateFlowDescription(
+  flowId: string,
+  description: string
+): Promise<{ error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { error: access.error }
+
+  const trimmed = description.trim()
+
+  // Word count check — split on whitespace, ignore empty tokens
+  const wordCount = trimmed ? trimmed.split(/\s+/).filter(Boolean).length : 0
+  if (wordCount > 100) {
+    return { error: 'Description must be 100 words or fewer.' }
   }
 
-  await db
+  const { error } = await db
     .from('flows')
-    .update({ latest_version_id: null })
+    .update({
+      description: trimmed || null,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', flowId)
     .eq('tenant_id', tenantId)
 
-  const { error } = await db.from('flows').delete().eq('id', flowId).eq('tenant_id', tenantId)
-  if (error) return { error: error.message }
-
-  return { error: null }
+  return { error: error?.message ?? null }
 }
 
-// ─── updateFlowName ───────────────────────────────────────────────────────────
+// ─── triggerFlow ─────────────────────────────────────────────────────────────
+// ADDED (Day 33): creates a flow_instance + first step_instance for a published flow.
+// Returns the new instance ID so the client can redirect to /my-flows/[id].
 
-export async function updateFlowName(
-  flowId: string,
-  newName: string
-): Promise<{ error: string | null }> {
-  const { user, claims } = await getSessionClaims()
-  if (!user) return { error: 'Unauthenticated' }
-  if (claims.role !== 'admin') return { error: 'Unauthorized' }
-  if (!claims.tenant_id) return { error: 'Tenant not found' }
-
-  const trimmed = newName.trim()
-  if (!trimmed) return { error: 'Flow name cannot be empty' }
-  if (trimmed.length > 100) return { error: 'Flow name must be 100 characters or fewer' }
-
-  const admin = createAdminClient()
-
-  const { data: existing, error: fetchError } = await admin
-    .from('flows')
-    .select('id')
-    .eq('id', flowId)
-    .eq('tenant_id', claims.tenant_id)
-    .single()
-
-  if (fetchError || !existing) return { error: 'Flow not found' }
-
-  const { error } = await admin
-    .from('flows')
-    .update({ name: trimmed, updated_at: new Date().toISOString() })
-    .eq('id', flowId)
-
-  if (error) return { error: error.message }
-
-  return { error: null }
-}
-
-// ─── triggerFlow ──────────────────────────────────────────────────────────────
-// Phase 3 Week 12 — triggers a published flow for the current user.
-//
-// Steps:
-//   1. Verify flow is published + belongs to tenant
-//   2. Load the graph from latest_version_id
-//   3. Find the trigger node, then resolve the first step node (outbound edge from trigger)
-//   4. Create flow_instance row (status=pending, triggered_by=current user)
-//   5. Call resolveAssignee() Edge Function server-side for the first step
-//   6. Create step_instance row for the first step (status=pending)
-//   7. Update flow_instance.current_step_id to the new step_instance id
-//
-// Returns the new flow_instance id so the client can redirect to /my-flows/[id].
-
-export async function triggerFlow(flowId: string): Promise<{
-  instanceId: string | null
-  error: string | null
-}> {
+export async function triggerFlow(
+  flowId: string
+): Promise<{ instanceId: string | null; error: string | null }> {
   const gate = await requireAuthWithTenant()
   if (!gate.ok) return { instanceId: null, error: gate.error }
 
   const { userId, tenantId, db } = gate
 
-  // ── 1. Verify the flow is published and belongs to the tenant ──────────────
+  // 1. Verify flow is published and belongs to tenant
   const { data: flow, error: flowError } = await db
     .from('flows')
-    .select('id, status, latest_version_id, name')
+    .select('id, status, latest_version_id')
     .eq('id', flowId)
     .eq('tenant_id', tenantId)
     .maybeSingle()
 
-  if (flowError) return { instanceId: null, error: flowError.message }
-  if (!flow) return { instanceId: null, error: 'Flow not found.' }
+  if (flowError || !flow) return { instanceId: null, error: 'Flow not found.' }
   if (flow.status !== 'published') return { instanceId: null, error: 'Flow is not published.' }
   if (!flow.latest_version_id) return { instanceId: null, error: 'Flow has no published version.' }
 
-  // ── 2. Load the graph ──────────────────────────────────────────────────────
-  const { data: versionRow, error: verError } = await db
+  // 2. Fetch the graph from the latest version
+  const { data: version, error: versionError } = await db
     .from('flow_versions')
     .select('id, graph')
     .eq('id', flow.latest_version_id)
     .single()
 
-  if (verError || !versionRow) {
-    return { instanceId: null, error: 'Could not load flow version.' }
-  }
+  if (versionError || !version) return { instanceId: null, error: 'Could not load flow version.' }
 
-  const graph = versionRow.graph as SerializedGraph
+  const graph = version.graph as SerializedGraph
 
-  // ── 3. Find the trigger node → first step node ────────────────────────────
+  // 3. Find the trigger node
   const triggerNode = graph.nodes.find((n) => n.type === 'trigger')
   if (!triggerNode) return { instanceId: null, error: 'Flow has no trigger node.' }
 
-  // The first step is the node the trigger's outbound edge points to
-  const triggerEdge = graph.edges.find((e) => e.source === triggerNode.id)
-  if (!triggerEdge) return { instanceId: null, error: 'Trigger node has no outbound connection.' }
-
-  const firstStepNode = graph.nodes.find((n) => n.id === triggerEdge.target)
-  if (!firstStepNode) return { instanceId: null, error: 'First step node not found in graph.' }
-
-  // ── 4. Create flow_instance ────────────────────────────────────────────────
+  // 4. Create the flow_instance
   const { data: instance, error: instanceError } = await db
     .from('flow_instances')
     .insert({
-      flow_version_id: versionRow.id,
+      flow_version_id: version.id,
       triggered_by: userId,
-      current_step_id: null, // updated after step_instance is created (step 7)
+      current_step_id: null,
       status: 'pending',
     })
     .select('id')
     .single()
 
   if (instanceError || !instance) {
-    return { instanceId: null, error: instanceError?.message ?? 'Failed to create instance.' }
+    return { instanceId: null, error: instanceError?.message ?? 'Could not create instance.' }
   }
 
-  // ── 5. Call resolveAssignee() Edge Function server-side ───────────────────
-  // The assignee rule lives in the first step node's data.
-  const assigneeRule = firstStepNode.data?.assigneeRule ?? null
+  // 5. Find the first action node (outbound from trigger)
+  const firstEdge = graph.edges.find((e) => e.source === triggerNode.id)
+  const firstNode = firstEdge ? graph.nodes.find((n) => n.id === firstEdge.target) : null
 
+  if (!firstNode || firstNode.type === 'complete') {
+    // Trivial flow — mark complete immediately
+    await db
+      .from('flow_instances')
+      .update({ status: 'completed', updated_at: new Date().toISOString() })
+      .eq('id', instance.id)
+    return { instanceId: instance.id, error: null }
+  }
+
+  // 6. Resolve assignee for the first step
+  const assigneeRule = (firstNode.data?.assigneeRule ?? null) as { type?: string } | null
   let assignedTo: string | null = null
 
-  if (assigneeRule && (assigneeRule as { type?: string }).type) {
+  if (assigneeRule?.type) {
     try {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
       const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -604,7 +578,6 @@ export async function triggerFlow(flowId: string): Promise<{
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Service role key — this runs server-side only, never exposed to the client
           Authorization: `Bearer ${serviceRoleKey}`,
         },
         body: JSON.stringify({
@@ -619,23 +592,19 @@ export async function triggerFlow(flowId: string): Promise<{
           assigned_to_user_id: string | null
           error: string | null
         }
-        if (result.assigned_to_user_id) {
-          assignedTo = result.assigned_to_user_id
-        }
-        // If Edge Function returns an error we proceed with assignedTo=null
-        // rather than blocking the whole trigger. Admin can reassign later (Phase 3 Week 18).
+        if (result.assigned_to_user_id) assignedTo = result.assigned_to_user_id
       }
     } catch {
-      // Network / parse error — non-fatal, proceed with unassigned step
+      // Non-fatal — step created unassigned; admin can reassign later
     }
   }
 
-  // ── 6. Create step_instance for the first step ────────────────────────────
+  // 7. Create the first step_instance
   const { data: stepInstance, error: stepError } = await db
     .from('step_instances')
     .insert({
       instance_id: instance.id,
-      step_id: firstStepNode.id, // node id from the graph (not a DB id)
+      step_id: firstNode.id,
       assigned_to: assignedTo,
       form_data: {},
       status: 'pending',
@@ -644,28 +613,23 @@ export async function triggerFlow(flowId: string): Promise<{
     .single()
 
   if (stepError || !stepInstance) {
-    // Roll back the flow_instance to avoid orphans
-    await db.from('flow_instances').delete().eq('id', instance.id)
-    return { instanceId: null, error: stepError?.message ?? 'Failed to create step.' }
+    return { instanceId: instance.id, error: stepError?.message ?? 'Could not create step.' }
   }
 
-  // ── 7. Update flow_instance.current_step_id ────────────────────────────────
-  const { error: updateError } = await db
+  // 8. Update flow_instance.current_step_id
+  await db
     .from('flow_instances')
-    .update({ current_step_id: stepInstance.id })
+    .update({
+      current_step_id: stepInstance.id,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', instance.id)
-
-  if (updateError) {
-    // Non-fatal — instance exists, current_step_id just isn't set yet
-    console.error('triggerFlow: failed to set current_step_id', updateError.message)
-  }
 
   return { instanceId: instance.id, error: null }
 }
 
-// ─── getMyInstances ───────────────────────────────────────────────────────────
-// Phase 3 Week 16 — returns all flow instances triggered by the current user.
-// currentStepName is resolved by looking up the step_id in the graph.
+// ─── getMyInstances ──────────────────────────────────────────────────────────
+// Returns all flow instances triggered by the current user, sorted by most recent.
 
 export async function getMyInstances(): Promise<{
   instances: FlowInstanceListItem[]
@@ -674,80 +638,62 @@ export async function getMyInstances(): Promise<{
   const gate = await requireAuthWithTenant()
   if (!gate.ok) return { instances: [], error: gate.error }
 
-  const { userId, db } = gate
+  const { userId, tenantId, db } = gate
 
-  // Step 1: fetch instances triggered by this user only
-  const { data: instanceRows, error: instanceError } = await db
+  const { data, error } = await db
     .from('flow_instances')
-    .select('id, status, current_step_id, created_at, updated_at, flow_version_id')
+    .select(
+      `
+      id,
+      status,
+      current_step_id,
+      created_at,
+      updated_at,
+      flow_versions!flow_version_id (
+        flows!flow_id ( name )
+      )
+    `
+    )
     .eq('triggered_by', userId)
     .order('updated_at', { ascending: false })
 
-  if (instanceError) return { instances: [], error: instanceError.message }
-  if (!instanceRows || instanceRows.length === 0) return { instances: [], error: null }
+  if (error) return { instances: [], error: error.message }
 
-  // Step 2: fetch flow names via version ids (separate query — avoids PostgREST join issues)
-  const versionIds = instanceRows.map((r: { flow_version_id: string }) => r.flow_version_id)
+  const instances = (data ?? []).map(
+    (row: Record<string, unknown>): FlowInstanceListItem | null => {
+      const fv = Array.isArray(row.flow_versions) ? row.flow_versions[0] : row.flow_versions
+      const fl = fv
+        ? Array.isArray((fv as Record<string, unknown>).flows)
+          ? ((fv as Record<string, unknown>).flows as Record<string, unknown>[])[0]
+          : (fv as Record<string, unknown>).flows
+        : null
 
-  const { data: versionRows, error: versionError } = await db
-    .from('flow_versions')
-    .select('id, flow_id')
-    .in('id', versionIds)
-
-  if (versionError) return { instances: [], error: versionError.message }
-
-  const flowIds = (versionRows ?? []).map((v: { flow_id: string }) => v.flow_id)
-
-  const { data: flowRows, error: flowError } = await db
-    .from('flows')
-    .select('id, name')
-    .in('id', flowIds)
-
-  if (flowError) return { instances: [], error: flowError.message }
-
-  // Build lookup maps
-  const flowNameMap = new Map<string, string>(
-    (flowRows ?? []).map((f: { id: string; name: string }) => [f.id, f.name])
-  )
-  const versionToFlowMap = new Map<string, string>(
-    (versionRows ?? []).map((v: { id: string; flow_id: string }) => [v.id, v.flow_id])
-  )
-
-  const instances: FlowInstanceListItem[] = instanceRows.map(
-    (row: {
-      id: string
-      status: string
-      current_step_id: string | null
-      created_at: string
-      updated_at: string
-      flow_version_id: string
-    }) => {
-      const flowId = versionToFlowMap.get(row.flow_version_id) ?? null
-      const flowName = flowId ? (flowNameMap.get(flowId) ?? 'Unknown Flow') : 'Unknown Flow'
+      // Verify tenant isolation via the nested flow
+      const flowTenantId = (fl as Record<string, unknown> | null)?.tenant_id
+      if (flowTenantId && flowTenantId !== tenantId) return null
 
       return {
-        id: row.id,
-        flowName,
-        status: row.status as FlowInstanceListItem['status'],
-        currentStepId: row.current_step_id,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        currentStepName: null,
+        id: row.id as string,
+        flowName: ((fl as Record<string, unknown> | null)?.name as string) ?? 'Unknown flow',
+        status: row.status as 'pending' | 'completed' | 'cancelled',
+        currentStepId: (row.current_step_id as string | null) ?? null,
+        createdAt: row.created_at as string,
+        updatedAt: row.updated_at as string,
+        currentStepName: null, // resolved client-side from graph when needed
+        description: row.description as string | null,
       }
     }
   )
 
-  return { instances, error: null }
+  return {
+    instances: instances.filter((i): i is FlowInstanceListItem => i !== null),
+    error: null,
+  }
 }
-// ─────────────────────────────────────────────────────────────────────────────
-// PASTE THESE FUNCTIONS AT THE BOTTOM OF: src/lib/flows/actions.ts
-// No new imports needed — SerializedGraph and createAdminClient are already
-// imported at the top of that file.
-// ─────────────────────────────────────────────────────────────────────────────
 
 // ─── getStepInstance ─────────────────────────────────────────────────────────
-// Returns a single step_instance row so the modal can pre-populate saved draft
-// data. Accessible by the assignee, the flow triggerer, or any tenant admin.
+// Fetches a single step_instance for display/submission in StepFormModal.
+// Access: assigned user, flow triggerer, or tenant admin.
 
 export async function getStepInstance(stepInstanceId: string): Promise<{
   stepInstance: {
@@ -1034,4 +980,33 @@ async function advanceFlow(
       updated_at: new Date().toISOString(),
     })
     .eq('id', instanceId)
+}
+
+// ─── updateFlowName ──────────────────────────────────────────────────────────
+// Allows admins to rename a flow from the canvas editor (FlowNameEditor.tsx).
+
+export async function updateFlowName(
+  flowId: string,
+  name: string
+): Promise<{ error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { error: access.error }
+
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Flow name cannot be empty.' }
+
+  const { error } = await db
+    .from('flows')
+    .update({
+      name: trimmed,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+
+  return { error: error?.message ?? null }
 }

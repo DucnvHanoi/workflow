@@ -67,7 +67,18 @@ export default async function MyFlowsPage() {
               {instances.map((instance) => (
                 <tr key={instance.id} className="transition-colors hover:bg-muted/30">
                   {/* Flow name */}
-                  <td className="px-4 py-3 font-medium">{instance.flowName}</td>
+                  <td className="px-4 py-3 font-medium">
+                    {instance.flowName}
+                    <div className="flex items-baseline gap-1.5 min-w-0 flex-wrap">
+                      {instance.description ? (
+                        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2 max-w-xs">
+                          {instance.description}
+                        </p>
+                      ) : (
+                        ''
+                      )}
+                    </div>
+                  </td>
 
                   {/* Status badge */}
                   <td className="px-4 py-3">

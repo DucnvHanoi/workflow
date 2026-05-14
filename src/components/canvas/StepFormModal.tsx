@@ -328,7 +328,7 @@ function FieldRenderer({
         <div className="space-y-2">
           {/* options is undefined: field was saved before the checkbox bug fix.
               Show a clear message so the user knows to re-save the flow. */}
-          {field.options === undefined && (
+          {(field.options === undefined || field.options === null) && (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
               This checkbox field has no options configured. Open the flow builder, edit this field
               to add options, then re-publish the flow.
@@ -336,12 +336,12 @@ function FieldRenderer({
           )}
 
           {/* options exists but all entries are blank */}
-          {field.options !== undefined &&
+          {Array.isArray(field.options) &&
             field.options.filter((o) => o.trim() !== '').length === 0 && (
               <p className="text-xs text-muted-foreground">No options defined.</p>
             )}
 
-          {/* Normal render: only show non-empty option strings */}
+          {/* Normal render: only show non-empty option strings if options exists */}
           {(field.options ?? [])
             .filter((o) => o.trim() !== '')
             .map((opt) => {
