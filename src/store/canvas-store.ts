@@ -23,7 +23,7 @@ export interface FormField {
   type: FormFieldType
   label: string
   required: boolean
-  options?: string[] // only for dropdown and radio
+  options?: string[] // for dropdown, radio, and checkbox
 }
 
 export interface BranchCondition {
@@ -206,7 +206,11 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       type,
       label: '',
       required: false,
-      ...(type === 'dropdown' || type === 'radio' ? { options: ['', ''] } : {}),
+      // FIX: checkbox also needs options — previously only dropdown and radio
+      // were included, causing checkbox fields to be saved with no options array.
+      ...(type === 'dropdown' || type === 'radio' || type === 'checkbox'
+        ? { options: ['', ''] }
+        : {}),
     }
     set((state) => ({
       nodes: state.nodes.map((node) => {

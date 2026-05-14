@@ -739,3 +739,299 @@ export async function getMyInstances(): Promise<{
 
   return { instances, error: null }
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// PASTE THESE FUNCTIONS AT THE BOTTOM OF: src/lib/flows/actions.ts
+// No new imports needed — SerializedGraph and createAdminClient are already
+// imported at the top of that file.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── getStepInstance ─────────────────────────────────────────────────────────
+// Returns a single step_instance row so the modal can pre-populate saved draft
+// data. Accessible by the assignee, the flow triggerer, or any tenant admin.
+
+export async function getStepInstance(stepInstanceId: string): Promise<{
+  stepInstance: {
+    id: string
+    step_id: string
+    instance_id: string
+    assigned_to: string | null
+    form_data: Record<string, unknown>
+    status: 'pending' | 'completed' | 'skipped'
+    completed_at: string | null
+  } | null
+  error: string | null
+}> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { stepInstance: null, error: gate.error }
+
+  const { userId, tenantId, role, db } = gate
+
+  const { data, error } = await db
+    .from('step_instances')
+    .select(
+      `
+      id,
+      step_id,
+      instance_id,
+      assigned_to,
+      form_data,
+      status,
+      completed_at,
+      flow_instances!instance_id (
+        triggered_by,
+        flow_versions!flow_version_id (
+          flows!flow_id ( tenant_id )
+        )
+      )
+    `
+    )
+    .eq('id', stepInstanceId)
+    .maybeSingle()
+
+  if (error) return { stepInstance: null, error: error.message }
+  if (!data) return { stepInstance: null, error: 'Step not found.' }
+
+  // Unwrap PostgREST nested FK rows
+  const fi = Array.isArray(data.flow_instances) ? data.flow_instances[0] : data.flow_instances
+  const fv = fi ? (Array.isArray(fi.flow_versions) ? fi.flow_versions[0] : fi.flow_versions) : null
+  const fl = fv ? (Array.isArray(fv.flows) ? fv.flows[0] : fv.flows) : null
+
+  // Tenant isolation
+  if (!fl || fl.tenant_id !== tenantId) return { stepInstance: null, error: 'Not found.' }
+
+  // Access control: assignee, flow triggerer, or admin
+  if (role !== 'admin' && data.assigned_to !== userId && fi?.triggered_by !== userId) {
+    return { stepInstance: null, error: 'Access denied.' }
+  }
+
+  return {
+    stepInstance: {
+      id: data.id,
+      step_id: data.step_id,
+      instance_id: data.instance_id,
+      assigned_to: data.assigned_to,
+      form_data: (data.form_data as Record<string, unknown>) ?? {},
+      status: data.status as 'pending' | 'completed' | 'skipped',
+      completed_at: data.completed_at,
+    },
+    error: null,
+  }
+}
+
+// ─── saveDraftStep ────────────────────────────────────────────────────────────
+// Persists form_data without changing step status (used by "Save Draft" button).
+
+export async function saveDraftStep(
+  stepInstanceId: string,
+  formData: Record<string, unknown>
+): Promise<{ error: string | null }> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { userId, tenantId, role, db } = gate
+
+  const { data: si, error: siError } = await db
+    .from('step_instances')
+    .select(
+      `
+      id,
+      status,
+      assigned_to,
+      flow_instances!instance_id (
+        triggered_by,
+        flow_versions!flow_version_id (
+          flows!flow_id ( tenant_id )
+        )
+      )
+    `
+    )
+    .eq('id', stepInstanceId)
+    .maybeSingle()
+
+  if (siError || !si) return { error: 'Step not found.' }
+
+  const fi = Array.isArray(si.flow_instances) ? si.flow_instances[0] : si.flow_instances
+  const fv = fi ? (Array.isArray(fi.flow_versions) ? fi.flow_versions[0] : fi.flow_versions) : null
+  const fl = fv ? (Array.isArray(fv.flows) ? fv.flows[0] : fv.flows) : null
+
+  if (!fl || fl.tenant_id !== tenantId) return { error: 'Not found.' }
+  if (si.status !== 'pending') return { error: 'This step is already completed.' }
+  if (role !== 'admin' && si.assigned_to !== userId && fi?.triggered_by !== userId) {
+    return { error: 'Access denied.' }
+  }
+
+  const { error: updateError } = await db
+    .from('step_instances')
+    .update({ form_data: formData })
+    .eq('id', stepInstanceId)
+
+  return { error: updateError?.message ?? null }
+}
+
+// ─── submitStep ───────────────────────────────────────────────────────────────
+// Marks the step completed, saves final form_data, and advances the flow to the
+// next step. advanceFlow handles the stub logic (full branch eval in Week 14).
+
+export async function submitStep(
+  stepInstanceId: string,
+  formData: Record<string, unknown>
+): Promise<{ error: string | null }> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { userId, tenantId, role, db } = gate
+
+  const { data: si, error: siError } = await db
+    .from('step_instances')
+    .select(
+      `
+      id,
+      status,
+      assigned_to,
+      instance_id,
+      step_id,
+      flow_instances!instance_id (
+        id,
+        triggered_by,
+        flow_version_id,
+        flow_versions!flow_version_id (
+          graph,
+          flows!flow_id ( tenant_id )
+        )
+      )
+    `
+    )
+    .eq('id', stepInstanceId)
+    .maybeSingle()
+
+  if (siError || !si) return { error: 'Step not found.' }
+
+  const fi = Array.isArray(si.flow_instances) ? si.flow_instances[0] : si.flow_instances
+  const fv = fi ? (Array.isArray(fi.flow_versions) ? fi.flow_versions[0] : fi.flow_versions) : null
+  const fl = fv ? (Array.isArray(fv.flows) ? fv.flows[0] : fv.flows) : null
+
+  if (!fl || fl.tenant_id !== tenantId) return { error: 'Not found.' }
+  if (si.status !== 'pending') return { error: 'This step is already completed.' }
+  if (role !== 'admin' && si.assigned_to !== userId && fi?.triggered_by !== userId) {
+    return { error: 'Access denied.' }
+  }
+
+  // Mark step as completed
+  const { error: completeError } = await db
+    .from('step_instances')
+    .update({
+      form_data: formData,
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', stepInstanceId)
+
+  if (completeError) return { error: completeError.message }
+
+  // Advance the flow to the next step
+  if (fi?.id && fv?.graph) {
+    await advanceFlow(
+      fi.id,
+      si.step_id,
+      fv.graph as SerializedGraph,
+      fi.triggered_by ?? userId,
+      tenantId,
+      db
+    )
+  }
+
+  return { error: null }
+}
+
+// ─── advanceFlow (stub — full implementation in Phase 3 Week 14) ──────────────
+// Finds the next node via outbound edge from the completed step.
+// No branch evaluation yet — takes the first outbound edge.
+// If next node is type=complete (or missing), marks the flow_instance as completed.
+
+async function advanceFlow(
+  instanceId: string,
+  completedStepNodeId: string,
+  graph: SerializedGraph,
+  triggeredByUserId: string,
+  tenantId: string,
+  db: ReturnType<typeof createAdminClient>
+): Promise<void> {
+  // Take first outbound edge (branch eval added in Week 14)
+  const outboundEdge = graph.edges.find((e) => e.source === completedStepNodeId)
+
+  if (!outboundEdge) {
+    await db
+      .from('flow_instances')
+      .update({ status: 'completed', updated_at: new Date().toISOString() })
+      .eq('id', instanceId)
+    return
+  }
+
+  const nextNode = graph.nodes.find((n) => n.id === outboundEdge.target)
+
+  if (!nextNode || nextNode.type === 'complete') {
+    await db
+      .from('flow_instances')
+      .update({ status: 'completed', updated_at: new Date().toISOString() })
+      .eq('id', instanceId)
+    return
+  }
+
+  // Resolve assignee for the next step
+  const assigneeRule = (nextNode.data?.assigneeRule ?? null) as { type?: string } | null
+  let assignedTo: string | null = null
+
+  if (assigneeRule?.type) {
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/resolve-assignee`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+        body: JSON.stringify({
+          rule: assigneeRule,
+          triggered_by_user_id: triggeredByUserId,
+          tenant_id: tenantId,
+        }),
+      })
+
+      if (res.ok) {
+        const result = (await res.json()) as {
+          assigned_to_user_id: string | null
+          error: string | null
+        }
+        if (result.assigned_to_user_id) assignedTo = result.assigned_to_user_id
+      }
+    } catch {
+      // Non-fatal — step is created unassigned; admin can reassign later
+    }
+  }
+
+  // Create the next step_instance
+  const { data: nextStep, error: stepError } = await db
+    .from('step_instances')
+    .insert({
+      instance_id: instanceId,
+      step_id: nextNode.id,
+      assigned_to: assignedTo,
+      form_data: {},
+      status: 'pending',
+    })
+    .select('id')
+    .single()
+
+  if (stepError || !nextStep) return // non-fatal
+
+  // Update flow_instance.current_step_id to the new step
+  await db
+    .from('flow_instances')
+    .update({
+      current_step_id: nextStep.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', instanceId)
+}
