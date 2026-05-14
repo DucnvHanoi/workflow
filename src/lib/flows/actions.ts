@@ -7,6 +7,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import type { SerializedGraph } from '@/lib/flows/graph'
+import type { FormField, BranchCondition } from '@/store/canvas-store'
 
 export type FlowListItem = {
   id: string
@@ -882,6 +883,7 @@ export async function submitStep(
       fv.graph as SerializedGraph,
       fi.triggered_by ?? userId,
       tenantId,
+      formData,
       db
     )
   }
@@ -889,10 +891,18 @@ export async function submitStep(
   return { error: null }
 }
 
-// ─── advanceFlow (stub — full implementation in Phase 3 Week 14) ──────────────
-// Finds the next node via outbound edge from the completed step.
-// No branch evaluation yet — takes the first outbound edge.
-// If next node is type=complete (or missing), marks the flow_instance as completed.
+// ─── advanceFlow ─────────────────────────────────────────────────────────────
+// Reads outbound edges from the completed step node, evaluates branch conditions
+// when the node is a branch type, picks the correct edge, creates the next
+// step_instance, resolves the assignee, and updates current_step_id.
+// If the next node is type=complete (or no outbound edge exists), the flow
+// instance is marked completed.
+//
+// Branch evaluation (AND logic per handle):
+//   - Collects BranchConditions for each handle ('yes' | 'no').
+//   - A handle matches when ALL its conditions pass against submittedFormData.
+//   - Tries 'yes' first; falls back to 'no'; then falls back to first edge.
+//   - Operator 'eq': strict string equality after coercing field value to string.
 
 async function advanceFlow(
   instanceId: string,
@@ -900,12 +910,16 @@ async function advanceFlow(
   graph: SerializedGraph,
   triggeredByUserId: string,
   tenantId: string,
+  submittedFormData: Record<string, unknown>,
   db: ReturnType<typeof createAdminClient>
 ): Promise<void> {
-  // Take first outbound edge (branch eval added in Week 14)
-  const outboundEdge = graph.edges.find((e) => e.source === completedStepNodeId)
+  // 1. Find the completed node (needed for branch type check)
+  const completedNode = graph.nodes.find((n) => n.id === completedStepNodeId)
 
-  if (!outboundEdge) {
+  // 2. Collect all outbound edges from completed step
+  const outboundEdges = graph.edges.filter((e) => e.source === completedStepNodeId)
+
+  if (outboundEdges.length === 0) {
     await db
       .from('flow_instances')
       .update({ status: 'completed', updated_at: new Date().toISOString() })
@@ -913,7 +927,37 @@ async function advanceFlow(
     return
   }
 
-  const nextNode = graph.nodes.find((n) => n.id === outboundEdge.target)
+  // 3. Pick the correct outbound edge
+  let chosenEdge = outboundEdges[0]
+
+  if (completedNode?.type === 'branch' && outboundEdges.length > 1) {
+    const branchConditions = (completedNode.data?.branchConditions ?? []) as BranchCondition[]
+
+    const handleMatches = (handleId: 'yes' | 'no'): boolean => {
+      const conds = branchConditions.filter((c) => c.handleId === handleId)
+      if (conds.length === 0) return false
+      return conds.every((cond) => {
+        const fieldValue = String(submittedFormData[cond.fieldId] ?? '')
+        if (cond.operator === 'eq') return fieldValue === cond.value
+        return false
+      })
+    }
+
+    const yesEdge = outboundEdges.find((e) => e.sourceHandle === 'yes')
+    const noEdge = outboundEdges.find((e) => e.sourceHandle === 'no')
+
+    if (yesEdge && handleMatches('yes')) {
+      chosenEdge = yesEdge
+    } else if (noEdge && handleMatches('no')) {
+      chosenEdge = noEdge
+    } else {
+      // Misconfigured conditions — safe fallback: yes → no → first
+      chosenEdge = yesEdge ?? noEdge ?? outboundEdges[0]
+    }
+  }
+
+  // 4. Find the next node
+  const nextNode = graph.nodes.find((n) => n.id === chosenEdge.target)
 
   if (!nextNode || nextNode.type === 'complete') {
     await db
@@ -923,7 +967,7 @@ async function advanceFlow(
     return
   }
 
-  // Resolve assignee for the next step
+  // 5. Resolve assignee for the next step
   const assigneeRule = (nextNode.data?.assigneeRule ?? null) as { type?: string } | null
   let assignedTo: string | null = null
 
@@ -957,7 +1001,7 @@ async function advanceFlow(
     }
   }
 
-  // Create the next step_instance
+  // 6. Create the next step_instance
   const { data: nextStep, error: stepError } = await db
     .from('step_instances')
     .insert({
@@ -972,7 +1016,7 @@ async function advanceFlow(
 
   if (stepError || !nextStep) return // non-fatal
 
-  // Update flow_instance.current_step_id to the new step
+  // 7. Update flow_instance.current_step_id
   await db
     .from('flow_instances')
     .update({
@@ -1009,4 +1053,108 @@ export async function updateFlowName(
     .eq('tenant_id', tenantId)
 
   return { error: error?.message ?? null }
+}
+
+// ─── Task type ────────────────────────────────────────────────────────────────
+
+export type TaskListItem = {
+  stepInstanceId: string
+  stepId: string
+  instanceId: string
+  assignedTo: string | null
+  createdAt: string
+  stepLabel: string
+  flowName: string
+  formSchema: FormField[]
+  triggeredByName: string | null
+  flowInstanceStatus: 'pending' | 'completed' | 'cancelled'
+}
+
+// ─── getMyTasks ───────────────────────────────────────────────────────────────
+// Returns all pending step_instances assigned to the current user.
+// Resolves step label + formSchema from graph JSONB server-side so the client
+// can open StepFormModal directly without an extra round-trip.
+
+export async function getMyTasks(): Promise<{
+  tasks: TaskListItem[]
+  error: string | null
+}> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { tasks: [], error: gate.error }
+
+  const { userId, tenantId, db } = gate
+
+  const { data, error } = await db
+    .from('step_instances')
+    .select(
+      `
+      id,
+      step_id,
+      instance_id,
+      assigned_to,
+      created_at,
+      flow_instances!instance_id (
+        id,
+        status,
+        triggered_by,
+        flow_versions!flow_version_id (
+          graph,
+          flows!flow_id (
+            name,
+            tenant_id
+          )
+        ),
+        users!triggered_by (
+          full_name,
+          email
+        )
+      )
+    `
+    )
+    .eq('assigned_to', userId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+
+  if (error) return { tasks: [], error: error.message }
+
+  const tasks: TaskListItem[] = []
+
+  for (const row of data ?? []) {
+    const fi = Array.isArray(row.flow_instances) ? row.flow_instances[0] : row.flow_instances
+    if (!fi) continue
+
+    const fv = Array.isArray(fi.flow_versions) ? fi.flow_versions[0] : fi.flow_versions
+    if (!fv) continue
+
+    const fl = Array.isArray(fv.flows) ? fv.flows[0] : fv.flows
+    if (!fl) continue
+
+    if (fl.tenant_id !== tenantId) continue
+
+    const graph = fv.graph as SerializedGraph
+    const stepNode = graph.nodes.find((n) => n.id === row.step_id)
+    const stepLabel = stepNode?.data?.label ?? 'Step'
+    const formSchema = (stepNode?.data?.formSchema ?? []) as FormField[]
+
+    const triggererRaw = Array.isArray(fi.users) ? fi.users[0] : fi.users
+    const triggeredByName =
+      (triggererRaw as { full_name?: string | null; email?: string } | null)?.full_name ??
+      (triggererRaw as { full_name?: string | null; email?: string } | null)?.email ??
+      null
+
+    tasks.push({
+      stepInstanceId: row.id,
+      stepId: row.step_id,
+      instanceId: row.instance_id,
+      assignedTo: row.assigned_to,
+      createdAt: row.created_at,
+      stepLabel,
+      flowName: fl.name ?? 'Unknown flow',
+      formSchema,
+      triggeredByName,
+      flowInstanceStatus: fi.status as 'pending' | 'completed' | 'cancelled',
+    })
+  }
+
+  return { tasks, error: null }
 }

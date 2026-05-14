@@ -26,6 +26,7 @@ export type InstanceDetail = {
   created_at: string
   updated_at: string
   flow_name: string
+  flow_description: string | null // <--- Add this line
   graph: SerializedGraph
   steps: StepInstanceRow[]
 }

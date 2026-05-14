@@ -38,7 +38,7 @@ async function getInstanceDetail(
       updated_at,
       flow_versions!flow_version_id (
         graph,
-        flows!flow_id ( name, tenant_id )
+        flows!flow_id ( name, description, tenant_id )
       )
     `
     )
@@ -121,6 +121,7 @@ async function getInstanceDetail(
     current_step_id: instance.current_step_id,
     created_at: instance.created_at,
     updated_at: instance.updated_at,
+    flow_description: flow.description,
     flow_name: flow.name,
     graph,
     steps,
@@ -129,7 +130,9 @@ async function getInstanceDetail(
 
 // ─── Page (default export only) ───────────────────────────────────────────────
 
-export default async function InstanceDetailPage({ params }: { params: { id: string } }) {
+export default async function InstanceDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params
+
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
 
