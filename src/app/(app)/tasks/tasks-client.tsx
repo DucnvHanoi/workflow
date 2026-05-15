@@ -2,9 +2,14 @@
 
 // FILE PATH: src/app/(app)/tasks/tasks-client.tsx
 //
-// Client component — renders the task list and owns StepFormModal open/close state.
+// Client component — renders the task list and owns TaskDetailModal open/close state.
 // On submit, router.refresh() re-fetches from the server so completed tasks
 // disappear without a full page reload.
+//
+// CHANGED from original:
+//   - Replaced StepFormModal with TaskDetailModal (two-tab modal: Context + Your Task)
+//   - ModalState now carries flowName + triggeredByName so the modal header is informative
+//   - TaskCard passes those fields through to onOpen()
 
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
@@ -12,7 +17,8 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ClipboardListIcon, ExternalLinkIcon } from 'lucide-react'
-import { StepFormModal } from '@/components/canvas/StepFormModal'
+// ── CHANGED: import TaskDetailModal instead of StepFormModal
+import { TaskDetailModal } from '@/components/canvas/TaskDetailModal'
 import type { TaskListItem } from '@/lib/flows/actions'
 import type { FormField } from '@/store/canvas-store'
 
@@ -24,6 +30,9 @@ interface ModalState {
   stepLabel: string
   formSchema: FormField[]
   initialData: Record<string, unknown>
+  // ── NEW: context needed for the modal header
+  flowName: string
+  triggeredByName: string | null
 }
 
 const CLOSED: ModalState = {
@@ -32,6 +41,8 @@ const CLOSED: ModalState = {
   stepLabel: '',
   formSchema: [],
   initialData: {},
+  flowName: '',
+  triggeredByName: null,
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -46,6 +57,7 @@ export function TasksClient({ tasks }: TasksClientProps) {
   const router = useRouter()
   const [modal, setModal] = useState<ModalState>(CLOSED)
 
+  // ── CHANGED: openTask now passes flowName + triggeredByName into modal state
   const openTask = useCallback((task: TaskListItem) => {
     setModal({
       open: true,
@@ -53,13 +65,14 @@ export function TasksClient({ tasks }: TasksClientProps) {
       stepLabel: task.stepLabel,
       formSchema: task.formSchema,
       initialData: {},
+      flowName: task.flowName,
+      triggeredByName: task.triggeredByName,
     })
   }, [])
 
   const closeModal = useCallback(() => setModal(CLOSED), [])
 
   const handleSubmitted = useCallback(() => {
-    // Close modal first, then refresh — task disappears from list
     setModal(CLOSED)
     router.refresh()
   }, [router])
@@ -86,9 +99,9 @@ export function TasksClient({ tasks }: TasksClientProps) {
         ))}
       </div>
 
-      {/* Modal — only mounted when a task is selected */}
+      {/* ── CHANGED: TaskDetailModal instead of StepFormModal ── */}
       {modal.stepInstanceId && (
-        <StepFormModal
+        <TaskDetailModal
           open={modal.open}
           onClose={closeModal}
           onSubmitted={handleSubmitted}
@@ -96,7 +109,8 @@ export function TasksClient({ tasks }: TasksClientProps) {
           stepLabel={modal.stepLabel}
           formSchema={modal.formSchema}
           initialData={modal.initialData}
-          isReadOnly={false}
+          flowName={modal.flowName}
+          triggeredByName={modal.triggeredByName}
         />
       )}
     </>
@@ -147,7 +161,6 @@ function TaskCard({ task, onOpen }: { task: TaskListItem; onOpen: () => void }) 
             Open
           </Button>
         ) : (
-          // No form fields — link straight to the flow detail page
           <Button asChild size="sm" variant="outline">
             <Link href={`/my-flows/${task.instanceId}`}>View flow</Link>
           </Button>

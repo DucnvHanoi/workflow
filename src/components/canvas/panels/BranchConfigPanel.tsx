@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import { useCanvasStore, type NodeData, type BranchCondition } from '@/store/canvas-store'
+import {
+  useCanvasStore,
+  type NodeData,
+  type BranchCondition,
+  type FormField,
+} from '@/store/canvas-store'
 import { type Node } from '@xyflow/react'
 
 interface Props {
@@ -13,9 +18,11 @@ const generateId = () => `cond_${Date.now()}_${Math.random().toString(36).slice(
 
 export default function BranchConfigPanel({ node }: Props) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData)
+  const triggerSave = useCanvasStore((s) => s.triggerSave)
   const data = node.data as NodeData
 
   const [conditions, setConditions] = useState<BranchCondition[]>(data.branchConditions ?? [])
+  const fields = data.formSchema ?? []
 
   // Sync when switching between branch nodes
   useEffect(() => {
@@ -25,6 +32,7 @@ export default function BranchConfigPanel({ node }: Props) {
   const persist = (updated: BranchCondition[]) => {
     setConditions(updated)
     updateNodeData(node.id, { branchConditions: updated })
+    triggerSave()
   }
 
   const addCondition = (handleId: 'yes' | 'no') => {
@@ -61,6 +69,7 @@ export default function BranchConfigPanel({ node }: Props) {
         label="Yes path"
         color="emerald"
         conditions={yesConditions}
+        fields={fields}
         handleId="yes"
         onAdd={() => addCondition('yes')}
         onUpdate={updateCondition}
@@ -72,6 +81,7 @@ export default function BranchConfigPanel({ node }: Props) {
         label="No path"
         color="rose"
         conditions={noConditions}
+        fields={fields}
         handleId="no"
         onAdd={() => addCondition('no')}
         onUpdate={updateCondition}
@@ -91,13 +101,14 @@ interface GroupProps {
   label: string
   color: 'emerald' | 'rose'
   conditions: BranchCondition[]
+  fields: FormField[]
   handleId: 'yes' | 'no'
   onAdd: () => void
   onUpdate: (id: string, patch: Partial<BranchCondition>) => void
   onRemove: (id: string) => void
 }
 
-function BranchGroup({ label, color, conditions, onAdd, onUpdate, onRemove }: GroupProps) {
+function BranchGroup({ label, color, conditions, fields, onAdd, onUpdate, onRemove }: GroupProps) {
   const borderColor = color === 'emerald' ? 'border-emerald-200' : 'border-rose-200'
   const badgeColor =
     color === 'emerald' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
@@ -129,6 +140,7 @@ function BranchGroup({ label, color, conditions, onAdd, onUpdate, onRemove }: Gr
             <ConditionRow
               key={cond.id}
               condition={cond}
+              fields={fields}
               onUpdate={(patch) => onUpdate(cond.id, patch)}
               onRemove={() => onRemove(cond.id)}
             />
@@ -143,21 +155,29 @@ function BranchGroup({ label, color, conditions, onAdd, onUpdate, onRemove }: Gr
 
 interface RowProps {
   condition: BranchCondition
+  fields: FormField[]
   onUpdate: (patch: Partial<BranchCondition>) => void
   onRemove: () => void
 }
 
-function ConditionRow({ condition, onUpdate, onRemove }: RowProps) {
+function ConditionRow({ condition, fields, onUpdate, onRemove }: RowProps) {
   return (
     <div className="flex items-center gap-2">
-      {/* Field ID input — will be a dropdown in Phase 2 Week 10 when form schema exists */}
-      <input
-        type="text"
+      <select
+        name="fieldId"
         value={condition.fieldId}
         onChange={(e) => onUpdate({ fieldId: e.target.value })}
-        placeholder="Field ID"
-        className="w-28 rounded border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-      />
+        className="w-32 cursor-pointer rounded border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+      >
+        <option value="" disabled>
+          Select field...
+        </option>
+        {fields.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.label || f.id}
+          </option>
+        ))}
+      </select>
 
       {/* Operator — fixed to 'eq' for now (plan: simple one field = one value) */}
       <span className="rounded border border-input bg-muted px-2 py-1 text-xs text-muted-foreground">

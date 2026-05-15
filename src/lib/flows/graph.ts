@@ -134,7 +134,10 @@ export function validateGraph(nodes: SerializedNode[], edges: SerializedEdge[]):
 
     // Branch: yes and no handles must each have at least one condition
     if (node.type === 'branch') {
-      const conditions = (node.data?.branchConditions ?? []) as Array<{ handleId: string }>
+      const conditions = (node.data?.branchConditions ?? []) as Array<{
+        handleId: string
+        fieldId: string
+      }>
       const yesCount = conditions.filter((c) => c.handleId === 'yes').length
       const noCount = conditions.filter((c) => c.handleId === 'no').length
       if (yesCount === 0) {
@@ -150,6 +153,18 @@ export function validateGraph(nodes: SerializedNode[], edges: SerializedEdge[]):
           nodeName: label,
           message: 'Branch "No" path needs at least one condition.',
         })
+      }
+
+      // Ensure every condition references a valid field from the node's own formSchema
+      const fieldIds = new Set(fields.map((f) => f.id))
+      for (const cond of conditions) {
+        if (!cond.fieldId || !fieldIds.has(cond.fieldId)) {
+          errors.push({
+            nodeId: node.id,
+            nodeName: label,
+            message: `Condition for "${cond.handleId}" references a missing or invalid field.`,
+          })
+        }
       }
     }
   }

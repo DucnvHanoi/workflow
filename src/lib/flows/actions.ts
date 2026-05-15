@@ -13,13 +13,11 @@ export type FlowListItem = {
   id: string
   name: string
   status: 'draft' | 'published'
-  // ADDED: description field (nullable — not all flows have one)
   description: string | null
   createdAt: string
   updatedAt: string
   versionNumber: number | null
   publishedAt: string | null
-  // ── Category (nullable — null means Uncategorized) ──────────────────────────
   categoryId: string | null
   categoryName: string | null
   categoryColor: string | null
@@ -30,13 +28,34 @@ export type FlowListItem = {
 export type FlowInstanceListItem = {
   id: string
   flowName: string
-  status: 'pending' | 'completed' | 'cancelled'
+  status: 'pending' | 'completed' | 'cancelled' | 'error' // ── CHANGED: added 'error'
   currentStepId: string | null
   createdAt: string
   updatedAt: string
-  // Denormalized from graph for display
   currentStepName: string | null
   description?: string | null
+}
+
+// ── NEW: Flow timeline event type ─────────────────────────────────────────────
+export type FlowEventLog = {
+  id: string
+  instanceId: string
+  stepInstanceId: string | null
+  tenantId: string
+  actorId: string | null
+  actorName: string | null // resolved from users table join
+  eventType:
+    | 'flow_triggered'
+    | 'step_assigned'
+    | 'step_draft_saved'
+    | 'step_submitted'
+    | 'branch_evaluated'
+    | 'flow_completed'
+    | 'flow_error'
+    | 'flow_cancelled'
+  description: string
+  metadata: Record<string, unknown>
+  createdAt: string
 }
 
 type FlowVersionRow = {
@@ -55,7 +74,6 @@ type FlowRow = {
   id: string
   name: string
   status: string
-  // ADDED
   description: string | null
   created_at: string
   updated_at: string
@@ -121,6 +139,49 @@ async function assertFlowInTenant(
   return { ok: true }
 }
 
+// ── NEW: internal helper to write an event log row ──────────────────────────
+// Non-fatal — if logging fails, the flow still continues. Never throws.
+async function writeEventLog(
+  db: AdminDb,
+  params: {
+    instanceId: string
+    stepInstanceId?: string | null
+    tenantId: string
+    actorId?: string | null
+    eventType: FlowEventLog['eventType']
+    description: string
+    metadata?: Record<string, unknown>
+  }
+): Promise<void> {
+  try {
+    await db.from('flow_event_logs').insert({
+      instance_id: params.instanceId,
+      step_instance_id: params.stepInstanceId ?? null,
+      tenant_id: params.tenantId,
+      actor_id: params.actorId ?? null,
+      event_type: params.eventType,
+      description: params.description,
+      metadata: params.metadata ?? {},
+    })
+  } catch {
+    // Non-fatal — never block the flow for a logging failure
+  }
+}
+
+// ── NEW: resolve a user's display name for log messages ─────────────────────
+async function resolveUserName(db: AdminDb, userId: string): Promise<string> {
+  try {
+    const { data } = await db
+      .from('users')
+      .select('full_name, email')
+      .eq('id', userId)
+      .maybeSingle()
+    return data?.full_name ?? data?.email ?? 'Unknown user'
+  } catch {
+    return 'Unknown user'
+  }
+}
+
 // ─── Save a draft version ─────────────────────────────────────────────────────────
 
 export async function saveDraftVersion(
@@ -134,7 +195,6 @@ export async function saveDraftVersion(
   const access = await assertFlowInTenant(db, flowId, tenantId)
   if (!access.ok) return { versionId: '', versionNumber: 0, error: access.error }
 
-  // Get current max version_number for this flow
   const { data: existing } = await db
     .from('flow_versions')
     .select('version_number')
@@ -164,7 +224,6 @@ export async function saveDraftVersion(
     }
   }
 
-  // Update flows.latest_version_id and updated_at
   await db
     .from('flows')
     .update({
@@ -197,7 +256,6 @@ export async function getLatestDraftGraph(
     .limit(1)
     .single()
 
-  // PGRST116 = no rows — expected for a brand-new flow
   if (error && error.code !== 'PGRST116') {
     return { graph: null, error: error.message }
   }
@@ -361,9 +419,7 @@ export async function restoreVersion(
 }
 
 // ─── getFlows ────────────────────────────────────────────────────────────────
-// CHANGED (Day 33): works for ALL authenticated users, not just admins.
-// Admins see all flows (draft + published).
-// Regular users only see published flows (so they can trigger them).
+
 export async function getFlows(): Promise<{
   flows: FlowListItem[]
   error: string | null
@@ -397,7 +453,6 @@ export async function getFlows(): Promise<{
     .eq('tenant_id', tenantId)
     .order('updated_at', { ascending: false })
 
-  // Regular users only see published flows
   if (role !== 'admin') {
     query = query.eq('status', 'published')
   }
@@ -414,7 +469,6 @@ export async function getFlows(): Promise<{
         id: f.id,
         name: f.name,
         status: f.status as 'draft' | 'published',
-        // ADDED
         description: f.description ?? null,
         createdAt: f.created_at,
         updatedAt: f.updated_at,
@@ -464,8 +518,6 @@ export async function deleteFlow(flowId: string): Promise<{ error: string | null
 }
 
 // ─── updateFlowDescription ───────────────────────────────────────────────────
-// ADDED: allows admins to set a short description on a flow (max 100 words).
-// Called from flows-client.tsx inline edit UI.
 
 export async function updateFlowDescription(
   flowId: string,
@@ -479,8 +531,6 @@ export async function updateFlowDescription(
   if (!access.ok) return { error: access.error }
 
   const trimmed = description.trim()
-
-  // Word count check — split on whitespace, ignore empty tokens
   const wordCount = trimmed ? trimmed.split(/\s+/).filter(Boolean).length : 0
   if (wordCount > 100) {
     return { error: 'Description must be 100 words or fewer.' }
@@ -499,8 +549,6 @@ export async function updateFlowDescription(
 }
 
 // ─── triggerFlow ─────────────────────────────────────────────────────────────
-// ADDED (Day 33): creates a flow_instance + first step_instance for a published flow.
-// Returns the new instance ID so the client can redirect to /my-flows/[id].
 
 export async function triggerFlow(
   flowId: string
@@ -510,7 +558,6 @@ export async function triggerFlow(
 
   const { userId, tenantId, db } = gate
 
-  // 1. Verify flow is published and belongs to tenant
   const { data: flow, error: flowError } = await db
     .from('flows')
     .select('id, status, latest_version_id')
@@ -522,7 +569,6 @@ export async function triggerFlow(
   if (flow.status !== 'published') return { instanceId: null, error: 'Flow is not published.' }
   if (!flow.latest_version_id) return { instanceId: null, error: 'Flow has no published version.' }
 
-  // 2. Fetch the graph from the latest version
   const { data: version, error: versionError } = await db
     .from('flow_versions')
     .select('id, graph')
@@ -533,11 +579,9 @@ export async function triggerFlow(
 
   const graph = version.graph as SerializedGraph
 
-  // 3. Find the trigger node
   const triggerNode = graph.nodes.find((n) => n.type === 'trigger')
   if (!triggerNode) return { instanceId: null, error: 'Flow has no trigger node.' }
 
-  // 4. Create the flow_instance
   const { data: instance, error: instanceError } = await db
     .from('flow_instances')
     .insert({
@@ -553,20 +597,40 @@ export async function triggerFlow(
     return { instanceId: null, error: instanceError?.message ?? 'Could not create instance.' }
   }
 
-  // 5. Find the first action node (outbound from trigger)
+  // ── NEW: resolve triggerer name once for log messages
+  const triggererName = await resolveUserName(db, userId)
+
+  // ── NEW: log flow_triggered event
+  await writeEventLog(db, {
+    instanceId: instance.id,
+    tenantId,
+    actorId: userId,
+    eventType: 'flow_triggered',
+    description: `${triggererName} started this flow.`,
+    metadata: { flowId, versionId: version.id },
+  })
+
   const firstEdge = graph.edges.find((e) => e.source === triggerNode.id)
   const firstNode = firstEdge ? graph.nodes.find((n) => n.id === firstEdge.target) : null
 
   if (!firstNode || firstNode.type === 'complete') {
-    // Trivial flow — mark complete immediately
     await db
       .from('flow_instances')
       .update({ status: 'completed', updated_at: new Date().toISOString() })
       .eq('id', instance.id)
+
+    // ── NEW: log flow_completed for trivial flow
+    await writeEventLog(db, {
+      instanceId: instance.id,
+      tenantId,
+      actorId: null,
+      eventType: 'flow_completed',
+      description: 'Flow completed instantly (no steps configured).',
+    })
+
     return { instanceId: instance.id, error: null }
   }
 
-  // 6. Resolve assignee for the first step
   const assigneeRule = (firstNode.data?.assigneeRule ?? null) as { type?: string } | null
   let assignedTo: string | null = null
 
@@ -596,11 +660,10 @@ export async function triggerFlow(
         if (result.assigned_to_user_id) assignedTo = result.assigned_to_user_id
       }
     } catch {
-      // Non-fatal — step created unassigned; admin can reassign later
+      // Non-fatal
     }
   }
 
-  // 7. Create the first step_instance
   const { data: stepInstance, error: stepError } = await db
     .from('step_instances')
     .insert({
@@ -617,7 +680,6 @@ export async function triggerFlow(
     return { instanceId: instance.id, error: stepError?.message ?? 'Could not create step.' }
   }
 
-  // 8. Update flow_instance.current_step_id
   await db
     .from('flow_instances')
     .update({
@@ -626,11 +688,23 @@ export async function triggerFlow(
     })
     .eq('id', instance.id)
 
+  // ── NEW: log step_assigned for the first step
+  const stepLabel = (firstNode.data?.label as string | undefined) ?? 'Step'
+  const assigneeName = assignedTo ? await resolveUserName(db, assignedTo) : 'Unassigned'
+  await writeEventLog(db, {
+    instanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    tenantId,
+    actorId: null,
+    eventType: 'step_assigned',
+    description: `"${stepLabel}" assigned to ${assigneeName}.`,
+    metadata: { stepId: firstNode.id, assignedTo, assigneeRule },
+  })
+
   return { instanceId: instance.id, error: null }
 }
 
 // ─── getMyInstances ──────────────────────────────────────────────────────────
-// Returns all flow instances triggered by the current user, sorted by most recent.
 
 export async function getMyInstances(): Promise<{
   instances: FlowInstanceListItem[]
@@ -651,7 +725,8 @@ export async function getMyInstances(): Promise<{
       created_at,
       updated_at,
       flow_versions!flow_version_id (
-        flows!flow_id ( name )
+        graph,
+        flows!flow_id ( name, tenant_id )
       )
     `
     )
@@ -669,18 +744,17 @@ export async function getMyInstances(): Promise<{
           : (fv as Record<string, unknown>).flows
         : null
 
-      // Verify tenant isolation via the nested flow
       const flowTenantId = (fl as Record<string, unknown> | null)?.tenant_id
       if (flowTenantId && flowTenantId !== tenantId) return null
 
       return {
         id: row.id as string,
         flowName: ((fl as Record<string, unknown> | null)?.name as string) ?? 'Unknown flow',
-        status: row.status as 'pending' | 'completed' | 'cancelled',
+        status: row.status as 'pending' | 'completed' | 'cancelled' | 'error',
         currentStepId: (row.current_step_id as string | null) ?? null,
         createdAt: row.created_at as string,
         updatedAt: row.updated_at as string,
-        currentStepName: null, // resolved client-side from graph when needed
+        currentStepName: null,
         description: row.description as string | null,
       }
     }
@@ -693,8 +767,6 @@ export async function getMyInstances(): Promise<{
 }
 
 // ─── getStepInstance ─────────────────────────────────────────────────────────
-// Fetches a single step_instance for display/submission in StepFormModal.
-// Access: assigned user, flow triggerer, or tenant admin.
 
 export async function getStepInstance(stepInstanceId: string): Promise<{
   stepInstance: {
@@ -738,15 +810,12 @@ export async function getStepInstance(stepInstanceId: string): Promise<{
   if (error) return { stepInstance: null, error: error.message }
   if (!data) return { stepInstance: null, error: 'Step not found.' }
 
-  // Unwrap PostgREST nested FK rows
   const fi = Array.isArray(data.flow_instances) ? data.flow_instances[0] : data.flow_instances
   const fv = fi ? (Array.isArray(fi.flow_versions) ? fi.flow_versions[0] : fi.flow_versions) : null
   const fl = fv ? (Array.isArray(fv.flows) ? fv.flows[0] : fv.flows) : null
 
-  // Tenant isolation
   if (!fl || fl.tenant_id !== tenantId) return { stepInstance: null, error: 'Not found.' }
 
-  // Access control: assignee, flow triggerer, or admin
   if (role !== 'admin' && data.assigned_to !== userId && fi?.triggered_by !== userId) {
     return { stepInstance: null, error: 'Access denied.' }
   }
@@ -766,7 +835,6 @@ export async function getStepInstance(stepInstanceId: string): Promise<{
 }
 
 // ─── saveDraftStep ────────────────────────────────────────────────────────────
-// Persists form_data without changing step status (used by "Save Draft" button).
 
 export async function saveDraftStep(
   stepInstanceId: string,
@@ -784,9 +852,13 @@ export async function saveDraftStep(
       id,
       status,
       assigned_to,
+      step_id,
+      instance_id,
       flow_instances!instance_id (
+        id,
         triggered_by,
         flow_versions!flow_version_id (
+          graph,
           flows!flow_id ( tenant_id )
         )
       )
@@ -812,12 +884,28 @@ export async function saveDraftStep(
     .update({ form_data: formData })
     .eq('id', stepInstanceId)
 
-  return { error: updateError?.message ?? null }
+  if (updateError) return { error: updateError.message }
+
+  // ── NEW: log draft save event
+  const graph = fv?.graph as SerializedGraph | undefined
+  const stepNode = graph?.nodes.find((n) => n.id === si.step_id)
+  const stepLabel = (stepNode?.data?.label as string | undefined) ?? 'Step'
+  const actorName = await resolveUserName(db, userId)
+
+  await writeEventLog(db, {
+    instanceId: fi?.id ?? si.instance_id,
+    stepInstanceId,
+    tenantId,
+    actorId: userId,
+    eventType: 'step_draft_saved',
+    description: `${actorName} saved a draft of "${stepLabel}".`,
+    metadata: { stepId: si.step_id },
+  })
+
+  return { error: null }
 }
 
 // ─── submitStep ───────────────────────────────────────────────────────────────
-// Marks the step completed, saves final form_data, and advances the flow to the
-// next step. advanceFlow handles the stub logic (full branch eval in Week 14).
 
 export async function submitStep(
   stepInstanceId: string,
@@ -863,7 +951,6 @@ export async function submitStep(
     return { error: 'Access denied.' }
   }
 
-  // Mark step as completed
   const { error: completeError } = await db
     .from('step_instances')
     .update({
@@ -875,7 +962,23 @@ export async function submitStep(
 
   if (completeError) return { error: completeError.message }
 
-  // Advance the flow to the next step
+  // ── NEW: log step_submitted event
+  const graph = fv?.graph as SerializedGraph | undefined
+  const stepNode = graph?.nodes.find((n) => n.id === si.step_id)
+  const stepLabel = (stepNode?.data?.label as string | undefined) ?? 'Step'
+  const actorName = await resolveUserName(db, userId)
+
+  await writeEventLog(db, {
+    instanceId: fi?.id ?? si.instance_id,
+    stepInstanceId,
+    tenantId,
+    actorId: userId,
+    eventType: 'step_submitted',
+    description: `${actorName} submitted "${stepLabel}".`,
+    // ── NEW: store submitted form data in metadata for audit trail
+    metadata: { stepId: si.step_id, formData },
+  })
+
   if (fi?.id && fv?.graph) {
     await advanceFlow(
       fi.id,
@@ -884,7 +987,10 @@ export async function submitStep(
       fi.triggered_by ?? userId,
       tenantId,
       formData,
-      db
+      db,
+      // ── NEW: pass actor info through to advanceFlow for logging
+      userId,
+      actorName
     )
   }
 
@@ -892,17 +998,21 @@ export async function submitStep(
 }
 
 // ─── advanceFlow ─────────────────────────────────────────────────────────────
-// Reads outbound edges from the completed step node, evaluates branch conditions
-// when the node is a branch type, picks the correct edge, creates the next
+// Reads outbound edges from the completed step, evaluates branch conditions
+// when the node is type=branch, picks the correct edge, creates the next
 // step_instance, resolves the assignee, and updates current_step_id.
-// If the next node is type=complete (or no outbound edge exists), the flow
-// instance is marked completed.
 //
-// Branch evaluation (AND logic per handle):
-//   - Collects BranchConditions for each handle ('yes' | 'no').
-//   - A handle matches when ALL its conditions pass against submittedFormData.
-//   - Tries 'yes' first; falls back to 'no'; then falls back to first edge.
-//   - Operator 'eq': strict string equality after coercing field value to string.
+// ── CHANGED: Branch evaluation is now strict.
+//   - A branch node MUST have its 'yes' OR 'no' conditions satisfied.
+//   - If neither handle's conditions match, the flow is marked 'error' and
+//     a flow_error event is written. The flow does NOT blindly advance.
+//   - A handle with zero conditions is treated as a no-op (never matches),
+//     NOT as a fallback. If you want a default path, add at least one condition
+//     that will always be true, or use the "empty = fallback" option documented
+//     in the BranchConfigPanel tip (only applies when the OTHER handle has
+//     conditions and they fail — see logic below).
+//
+// ── CHANGED: added actorId + actorName params for event logging
 
 async function advanceFlow(
   instanceId: string,
@@ -911,49 +1021,125 @@ async function advanceFlow(
   triggeredByUserId: string,
   tenantId: string,
   submittedFormData: Record<string, unknown>,
-  db: ReturnType<typeof createAdminClient>
+  db: ReturnType<typeof createAdminClient>,
+  // ── NEW params
+  actorId: string,
+  actorName: string
 ): Promise<void> {
-  // 1. Find the completed node (needed for branch type check)
+  // 1. Find the completed node
   const completedNode = graph.nodes.find((n) => n.id === completedStepNodeId)
 
-  // 2. Collect all outbound edges from completed step
+  // 2. Collect all outbound edges from the completed step
   const outboundEdges = graph.edges.filter((e) => e.source === completedStepNodeId)
 
   if (outboundEdges.length === 0) {
+    // No outbound edges — treat as flow complete
     await db
       .from('flow_instances')
       .update({ status: 'completed', updated_at: new Date().toISOString() })
       .eq('id', instanceId)
+
+    await writeEventLog(db, {
+      instanceId,
+      tenantId,
+      actorId: null,
+      eventType: 'flow_completed',
+      description: 'Flow completed (no further steps).',
+    })
     return
   }
 
   // 3. Pick the correct outbound edge
   let chosenEdge = outboundEdges[0]
+  let branchPath: string | null = null // 'yes' | 'no' — for logging
 
   if (completedNode?.type === 'branch' && outboundEdges.length > 1) {
     const branchConditions = (completedNode.data?.branchConditions ?? []) as BranchCondition[]
 
+    const yesEdge = outboundEdges.find((e) => e.sourceHandle === 'yes')
+    const noEdge = outboundEdges.find((e) => e.sourceHandle === 'no')
+
+    // ── CHANGED: evaluate handle conditions
+    // A handle matches when it has at least one condition AND all conditions pass.
+    // A handle with zero conditions never matches (not a fallback).
     const handleMatches = (handleId: 'yes' | 'no'): boolean => {
       const conds = branchConditions.filter((c) => c.handleId === handleId)
-      if (conds.length === 0) return false
+      if (conds.length === 0) return false // zero conditions = no match
       return conds.every((cond) => {
-        const fieldValue = String(submittedFormData[cond.fieldId] ?? '')
+        const rawValue = submittedFormData[cond.fieldId]
+        const fieldValue = Array.isArray(rawValue)
+          ? rawValue.map(String).join(',') // checkbox multi-value: join for eq check
+          : String(rawValue ?? '')
         if (cond.operator === 'eq') return fieldValue === cond.value
         return false
       })
     }
 
-    const yesEdge = outboundEdges.find((e) => e.sourceHandle === 'yes')
-    const noEdge = outboundEdges.find((e) => e.sourceHandle === 'no')
+    const yesMatches = yesEdge ? handleMatches('yes') : false
+    const noMatches = noEdge ? handleMatches('no') : false
 
-    if (yesEdge && handleMatches('yes')) {
-      chosenEdge = yesEdge
-    } else if (noEdge && handleMatches('no')) {
-      chosenEdge = noEdge
+    // ── CHANGED: strict fallback logic
+    // Priority: yes → no. If neither matches AND neither has zero conditions
+    // (meaning both were intentionally configured but neither passed), mark error.
+    // If one side has zero conditions and the other side does NOT match, the
+    // zero-condition side acts as the "default / else" path.
+    const yesCondCount = branchConditions.filter((c) => c.handleId === 'yes').length
+    const noCondCount = branchConditions.filter((c) => c.handleId === 'no').length
+
+    if (yesMatches) {
+      chosenEdge = yesEdge!
+      branchPath = 'yes'
+    } else if (noMatches) {
+      chosenEdge = noEdge!
+      branchPath = 'no'
+    } else if (yesCondCount === 0 && noEdge) {
+      // 'yes' path has no conditions → 'no' side is the evaluated side;
+      // since it didn't match, use 'yes' (empty) as default/else
+      chosenEdge = yesEdge ?? noEdge
+      branchPath = 'yes (default)'
+    } else if (noCondCount === 0 && yesEdge) {
+      // 'no' path has no conditions → it's the default/else
+      chosenEdge = noEdge ?? yesEdge
+      branchPath = 'no (default)'
     } else {
-      // Misconfigured conditions — safe fallback: yes → no → first
-      chosenEdge = yesEdge ?? noEdge ?? outboundEdges[0]
+      // ── CHANGED: neither matched and no default configured → error state
+      const stepLabel = (completedNode.data?.label as string | undefined) ?? 'Branch'
+      const errorMsg = `Branch "${stepLabel}" could not be evaluated: no condition matched. Check your branch conditions and the field IDs match the previous step's form fields.`
+
+      await db
+        .from('flow_instances')
+        .update({ status: 'error', updated_at: new Date().toISOString() })
+        .eq('id', instanceId)
+
+      await writeEventLog(db, {
+        instanceId,
+        tenantId,
+        actorId: null,
+        eventType: 'flow_error',
+        description: errorMsg,
+        metadata: {
+          branchNodeId: completedStepNodeId,
+          submittedFormData,
+          conditions: branchConditions,
+        },
+      })
+      return
     }
+
+    // ── NEW: log branch_evaluated event
+    const stepLabel = (completedNode.data?.label as string | undefined) ?? 'Branch'
+    await writeEventLog(db, {
+      instanceId,
+      tenantId,
+      actorId: actorId,
+      eventType: 'branch_evaluated',
+      description: `Branch "${stepLabel}" took the "${branchPath}" path.`,
+      metadata: {
+        branchNodeId: completedStepNodeId,
+        path: branchPath,
+        conditions: branchConditions,
+      },
+    })
   }
 
   // 4. Find the next node
@@ -964,6 +1150,14 @@ async function advanceFlow(
       .from('flow_instances')
       .update({ status: 'completed', updated_at: new Date().toISOString() })
       .eq('id', instanceId)
+
+    await writeEventLog(db, {
+      instanceId,
+      tenantId,
+      actorId: null,
+      eventType: 'flow_completed',
+      description: 'Flow completed successfully.',
+    })
     return
   }
 
@@ -997,7 +1191,7 @@ async function advanceFlow(
         if (result.assigned_to_user_id) assignedTo = result.assigned_to_user_id
       }
     } catch {
-      // Non-fatal — step is created unassigned; admin can reassign later
+      // Non-fatal
     }
   }
 
@@ -1014,7 +1208,7 @@ async function advanceFlow(
     .select('id')
     .single()
 
-  if (stepError || !nextStep) return // non-fatal
+  if (stepError || !nextStep) return
 
   // 7. Update flow_instance.current_step_id
   await db
@@ -1024,10 +1218,123 @@ async function advanceFlow(
       updated_at: new Date().toISOString(),
     })
     .eq('id', instanceId)
+
+  // ── NEW: log step_assigned event for the next step
+  const nextStepLabel = (nextNode.data?.label as string | undefined) ?? 'Step'
+  const assigneeName = assignedTo ? await resolveUserName(db, assignedTo) : 'Unassigned'
+  await writeEventLog(db, {
+    instanceId,
+    stepInstanceId: nextStep.id,
+    tenantId,
+    actorId: null,
+    eventType: 'step_assigned',
+    description: `"${nextStepLabel}" assigned to ${assigneeName}.`,
+    metadata: { stepId: nextNode.id, assignedTo, assigneeRule },
+  })
+}
+
+// ── NEW: getFlowTimeline ──────────────────────────────────────────────────────
+// Returns all event logs for a flow instance, sorted oldest→newest.
+// Access: flow triggerer, any assigned user on the instance, or tenant admin.
+
+export async function getFlowTimeline(instanceId: string): Promise<{
+  events: FlowEventLog[]
+  error: string | null
+}> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { events: [], error: gate.error }
+
+  const { userId, tenantId, role, db } = gate
+
+  // Access check: verify the instance belongs to this tenant and the user has access
+  const { data: instance, error: instanceError } = await db
+    .from('flow_instances')
+    .select('id, triggered_by, tenant_id:flow_versions!flow_version_id(flows!flow_id(tenant_id))')
+    .eq('id', instanceId)
+    .maybeSingle()
+
+  if (instanceError || !instance) return { events: [], error: 'Instance not found.' }
+
+  // Tenant isolation check
+  const fvRaw = (instance as Record<string, unknown>).flow_versions
+  const fv = Array.isArray(fvRaw) ? fvRaw[0] : fvRaw
+  const flRaw = fv ? (fv as Record<string, unknown>).flows : null
+  const fl = Array.isArray(flRaw) ? flRaw[0] : flRaw
+  const instanceTenantId = (fl as Record<string, unknown> | null)?.tenant_id as string | undefined
+
+  if (instanceTenantId && instanceTenantId !== tenantId) {
+    return { events: [], error: 'Access denied.' }
+  }
+
+  // Non-admins must be the triggerer or assigned to at least one step
+  if (role !== 'admin') {
+    const isTriggerer = (instance as Record<string, unknown>).triggered_by === userId
+
+    let isAssigned = false
+    if (!isTriggerer) {
+      const { count } = await db
+        .from('step_instances')
+        .select('id', { count: 'exact', head: true })
+        .eq('instance_id', instanceId)
+        .eq('assigned_to', userId)
+      isAssigned = (count ?? 0) > 0
+    }
+
+    if (!isTriggerer && !isAssigned) {
+      return { events: [], error: 'Access denied.' }
+    }
+  }
+
+  // Fetch the event logs + actor name via join
+  const { data, error } = await db
+    .from('flow_event_logs')
+    .select(
+      `
+      id,
+      instance_id,
+      step_instance_id,
+      tenant_id,
+      actor_id,
+      event_type,
+      description,
+      metadata,
+      created_at,
+      users!actor_id (
+        full_name,
+        email
+      )
+    `
+    )
+    .eq('instance_id', instanceId)
+    .order('created_at', { ascending: true })
+
+  if (error) return { events: [], error: error.message }
+
+  const events: FlowEventLog[] = (data ?? []).map((row) => {
+    const actor = Array.isArray(row.users) ? row.users[0] : row.users
+    const actorName =
+      (actor as { full_name?: string | null; email?: string } | null)?.full_name ??
+      (actor as { full_name?: string | null; email?: string } | null)?.email ??
+      null
+
+    return {
+      id: row.id as string,
+      instanceId: row.instance_id as string,
+      stepInstanceId: (row.step_instance_id as string | null) ?? null,
+      tenantId: row.tenant_id as string,
+      actorId: (row.actor_id as string | null) ?? null,
+      actorName,
+      eventType: row.event_type as FlowEventLog['eventType'],
+      description: row.description as string,
+      metadata: (row.metadata as Record<string, unknown>) ?? {},
+      createdAt: row.created_at as string,
+    }
+  })
+
+  return { events, error: null }
 }
 
 // ─── updateFlowName ──────────────────────────────────────────────────────────
-// Allows admins to rename a flow from the canvas editor (FlowNameEditor.tsx).
 
 export async function updateFlowName(
   flowId: string,
@@ -1067,13 +1374,10 @@ export type TaskListItem = {
   flowName: string
   formSchema: FormField[]
   triggeredByName: string | null
-  flowInstanceStatus: 'pending' | 'completed' | 'cancelled'
+  flowInstanceStatus: 'pending' | 'completed' | 'cancelled' | 'error' // ── CHANGED: added error
 }
 
 // ─── getMyTasks ───────────────────────────────────────────────────────────────
-// Returns all pending step_instances assigned to the current user.
-// Resolves step label + formSchema from graph JSONB server-side so the client
-// can open StepFormModal directly without an extra round-trip.
 
 export async function getMyTasks(): Promise<{
   tasks: TaskListItem[]
@@ -1152,9 +1456,335 @@ export async function getMyTasks(): Promise<{
       flowName: fl.name ?? 'Unknown flow',
       formSchema,
       triggeredByName,
-      flowInstanceStatus: fi.status as 'pending' | 'completed' | 'cancelled',
+      flowInstanceStatus: fi.status as 'pending' | 'completed' | 'cancelled' | 'error',
     })
   }
 
   return { tasks, error: null }
+}
+
+// ─── Category actions ─────────────────────────────────────────────────────────
+
+export async function getFlowCategories(): Promise<{
+  categories: { id: string; name: string; color: string }[]
+  error: string | null
+}> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { categories: [], error: gate.error }
+
+  const { tenantId, db } = gate
+
+  const { data, error } = await db
+    .from('flow_categories')
+    .select('id, name, color')
+    .eq('tenant_id', tenantId)
+    .order('name')
+
+  if (error) return { categories: [], error: error.message }
+  return { categories: data ?? [], error: null }
+}
+
+export async function createFlowCategory(
+  name: string,
+  color: string
+): Promise<{ error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Category name cannot be empty.' }
+
+  const { error } = await db
+    .from('flow_categories')
+    .insert({ tenant_id: tenantId, name: trimmed, color })
+
+  return { error: error?.message ?? null }
+}
+
+export async function renameFlowCategory(
+  id: string,
+  name: string
+): Promise<{ error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Category name cannot be empty.' }
+
+  const { error } = await db
+    .from('flow_categories')
+    .update({ name: trimmed })
+    .eq('id', id)
+    .eq('tenant_id', tenantId)
+
+  return { error: error?.message ?? null }
+}
+
+export async function deleteFlowCategory(id: string): Promise<{ error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+
+  const { error } = await db.from('flow_categories').delete().eq('id', id).eq('tenant_id', tenantId)
+
+  return { error: error?.message ?? null }
+}
+
+export async function assignFlowCategory(
+  flowId: string,
+  categoryId: string | null
+): Promise<{ error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { error: access.error }
+
+  const { error } = await db
+    .from('flows')
+    .update({ category_id: categoryId, updated_at: new Date().toISOString() })
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+
+  return { error: error?.message ?? null }
+}
+// ── NEW: getTaskContext ────────────────────────────────────────────────────────
+// Returns everything the assignee needs to understand the full picture before
+// completing their step:
+//   - The activity log (timeline) for the instance
+//   - Each previous completed step's label + submitted form values with field labels
+//   - The flow name and who triggered it
+//
+// Single server call — avoids multiple client-side round trips.
+// Add this function at the END of src/lib/flows/actions.ts
+
+export type PreviousStepData = {
+  stepId: string
+  stepLabel: string
+  assigneeName: string | null
+  completedAt: string | null
+  fields: { fieldId: string; fieldLabel: string; fieldType: string; value: string }[]
+}
+
+export type TaskContext = {
+  flowName: string
+  triggeredByName: string | null
+  timeline: FlowEventLog[]
+  previousSteps: PreviousStepData[]
+}
+
+export async function getTaskContext(
+  stepInstanceId: string
+): Promise<{ context: TaskContext | null; error: string | null }> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { context: null, error: gate.error }
+
+  const { userId, tenantId, role, db } = gate
+
+  // 1. Load the step instance + its parent flow instance + graph
+  const { data: si, error: siError } = await db
+    .from('step_instances')
+    .select(
+      `
+      id,
+      step_id,
+      assigned_to,
+      instance_id,
+      flow_instances!instance_id (
+        id,
+        triggered_by,
+        flow_versions!flow_version_id (
+          graph,
+          flows!flow_id ( name, tenant_id )
+        ),
+        users!triggered_by (
+          full_name,
+          email
+        )
+      )
+    `
+    )
+    .eq('id', stepInstanceId)
+    .maybeSingle()
+
+  if (siError || !si) return { context: null, error: 'Step not found.' }
+
+  const fi = Array.isArray(si.flow_instances) ? si.flow_instances[0] : si.flow_instances
+  if (!fi) return { context: null, error: 'Flow instance not found.' }
+
+  const fv = Array.isArray(fi.flow_versions) ? fi.flow_versions[0] : fi.flow_versions
+  if (!fv) return { context: null, error: 'Flow version not found.' }
+
+  const fl = Array.isArray(fv.flows) ? fv.flows[0] : fv.flows
+  if (!fl) return { context: null, error: 'Flow not found.' }
+
+  // Tenant isolation
+  if ((fl as Record<string, unknown>).tenant_id !== tenantId) {
+    return { context: null, error: 'Access denied.' }
+  }
+
+  // Access check: must be assignee or admin
+  if (role !== 'admin' && si.assigned_to !== userId) {
+    return { context: null, error: 'Access denied.' }
+  }
+
+  const instanceId = fi.id as string
+  const graph = fv.graph as SerializedGraph
+
+  // Resolve triggerer name
+  const triggererRaw = Array.isArray(fi.users) ? fi.users[0] : fi.users
+  const triggeredByName =
+    (triggererRaw as { full_name?: string | null; email?: string } | null)?.full_name ??
+    (triggererRaw as { full_name?: string | null; email?: string } | null)?.email ??
+    null
+
+  // 2. Load all completed step instances for this flow instance (oldest first)
+  const { data: completedSteps, error: stepsError } = await db
+    .from('step_instances')
+    .select('id, step_id, assigned_to, form_data, completed_at, status')
+    .eq('instance_id', instanceId)
+    .eq('status', 'completed')
+    .order('completed_at', { ascending: true })
+
+  if (stepsError) return { context: null, error: stepsError.message }
+
+  // 3. Resolve assignee names for completed steps
+  const assigneeIds = (completedSteps ?? [])
+    .map((s: { assigned_to: string | null }) => s.assigned_to)
+    .filter(Boolean) as string[]
+
+  let assigneeMap: Record<string, string> = {}
+  if (assigneeIds.length > 0) {
+    const { data: assignees } = await db
+      .from('users')
+      .select('id, full_name, email')
+      .in('id', assigneeIds)
+    assigneeMap = Object.fromEntries(
+      (assignees ?? []).map((u: { id: string; full_name: string | null; email: string }) => [
+        u.id,
+        u.full_name ?? u.email,
+      ])
+    )
+  }
+
+  // 4. Build previousSteps: match each completed step_instance to its graph node
+  //    so we can show field labels (not just raw field IDs)
+  const nodeMap = new Map(graph.nodes.map((n) => [n.id, n]))
+
+  const previousSteps: PreviousStepData[] = (completedSteps ?? []).map(
+    (s: {
+      id: string
+      step_id: string
+      assigned_to: string | null
+      form_data: Record<string, unknown>
+      completed_at: string | null
+      status: string
+    }) => {
+      const node = nodeMap.get(s.step_id)
+      const stepLabel = (node?.data?.label as string | undefined) ?? 'Step'
+      const formSchema = (node?.data?.formSchema ?? []) as FormField[]
+      const formData = (s.form_data ?? {}) as Record<string, unknown>
+
+      // Map each form field to its label + submitted value
+      const fields = formSchema
+        .map((field) => {
+          const raw = formData[field.id]
+          let value = ''
+          if (Array.isArray(raw)) {
+            value = raw.length > 0 ? raw.join(', ') : '(none selected)'
+          } else if (raw === null || raw === undefined || raw === '') {
+            value = '(empty)'
+          } else {
+            value = String(raw)
+          }
+          return {
+            fieldId: field.id,
+            fieldLabel: field.label || field.id,
+            fieldType: field.type,
+            value,
+          }
+        })
+        // Also surface keys in form_data that aren't in the schema (edge cases)
+        .concat(
+          Object.entries(formData)
+            .filter(([key]) => !formSchema.find((f) => f.id === key))
+            .map(([key, val]) => ({
+              fieldId: key,
+              fieldLabel: key,
+              fieldType: 'text',
+              value: String(val ?? ''),
+            }))
+        )
+
+      return {
+        stepId: s.step_id,
+        stepLabel,
+        assigneeName: s.assigned_to ? (assigneeMap[s.assigned_to] ?? null) : null,
+        completedAt: s.completed_at,
+        fields,
+      }
+    }
+  )
+
+  // 5. Fetch the full timeline (reuse existing getFlowTimeline logic inline
+  //    to avoid a second auth check — we already verified access above)
+  const { data: logRows, error: logError } = await db
+    .from('flow_event_logs')
+    .select(
+      `
+      id,
+      instance_id,
+      step_instance_id,
+      tenant_id,
+      actor_id,
+      event_type,
+      description,
+      metadata,
+      created_at,
+      users!actor_id (
+        full_name,
+        email
+      )
+    `
+    )
+    .eq('instance_id', instanceId)
+    .order('created_at', { ascending: true })
+
+  if (logError) return { context: null, error: logError.message }
+
+  const timeline: FlowEventLog[] = (logRows ?? []).map((row) => {
+    const actor = Array.isArray(row.users) ? row.users[0] : row.users
+    const actorName =
+      (actor as { full_name?: string | null; email?: string } | null)?.full_name ??
+      (actor as { full_name?: string | null; email?: string } | null)?.email ??
+      null
+    return {
+      id: row.id as string,
+      instanceId: row.instance_id as string,
+      stepInstanceId: (row.step_instance_id as string | null) ?? null,
+      tenantId: row.tenant_id as string,
+      actorId: (row.actor_id as string | null) ?? null,
+      actorName,
+      eventType: row.event_type as FlowEventLog['eventType'],
+      description: row.description as string,
+      metadata: (row.metadata as Record<string, unknown>) ?? {},
+      createdAt: row.created_at as string,
+    }
+  })
+
+  const flowName = (fl as Record<string, unknown>).name as string
+
+  return {
+    context: {
+      flowName,
+      triggeredByName,
+      timeline,
+      previousSteps,
+    },
+    error: null,
+  }
 }

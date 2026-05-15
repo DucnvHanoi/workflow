@@ -1,12 +1,9 @@
 // FILE PATH: src/app/(app)/my-flows/[id]/page.tsx
-// Server component — fetches instance detail and passes it to the client
-// component which owns the modal open/close state.
+// Server component — fetches instance detail + activity log and passes
+// both to the client component.
 //
 // IMPORTANT: This file must only export the default page component.
-// Any other named export causes Next.js type errors ("does not satisfy
-// the constraint '{ [x: string]: never }'").
-// walkGraphOrder lives in src/lib/flows/graph-utils.ts
-// Shared types live in src/app/(app)/my-flows/[id]/types.ts
+// Any other named export causes Next.js type errors.
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
@@ -15,6 +12,8 @@ import type { SerializedGraph } from '@/lib/flows/graph'
 import { walkGraphOrder } from '@/lib/flows/graph-utils'
 import { InstanceDetailClient } from './instance-detail-client'
 import type { InstanceDetail, StepInstanceRow } from './types'
+// ── NEW: import getFlowTimeline to fetch the activity log server-side
+import { getFlowTimeline, type FlowEventLog } from '@/lib/flows/actions'
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
 
@@ -150,7 +149,17 @@ export default async function InstanceDetailPage(props: { params: Promise<{ id: 
     return node && node.type !== 'trigger' && node.type !== 'complete'
   })
 
+  // ── NEW: fetch activity log server-side (no client-side waterfall)
+  // getFlowTimeline does its own access check internally — safe to call here.
+  const { events: timeline } = await getFlowTimeline(params.id)
+
   return (
-    <InstanceDetailClient detail={detail} orderedNodeIds={orderedNodeIds} currentUserId={user.id} />
+    <InstanceDetailClient
+      detail={detail}
+      orderedNodeIds={orderedNodeIds}
+      currentUserId={user.id}
+      // ── NEW prop
+      timeline={timeline}
+    />
   )
 }

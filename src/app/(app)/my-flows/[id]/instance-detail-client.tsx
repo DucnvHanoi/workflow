@@ -5,18 +5,36 @@
 // Client component that owns the modal open/close state.
 // Receives all data as props from the server component (page.tsx).
 // When the user submits a step, router.refresh() re-fetches the server data
-// so the timeline updates without a full page reload.
+// so both the step timeline and activity log update without a full page reload.
 
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { CheckIcon, CircleDotIcon, LockIcon, ArrowLeftIcon } from 'lucide-react'
+import {
+  CheckIcon,
+  CircleDotIcon,
+  LockIcon,
+  ArrowLeftIcon,
+  // ── NEW: icons for activity log event types
+  RocketIcon,
+  UserIcon,
+  SaveIcon,
+  CheckCircleIcon,
+  GitBranchIcon,
+  FlagIcon,
+  XCircleIcon,
+  BanIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+} from 'lucide-react'
 import { StepFormModal } from '@/components/canvas/StepFormModal'
 import type { InstanceDetail, StepInstanceRow } from './types'
 import type { SerializedNode } from '@/lib/flows/graph'
 import type { FormField } from '@/store/canvas-store'
+// ── NEW: event log type
+import type { FlowEventLog } from '@/lib/flows/actions'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +42,8 @@ interface InstanceDetailClientProps {
   detail: InstanceDetail
   orderedNodeIds: string[]
   currentUserId: string
+  // ── NEW
+  timeline: FlowEventLog[]
 }
 
 // ─── Modal state ──────────────────────────────────────────────────────────────
@@ -52,6 +72,7 @@ export function InstanceDetailClient({
   detail,
   orderedNodeIds,
   currentUserId,
+  timeline, // ── NEW
 }: InstanceDetailClientProps) {
   const router = useRouter()
   const [modal, setModal] = useState<ModalState>(CLOSED_MODAL)
@@ -131,10 +152,6 @@ export function InstanceDetailClient({
 
           const isCurrent = !!stepInstance && detail.current_step_id === stepInstance.id
 
-          // "Open" button logic:
-          // - Current pending step: show if current user is the assignee OR the triggerer
-          // - Completed step: show for read-only view
-          // - Locked (future) step: no button
           const isAssigneeOrTriggerer =
             stepInstance?.assigned_to === currentUserId || detail.triggered_by === currentUserId
 
@@ -173,6 +190,15 @@ export function InstanceDetailClient({
           This flow was cancelled.
         </div>
       )}
+      {/* ── NEW: error banner ── */}
+      {detail.status === 'error' && (
+        <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          This flow encountered an error and has stopped. Check the activity log below for details.
+        </div>
+      )}
+
+      {/* ── NEW: Activity Log ── */}
+      <ActivityLog timeline={timeline} graph={detail.graph} />
 
       <div className="mt-4">
         <Button asChild variant="outline" size="sm">
@@ -198,6 +224,247 @@ export function InstanceDetailClient({
       )}
     </div>
   )
+}
+
+// ─── ActivityLog ──────────────────────────────────────────────────────────────
+// Renders the full audit trail for this flow instance.
+// Each event gets an icon, a description, a precise timestamp, and —
+// for step_submitted events — an expandable panel showing every field value.
+
+import type { SerializedGraph } from '@/lib/flows/graph'
+
+interface ActivityLogProps {
+  timeline: FlowEventLog[]
+  graph: SerializedGraph
+}
+
+function ActivityLog({ timeline, graph }: ActivityLogProps) {
+  // Build a map of node id → node so we can look up form schemas for submitted steps
+  const nodeMap = new Map(graph.nodes.map((n) => [n.id, n]))
+
+  return (
+    <div className="mt-8">
+      <h2 className="mb-3 text-base font-semibold text-foreground">Activity Log</h2>
+
+      {timeline.length === 0 ? (
+        <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+          No activity recorded yet.
+        </p>
+      ) : (
+        <ol className="relative border-l border-border">
+          {timeline.map((event, idx) => (
+            <ActivityEvent
+              key={event.id}
+              event={event}
+              nodeMap={nodeMap}
+              isLast={idx === timeline.length - 1}
+            />
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
+// ─── ActivityEvent ────────────────────────────────────────────────────────────
+
+interface ActivityEventProps {
+  event: FlowEventLog
+  nodeMap: Map<string, ReturnType<typeof Array.prototype.find>>
+  isLast: boolean
+}
+
+function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
+  // For step_submitted: show expandable form values
+  const [expanded, setExpanded] = useState(false)
+
+  const config = EVENT_CONFIG[event.eventType] ?? EVENT_CONFIG.flow_triggered
+
+  // For step_submitted, look up the form schema to show field labels
+  // The stepId is stored in event.metadata.stepId
+  let formValues: { label: string; value: string }[] = []
+  if (event.eventType === 'step_submitted') {
+    const stepId = event.metadata.stepId as string | undefined
+    const node = stepId ? nodeMap.get(stepId) : undefined
+    const formSchema = (node?.data?.formSchema ?? []) as FormField[]
+    const rawFormData = (event.metadata.formData ?? {}) as Record<string, unknown>
+
+    formValues = formSchema
+      .map((field) => {
+        const raw = rawFormData[field.id]
+        let display = ''
+        if (Array.isArray(raw)) {
+          // checkbox: array of selected values
+          display = raw.length > 0 ? raw.join(', ') : '(none selected)'
+        } else if (raw === null || raw === undefined || raw === '') {
+          display = '(empty)'
+        } else {
+          display = String(raw)
+        }
+        return { label: field.label || field.id, value: display }
+      })
+      .filter((f) => f.value !== '(empty)') // hide empty optional fields
+
+    // Also add any raw keys not in the schema (file fields etc.)
+    const schemaIds = new Set(formSchema.map((f) => f.id))
+    for (const [key, val] of Object.entries(rawFormData)) {
+      if (!schemaIds.has(key)) {
+        formValues.push({ label: key, value: String(val ?? '') })
+      }
+    }
+  }
+
+  // For branch_evaluated: extract path from metadata
+  const branchPath =
+    event.eventType === 'branch_evaluated'
+      ? ((event.metadata.path as string | undefined) ?? null)
+      : null
+
+  return (
+    <li className={`ml-4 ${isLast ? 'pb-0' : 'pb-5'}`}>
+      {/* Dot on the timeline line */}
+      <span
+        className={`absolute -left-[9px] flex h-4 w-4 items-center justify-center rounded-full border-2 border-background ${config.dotColor}`}
+      />
+
+      <div className="rounded-lg border bg-card px-4 py-3 shadow-sm">
+        {/* ── Top row: icon + description + timestamp ── */}
+        <div className="flex items-start gap-2.5">
+          {/* Icon */}
+          <span className={`mt-0.5 shrink-0 ${config.iconColor}`}>
+            <config.Icon className="h-4 w-4" />
+          </span>
+
+          {/* Description + metadata */}
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium leading-snug text-foreground">{event.description}</p>
+
+            {/* Branch path pill */}
+            {branchPath && (
+              <span
+                className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  branchPath.startsWith('yes')
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-rose-100 text-rose-700'
+                }`}
+              >
+                {branchPath.startsWith('yes') ? '✓ Yes path' : '✗ No path'}
+                {branchPath.includes('default') && ' (default)'}
+              </span>
+            )}
+
+            {/* Error detail */}
+            {event.eventType === 'flow_error' && (
+              <p className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-700">
+                {String(event.metadata.error ?? event.description)}
+              </p>
+            )}
+
+            {/* Form values toggle (step_submitted only) */}
+            {event.eventType === 'step_submitted' && formValues.length > 0 && (
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                {expanded ? (
+                  <>
+                    <ChevronUpIcon className="h-3 w-3" />
+                    Hide submitted values
+                  </>
+                ) : (
+                  <>
+                    <ChevronDownIcon className="h-3 w-3" />
+                    Show submitted values ({formValues.length}{' '}
+                    {formValues.length === 1 ? 'field' : 'fields'})
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+
+          {/* Timestamp — right-aligned, always visible */}
+          <time
+            dateTime={event.createdAt}
+            className="shrink-0 whitespace-nowrap text-xs text-muted-foreground"
+            title={formatExact(event.createdAt)}
+          >
+            {formatExact(event.createdAt)}
+          </time>
+        </div>
+
+        {/* ── Expanded form values ── */}
+        {expanded && formValues.length > 0 && (
+          <div className="mt-3 rounded-md border bg-muted/40 px-3 py-2">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Submitted values
+            </p>
+            <dl className="space-y-1.5">
+              {formValues.map((fv) => (
+                <div key={fv.label} className="flex gap-2 text-xs">
+                  <dt className="w-32 shrink-0 truncate font-medium text-muted-foreground">
+                    {fv.label}
+                  </dt>
+                  <dd className="flex-1 break-words text-foreground">{fv.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
+      </div>
+    </li>
+  )
+}
+
+// ─── Event config ─────────────────────────────────────────────────────────────
+// Maps each event type to its icon, colors, and dot color on the timeline.
+
+type EventConfig = {
+  Icon: React.ComponentType<{ className?: string }>
+  iconColor: string
+  dotColor: string
+}
+
+const EVENT_CONFIG: Record<FlowEventLog['eventType'], EventConfig> = {
+  flow_triggered: {
+    Icon: RocketIcon,
+    iconColor: 'text-blue-600',
+    dotColor: 'bg-blue-500',
+  },
+  step_assigned: {
+    Icon: UserIcon,
+    iconColor: 'text-violet-600',
+    dotColor: 'bg-violet-400',
+  },
+  step_draft_saved: {
+    Icon: SaveIcon,
+    iconColor: 'text-zinc-500',
+    dotColor: 'bg-zinc-400',
+  },
+  step_submitted: {
+    Icon: CheckCircleIcon,
+    iconColor: 'text-emerald-600',
+    dotColor: 'bg-emerald-500',
+  },
+  branch_evaluated: {
+    Icon: GitBranchIcon,
+    iconColor: 'text-amber-600',
+    dotColor: 'bg-amber-400',
+  },
+  flow_completed: {
+    Icon: FlagIcon,
+    iconColor: 'text-emerald-700',
+    dotColor: 'bg-emerald-600',
+  },
+  flow_error: {
+    Icon: XCircleIcon,
+    iconColor: 'text-red-600',
+    dotColor: 'bg-red-500',
+  },
+  flow_cancelled: {
+    Icon: BanIcon,
+    iconColor: 'text-zinc-500',
+    dotColor: 'bg-zinc-400',
+  },
 }
 
 // ─── StepCard ─────────────────────────────────────────────────────────────────
@@ -315,7 +582,12 @@ function NodeTypePill({ type }: { type: string }) {
 
 // ─── InstanceStatusBadge ──────────────────────────────────────────────────────
 
-function InstanceStatusBadge({ status }: { status: 'pending' | 'completed' | 'cancelled' }) {
+// ── CHANGED: added 'error' status variant
+function InstanceStatusBadge({
+  status,
+}: {
+  status: 'pending' | 'completed' | 'cancelled' | 'error'
+}) {
   if (status === 'pending') {
     return (
       <Badge className="border-blue-200 bg-blue-100 text-blue-800 hover:bg-blue-100">
@@ -330,6 +602,9 @@ function InstanceStatusBadge({ status }: { status: 'pending' | 'completed' | 'ca
       </Badge>
     )
   }
+  if (status === 'error') {
+    return <Badge className="border-red-200 bg-red-100 text-red-800 hover:bg-red-100">Error</Badge>
+  }
   return (
     <Badge className="border-zinc-200 bg-zinc-100 text-zinc-600 hover:bg-zinc-100">Cancelled</Badge>
   )
@@ -342,6 +617,19 @@ function formatDate(iso: string) {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+  })
+}
+
+// ── NEW: precise timestamp for activity log — "1 Jun 2026, 11:00:02 AM"
+function formatExact(iso: string) {
+  return new Date(iso).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
   })
 }
 
