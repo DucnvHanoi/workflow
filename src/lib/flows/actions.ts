@@ -875,7 +875,10 @@ export async function saveDraftStep(
 
   if (!fl || fl.tenant_id !== tenantId) return { error: 'Not found.' }
   if (si.status !== 'pending') return { error: 'This step is already completed.' }
-  if (role !== 'admin' && si.assigned_to !== userId && fi?.triggered_by !== userId) {
+  // FIXED: only the assigned user (or an admin) may save a draft.
+  // Removed fi?.triggered_by !== userId — the flow triggerer must NOT be able
+  // to write to steps assigned to other people.
+  if (role !== 'admin' && si.assigned_to !== userId) {
     return { error: 'Access denied.' }
   }
 
@@ -947,7 +950,10 @@ export async function submitStep(
 
   if (!fl || fl.tenant_id !== tenantId) return { error: 'Not found.' }
   if (si.status !== 'pending') return { error: 'This step is already completed.' }
-  if (role !== 'admin' && si.assigned_to !== userId && fi?.triggered_by !== userId) {
+  // FIXED: only the assigned user (or an admin) may submit a step.
+  // Removed fi?.triggered_by bypass — the flow triggerer must NOT be
+  // able to submit steps assigned to other people.
+  if (role !== 'admin' && si.assigned_to !== userId) {
     return { error: 'Access denied.' }
   }
 
@@ -1787,4 +1793,124 @@ export async function getTaskContext(
     },
     error: null,
   }
+} // ── NEW: CompletedTaskListItem type ──────────────────────────────────────────
+// Append this entire block at the END of src/lib/flows/actions.ts
+
+export type CompletedTaskListItem = {
+  stepInstanceId: string
+  stepId: string
+  instanceId: string
+  completedAt: string | null
+  stepLabel: string
+  flowName: string
+  flowInstanceStatus: 'pending' | 'completed' | 'cancelled' | 'error'
+  triggeredByName: string | null
+  // Submitted field values (label → display string) for the quick summary
+  submittedFields: { fieldLabel: string; value: string }[]
+}
+
+// ── NEW: getMyCompletedTasks ─────────────────────────────────────────────────
+// Returns all step_instances the current user was assigned to AND completed,
+// ordered by most recently completed first.
+// Access: any authenticated user (scoped to their own completed steps).
+
+export async function getMyCompletedTasks(): Promise<{
+  tasks: CompletedTaskListItem[]
+  error: string | null
+}> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { tasks: [], error: gate.error }
+
+  const { userId, tenantId, db } = gate
+
+  const { data, error } = await db
+    .from('step_instances')
+    .select(
+      `
+      id,
+      step_id,
+      instance_id,
+      assigned_to,
+      form_data,
+      completed_at,
+      flow_instances!instance_id (
+        id,
+        status,
+        triggered_by,
+        flow_versions!flow_version_id (
+          graph,
+          flows!flow_id (
+            name,
+            tenant_id
+          )
+        ),
+        users!triggered_by (
+          full_name,
+          email
+        )
+      )
+    `
+    )
+    .eq('assigned_to', userId)
+    .eq('status', 'completed')
+    .order('completed_at', { ascending: false })
+    .limit(50) // last 50 completed tasks is enough for the history view
+
+  if (error) return { tasks: [], error: error.message }
+
+  const tasks: CompletedTaskListItem[] = []
+
+  for (const row of data ?? []) {
+    const fi = Array.isArray(row.flow_instances) ? row.flow_instances[0] : row.flow_instances
+    if (!fi) continue
+
+    const fv = Array.isArray(fi.flow_versions) ? fi.flow_versions[0] : fi.flow_versions
+    if (!fv) continue
+
+    const fl = Array.isArray(fv.flows) ? fv.flows[0] : fv.flows
+    if (!fl) continue
+
+    // Tenant isolation
+    if ((fl as Record<string, unknown>).tenant_id !== tenantId) continue
+
+    const graph = fv.graph as SerializedGraph
+    const stepNode = graph.nodes.find((n) => n.id === row.step_id)
+    const stepLabel = (stepNode?.data?.label as string | undefined) ?? 'Step'
+    const formSchema = (stepNode?.data?.formSchema ?? []) as FormField[]
+    const formData = (row.form_data ?? {}) as Record<string, unknown>
+
+    // Build a concise submitted-fields summary (skip empty values)
+    const submittedFields = formSchema
+      .map((field) => {
+        const raw = formData[field.id]
+        let value = ''
+        if (Array.isArray(raw)) {
+          value = raw.length > 0 ? raw.join(', ') : ''
+        } else {
+          value = String(raw ?? '').trim()
+        }
+        return { fieldLabel: field.label || field.id, value }
+      })
+      .filter((f) => f.value !== '')
+
+    const triggererRaw = Array.isArray(fi.users) ? fi.users[0] : fi.users
+    const triggeredByName =
+      (triggererRaw as { full_name?: string | null; email?: string } | null)?.full_name ??
+      (triggererRaw as { full_name?: string | null; email?: string } | null)?.email ??
+      null
+
+    tasks.push({
+      stepInstanceId: row.id,
+      stepId: row.step_id,
+      instanceId: row.instance_id,
+      completedAt: row.completed_at,
+      stepLabel,
+      flowName: (fl as Record<string, unknown>).name as string,
+      flowInstanceStatus: fi.status as CompletedTaskListItem['flowInstanceStatus'],
+      triggeredByName,
+      submittedFields,
+    })
+  }
+
+  return { tasks, error: null }
 }

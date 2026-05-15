@@ -112,11 +112,11 @@ export function InstanceDetailClient({
     <div className="mx-auto max-w-3xl p-6">
       {/* ── Back link ── */}
       <Link
-        href="/my-flows"
+        href={detail.viewer_is_assignee ? '/tasks' : '/my-flows'}
         className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeftIcon className="h-3.5 w-3.5" />
-        My Flows
+        {detail.viewer_is_assignee ? 'My Tasks' : 'My Flows'}
       </Link>
 
       {/* ── Header ── */}
@@ -124,7 +124,9 @@ export function InstanceDetailClient({
         <div>
           <h1 className="text-2xl font-semibold">{detail.flow_name}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Started by {detail.triggered_by_name ?? 'you'} on {formatDate(detail.created_at)}
+            {detail.viewer_is_assignee
+              ? `Started by ${detail.triggered_by_name ?? 'someone'} on ${formatDate(detail.created_at)}`
+              : `Started by ${detail.triggered_by_name ?? 'you'} on ${formatDate(detail.created_at)}`}
           </p>
         </div>
         <InstanceStatusBadge status={detail.status} />
@@ -152,10 +154,17 @@ export function InstanceDetailClient({
 
           const isCurrent = !!stepInstance && detail.current_step_id === stepInstance.id
 
-          const isAssigneeOrTriggerer =
-            stepInstance?.assigned_to === currentUserId || detail.triggered_by === currentUserId
+          // FIXED: for a PENDING step, only the assignee may open the form to submit.
+          // The triggerer can view the step card but cannot submit on behalf of others.
+          // For DONE steps, anyone with a role in the flow (triggerer OR assignee)
+          // can open completed steps read-only — full picture for everyone involved.
+          const isAssignee = stepInstance?.assigned_to === currentUserId
+          // viewer_is_assignee: set by server when viewer is an assignee but not triggerer
+          const isInvolvedInFlow =
+            detail.triggered_by === currentUserId || detail.viewer_is_assignee
 
-          const canOpen = (state === 'current' && isAssigneeOrTriggerer) || state === 'done'
+          const canOpen =
+            (state === 'current' && isAssignee) || (state === 'done' && isInvolvedInFlow)
 
           const formSchema = (node.data?.formSchema as FormField[]) ?? []
 
@@ -202,9 +211,9 @@ export function InstanceDetailClient({
 
       <div className="mt-4">
         <Button asChild variant="outline" size="sm">
-          <Link href="/my-flows">
+          <Link href={detail.viewer_is_assignee ? '/tasks' : '/my-flows'}>
             <ArrowLeftIcon className="mr-1.5 h-3.5 w-3.5" />
-            Back to My Flows
+            {detail.viewer_is_assignee ? 'Back to My Tasks' : 'Back to My Flows'}
           </Link>
         </Button>
       </div>

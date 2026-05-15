@@ -1,9 +1,14 @@
 // FILE PATH: src/app/(app)/my-flows/[id]/page.tsx
-// Server component — fetches instance detail + activity log and passes
-// both to the client component.
+// Server component — fetches instance detail and passes it to the client
+// component which owns the modal open/close state.
+//
+// ACCESS RULES (FIXED):
+//   - Tenant admin            → always allowed
+//   - Flow triggerer          → always allowed
+//   - Step assignee           → allowed (they need to see the full picture)
+//   - Anyone else             → 404
 //
 // IMPORTANT: This file must only export the default page component.
-// Any other named export causes Next.js type errors.
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
@@ -12,7 +17,6 @@ import type { SerializedGraph } from '@/lib/flows/graph'
 import { walkGraphOrder } from '@/lib/flows/graph-utils'
 import { InstanceDetailClient } from './instance-detail-client'
 import type { InstanceDetail, StepInstanceRow } from './types'
-// ── NEW: import getFlowTimeline to fetch the activity log server-side
 import { getFlowTimeline, type FlowEventLog } from '@/lib/flows/actions'
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
@@ -54,11 +58,30 @@ async function getInstanceDetail(
   const flow = Array.isArray(version.flows) ? version.flows[0] : version.flows
   if (!flow) return null
 
+  // Tenant isolation — always enforced regardless of role
   if (flow.tenant_id !== tenantId) return null
-  if (!isAdmin && instance.triggered_by !== userId) return null
+
+  const isTriggerer = instance.triggered_by === userId
+
+  // ── FIXED: also allow assignees to view this page ──────────────────────────
+  // Check if this user was assigned to any step in this instance.
+  let isAssignee = false
+  if (!isAdmin && !isTriggerer) {
+    const { count } = await db
+      .from('step_instances')
+      .select('id', { count: 'exact', head: true })
+      .eq('instance_id', instanceId)
+      .eq('assigned_to', userId)
+
+    isAssignee = (count ?? 0) > 0
+
+    // If neither triggerer nor assignee → deny
+    if (!isAssignee) return null
+  }
 
   const graph = version.graph as SerializedGraph
 
+  // Fetch all step instances for this flow instance
   const { data: stepRows } = await db
     .from('step_instances')
     .select(
@@ -75,6 +98,7 @@ async function getInstanceDetail(
     .eq('instance_id', instanceId)
     .order('created_at', { ascending: true })
 
+  // Resolve assignee display names
   const assigneeIds = (stepRows ?? [])
     .map((s: { assigned_to: string | null }) => s.assigned_to)
     .filter(Boolean) as string[]
@@ -120,10 +144,12 @@ async function getInstanceDetail(
     current_step_id: instance.current_step_id,
     created_at: instance.created_at,
     updated_at: instance.updated_at,
-    flow_description: flow.description,
+    flow_description: flow.description ?? null,
     flow_name: flow.name,
     graph,
     steps,
+    // ── NEW: tell the client whether the viewer is here as an assignee
+    viewer_is_assignee: isAssignee && !isTriggerer,
   }
 }
 
@@ -140,17 +166,14 @@ export default async function InstanceDetailPage(props: { params: Promise<{ id: 
 
   if (!detail) notFound()
 
-  // Build a lookup of node id → node
   const nodeMap = new Map(detail.graph.nodes.map((n) => [n.id, n]))
 
-  // Get the ordered step node ids (excluding trigger + complete)
   const orderedNodeIds = walkGraphOrder(detail.graph).filter((id) => {
     const node = nodeMap.get(id)
     return node && node.type !== 'trigger' && node.type !== 'complete'
   })
 
-  // ── NEW: fetch activity log server-side (no client-side waterfall)
-  // getFlowTimeline does its own access check internally — safe to call here.
+  // Fetch activity log server-side
   const { events: timeline } = await getFlowTimeline(params.id)
 
   return (
@@ -158,7 +181,6 @@ export default async function InstanceDetailPage(props: { params: Promise<{ id: 
       detail={detail}
       orderedNodeIds={orderedNodeIds}
       currentUserId={user.id}
-      // ── NEW prop
       timeline={timeline}
     />
   )

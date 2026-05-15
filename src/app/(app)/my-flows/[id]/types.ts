@@ -26,7 +26,11 @@ export type InstanceDetail = {
   created_at: string
   updated_at: string
   flow_name: string
-  flow_description: string | null // <--- Add this line
+  flow_description: string | null
   graph: SerializedGraph
   steps: StepInstanceRow[]
+  // ── NEW: true when the viewing user was assigned to at least one step
+  // but is NOT the flow triggerer. Used to show the correct header copy
+  // and to allow assignees to read all completed step data.
+  viewer_is_assignee: boolean
 }
