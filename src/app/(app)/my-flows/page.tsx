@@ -116,7 +116,7 @@ export default async function MyFlowsPage() {
 }
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
-function StatusBadge({ status }: { status: 'pending' | 'completed' | 'cancelled' }) {
+function StatusBadge({ status }: { status: 'pending' | 'completed' | 'cancelled' | 'error' }) {
   if (status === 'pending') {
     return (
       <Badge

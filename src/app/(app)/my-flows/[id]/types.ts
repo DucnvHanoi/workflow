@@ -19,7 +19,7 @@ export type StepInstanceRow = {
 
 export type InstanceDetail = {
   id: string
-  status: 'pending' | 'completed' | 'cancelled'
+  status: 'pending' | 'completed' | 'cancelled' | 'error'
   triggered_by: string
   triggered_by_name: string | null
   current_step_id: string | null
