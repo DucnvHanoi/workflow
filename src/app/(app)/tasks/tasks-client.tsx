@@ -33,6 +33,9 @@ import type { FormField } from '@/store/canvas-store'
 interface ModalState {
   open: boolean
   stepInstanceId: string
+  stepNodeId: string
+  instanceId: string
+  tenantId: string
   stepLabel: string
   formSchema: FormField[]
   initialData: Record<string, unknown>
@@ -43,6 +46,9 @@ interface ModalState {
 const CLOSED: ModalState = {
   open: false,
   stepInstanceId: '',
+  stepNodeId: '',
+  instanceId: '',
+  tenantId: '',
   stepLabel: '',
   formSchema: [],
   initialData: {},
@@ -87,6 +93,9 @@ export function TasksClient({ pendingTasks, completedTasks }: TasksClientProps) 
       setModal({
         open: true,
         stepInstanceId: task.stepInstanceId,
+        stepNodeId: task.stepId,
+        instanceId: task.instanceId,
+        tenantId: task.tenantId,
         stepLabel: task.stepLabel,
         formSchema: task.formSchema,
         initialData,
@@ -141,6 +150,9 @@ export function TasksClient({ pendingTasks, completedTasks }: TasksClientProps) 
           initialData={modal.initialData}
           flowName={modal.flowName}
           triggeredByName={modal.triggeredByName}
+          tenantId={modal.tenantId}
+          instanceId={modal.instanceId}
+          stepNodeId={modal.stepNodeId}
         />
       )}
     </>

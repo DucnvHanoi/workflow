@@ -8,6 +8,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import type { SerializedGraph } from '@/lib/flows/graph'
 import type { FormField, BranchCondition } from '@/store/canvas-store'
+import { sendAssignmentEmail, sendCompletionEmail } from '@/lib/email/resend'
 
 export type FlowListItem = {
   id: string
@@ -1372,15 +1373,16 @@ export async function updateFlowName(
 
 export type TaskListItem = {
   stepInstanceId: string
-  stepId: string
+  stepId: string // graph node id — used for storage path
   instanceId: string
+  tenantId: string // needed for storage path construction
   assignedTo: string | null
   createdAt: string
   stepLabel: string
   flowName: string
   formSchema: FormField[]
   triggeredByName: string | null
-  flowInstanceStatus: 'pending' | 'completed' | 'cancelled' | 'error' // ── CHANGED: added error
+  flowInstanceStatus: 'pending' | 'completed' | 'cancelled' | 'error'
 }
 
 // ─── getMyTasks ───────────────────────────────────────────────────────────────
@@ -1456,6 +1458,7 @@ export async function getMyTasks(): Promise<{
       stepInstanceId: row.id,
       stepId: row.step_id,
       instanceId: row.instance_id,
+      tenantId,
       assignedTo: row.assigned_to,
       createdAt: row.created_at,
       stepLabel,
@@ -1700,7 +1703,11 @@ export async function getTaskContext(
         .map((field) => {
           const raw = formData[field.id]
           let value = ''
-          if (Array.isArray(raw)) {
+          if (field.type === 'file') {
+            // Serialize file paths as JSON so the client can parse them back
+            // and render FileDownloadLink for each path
+            value = Array.isArray(raw) && raw.length > 0 ? JSON.stringify(raw) : '(empty)'
+          } else if (Array.isArray(raw)) {
             value = raw.length > 0 ? raw.join(', ') : '(none selected)'
           } else if (raw === null || raw === undefined || raw === '') {
             value = '(empty)'
@@ -1805,8 +1812,8 @@ export type CompletedTaskListItem = {
   flowName: string
   flowInstanceStatus: 'pending' | 'completed' | 'cancelled' | 'error'
   triggeredByName: string | null
-  // Submitted field values (label → display string) for the quick summary
-  submittedFields: { fieldLabel: string; value: string }[]
+  // Submitted field values — file fields have value = JSON.stringify(string[])
+  submittedFields: { fieldLabel: string; fieldType: string; value: string }[]
 }
 
 // ── NEW: getMyCompletedTasks ─────────────────────────────────────────────────
@@ -1884,12 +1891,15 @@ export async function getMyCompletedTasks(): Promise<{
       .map((field) => {
         const raw = formData[field.id]
         let value = ''
-        if (Array.isArray(raw)) {
+        if (field.type === 'file') {
+          // Serialize file paths as JSON so the client can render download links
+          value = Array.isArray(raw) && raw.length > 0 ? JSON.stringify(raw) : ''
+        } else if (Array.isArray(raw)) {
           value = raw.length > 0 ? raw.join(', ') : ''
         } else {
           value = String(raw ?? '').trim()
         }
-        return { fieldLabel: field.label || field.id, value }
+        return { fieldLabel: field.label || field.id, fieldType: field.type, value }
       })
       .filter((f) => f.value !== '')
 
@@ -1913,4 +1923,254 @@ export async function getMyCompletedTasks(): Promise<{
   }
 
   return { tasks, error: null }
+}
+
+// ─── cancelInstance ──────────────────────────────────────────────────────────
+// Admin OR the flow triggerer (requester) can cancel a pending flow.
+// Sets the flow instance to 'cancelled', marks all pending step_instances
+// as 'skipped', and writes a flow_cancelled event log.
+
+export async function cancelInstance(
+  instanceId: string,
+  reason?: string
+): Promise<{ error: string | null }> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { userId, tenantId, role, db } = gate
+
+  // Fetch the instance to check ownership + status
+  const { data: instance, error: instanceError } = await db
+    .from('flow_instances')
+    .select(
+      `
+      id,
+      status,
+      triggered_by,
+      flow_versions!flow_version_id (
+        flows!flow_id ( name, tenant_id )
+      )
+    `
+    )
+    .eq('id', instanceId)
+    .maybeSingle()
+
+  if (instanceError || !instance) return { error: 'Instance not found.' }
+
+  // Tenant isolation
+  const fv = Array.isArray(instance.flow_versions)
+    ? instance.flow_versions[0]
+    : instance.flow_versions
+  const fl = fv
+    ? Array.isArray((fv as Record<string, unknown>).flows)
+      ? ((fv as Record<string, unknown>).flows as Record<string, unknown>[])[0]
+      : (fv as Record<string, unknown>).flows
+    : null
+
+  if (!fl || (fl as Record<string, unknown>).tenant_id !== tenantId) {
+    return { error: 'Instance not found.' }
+  }
+
+  // Permission: admin can cancel any flow; regular user can only cancel their own
+  const isAdmin = role === 'admin'
+  const isTriggerer = instance.triggered_by === userId
+  if (!isAdmin && !isTriggerer) {
+    return { error: 'You can only cancel flows you started.' }
+  }
+
+  if (instance.status !== 'pending') {
+    return { error: `Cannot cancel: flow is already ${instance.status}.` }
+  }
+
+  // Mark all pending step_instances as skipped
+  await db
+    .from('step_instances')
+    .update({ status: 'skipped' })
+    .eq('instance_id', instanceId)
+    .eq('status', 'pending')
+
+  // Mark the flow instance as cancelled
+  const { error: cancelError } = await db
+    .from('flow_instances')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', instanceId)
+
+  if (cancelError) return { error: cancelError.message }
+
+  // Write event log — note who cancelled + reason if provided
+  const cancelledBy = isAdmin && !isTriggerer ? 'an administrator' : 'the requester'
+  const reasonSuffix = reason?.trim() ? ` Reason: ${reason.trim()}` : ''
+  await writeEventLog(db, {
+    instanceId,
+    tenantId,
+    actorId: userId,
+    eventType: 'flow_cancelled',
+    description: `Flow was cancelled by ${cancelledBy}.${reasonSuffix}`,
+    metadata: reason?.trim() ? { reason: reason.trim() } : undefined,
+  })
+
+  return { error: null }
+}
+
+// ─── reassignStep ─────────────────────────────────────────────────────────────
+// Admin only. Updates the assigned_to on a pending step_instance, writes a
+// step_assigned event log, and sends an assignment email to the new assignee.
+
+export async function reassignStep(
+  stepInstanceId: string,
+  newAssigneeId: string
+): Promise<{ error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+
+  // Fetch step + flow info
+  const { data: si, error: siError } = await db
+    .from('step_instances')
+    .select(
+      `
+      id,
+      step_id,
+      status,
+      instance_id,
+      flow_instances!instance_id (
+        id,
+        triggered_by,
+        flow_versions!flow_version_id (
+          graph,
+          flows!flow_id ( name, tenant_id )
+        )
+      )
+    `
+    )
+    .eq('id', stepInstanceId)
+    .maybeSingle()
+
+  if (siError || !si) return { error: 'Step not found.' }
+
+  const fi = Array.isArray(si.flow_instances) ? si.flow_instances[0] : si.flow_instances
+  const fv = fi
+    ? Array.isArray((fi as Record<string, unknown>).flow_versions)
+      ? ((fi as Record<string, unknown>).flow_versions as Record<string, unknown>[])[0]
+      : (fi as Record<string, unknown>).flow_versions
+    : null
+  const fl = fv
+    ? Array.isArray((fv as Record<string, unknown>).flows)
+      ? ((fv as Record<string, unknown>).flows as Record<string, unknown>[])[0]
+      : (fv as Record<string, unknown>).flows
+    : null
+
+  if (!fl || (fl as Record<string, unknown>).tenant_id !== tenantId) {
+    return { error: 'Step not found.' }
+  }
+
+  if (si.status !== 'pending') {
+    return { error: 'Can only reassign pending steps.' }
+  }
+
+  // Verify new assignee belongs to this tenant
+  const { data: newAssignee } = await db
+    .from('users')
+    .select('id, full_name, email')
+    .eq('id', newAssigneeId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  if (!newAssignee) return { error: 'User not found in this tenant.' }
+
+  // Update the step
+  const { error: updateError } = await db
+    .from('step_instances')
+    .update({ assigned_to: newAssigneeId })
+    .eq('id', stepInstanceId)
+
+  if (updateError) return { error: updateError.message }
+
+  // Resolve step label from graph for the event log + email
+  const graph = (fv as Record<string, unknown>)?.graph as SerializedGraph | undefined
+  const stepNode = graph?.nodes.find((n) => n.id === si.step_id)
+  const stepLabel = (stepNode?.data?.label as string | undefined) ?? 'Step'
+  const flowName = ((fl as Record<string, unknown>).name as string) ?? 'Flow'
+  const assigneeName = newAssignee.full_name ?? newAssignee.email
+
+  // Write step_assigned event log
+  await writeEventLog(db, {
+    instanceId: si.instance_id,
+    stepInstanceId,
+    tenantId,
+    actorId: null,
+    eventType: 'step_assigned',
+    description: `"${stepLabel}" reassigned to ${assigneeName} by an administrator.`,
+    metadata: { stepId: si.step_id, assignedTo: newAssigneeId },
+  })
+
+  // Send assignment email to the new assignee (fire-and-forget)
+  const triggeredByUserId = (fi as Record<string, unknown>)?.triggered_by as string | undefined
+  const triggererName = triggeredByUserId ? await resolveUserName(db, triggeredByUserId) : 'Someone'
+
+  void sendAssignmentEmail({
+    tenantId,
+    instanceId: si.instance_id,
+    stepInstanceId,
+    recipientEmail: newAssignee.email,
+    recipientName: assigneeName,
+    flowName,
+    stepName: stepLabel,
+    triggeredByName: triggererName,
+  })
+
+  return { error: null }
+}
+
+// ─── getTenantUsers ───────────────────────────────────────────────────────────
+// Returns all users in the current tenant — used by the reassign dialog
+// to populate the user picker. Admin only.
+
+export async function getTenantUsers(): Promise<{
+  users: { id: string; full_name: string | null; email: string; role: string }[]
+  error: string | null
+}> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { users: [], error: gate.error }
+
+  const { tenantId, db } = gate
+
+  const { data, error } = await db
+    .from('users')
+    .select('id, full_name, email, role')
+    .eq('tenant_id', tenantId)
+    .order('full_name', { ascending: true })
+
+  if (error) return { users: [], error: error.message }
+
+  return { users: data ?? [], error: null }
+}
+// ─── getSignedUrl ─────────────────────────────────────────────────────────────
+// On-demand signed URL for a file in the step-attachments bucket.
+// Called by FileDownloadLink on click — generates a fresh 60-second URL each time.
+// The user must have access to the flow instance that owns the file.
+// We verify this by checking that the storage path starts with the user's tenantId.
+// (Path format: {tenantId}/{instanceId}/{stepNodeId}/{fieldId}/{timestamp}_{filename})
+
+export async function getSignedUrl(
+  storagePath: string
+): Promise<{ url: string | null; error: string | null }> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { url: null, error: gate.error }
+
+  const { tenantId, db } = gate
+
+  // Tenant isolation: path must start with the caller's tenantId
+  if (!storagePath.startsWith(tenantId + '/')) {
+    return { url: null, error: 'Access denied.' }
+  }
+
+  const { data, error } = await db.storage.from('step-attachments').createSignedUrl(storagePath, 60) // 60-second expiry — long enough to redirect
+
+  if (error || !data?.signedUrl) {
+    return { url: null, error: error?.message ?? 'Could not generate download URL.' }
+  }
+
+  return { url: data.signedUrl, error: null }
 }

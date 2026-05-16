@@ -36,6 +36,8 @@ import {
   type PreviousStepData,
 } from '@/lib/flows/actions'
 import type { FormField } from '@/store/canvas-store'
+import { createBrowserClient } from '@supabase/ssr'
+import { FileDownloadLink, isFilePaths } from '@/components/canvas/FileDownloadLink'
 import {
   RocketIcon,
   UserIcon,
@@ -64,6 +66,9 @@ interface TaskDetailModalProps {
   initialData: Record<string, unknown>
   flowName: string
   triggeredByName: string | null
+  tenantId: string
+  instanceId: string
+  stepNodeId: string
 }
 
 // ─── Tab type ─────────────────────────────────────────────────────────────────
@@ -82,6 +87,9 @@ export function TaskDetailModal({
   initialData,
   flowName,
   triggeredByName,
+  tenantId,
+  instanceId,
+  stepNodeId,
 }: TaskDetailModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('context')
   const [context, setContext] = useState<TaskContext | null>(null)
@@ -93,6 +101,9 @@ export function TaskDetailModal({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [isSavingDraft, startSaveDraft] = useTransition()
   const [isSubmitting, startSubmit] = useTransition()
+  // File upload state: fieldId → File[]
+  const [filesByField, setFilesByField] = useState<Record<string, File[]>>({})
+  const [uploadProgress, setUploadProgress] = useState<Record<string, string>>({})
 
   // Fetch context when modal opens
   useEffect(() => {
@@ -104,6 +115,8 @@ export function TaskDetailModal({
     setActiveTab('context')
     setValues(initialData ?? {})
     setFieldErrors({})
+    setFilesByField({})
+    setUploadProgress({})
 
     getTaskContext(stepInstanceId)
       .then(({ context: ctx, error }) => {
@@ -155,6 +168,9 @@ export function TaskDetailModal({
       if (field.type === 'checkbox') {
         if (((val as string[]) ?? []).length === 0)
           newErrors[field.id] = 'Please select at least one option.'
+      } else if (field.type === 'file') {
+        const selectedFiles = filesByField[field.id] ?? []
+        if (selectedFiles.length === 0) newErrors[field.id] = 'Please select at least one file.'
       } else {
         if (!String(val ?? '').trim()) newErrors[field.id] = 'This field is required.'
       }
@@ -183,7 +199,40 @@ export function TaskDetailModal({
     if (!validate()) return
     startSubmit(async () => {
       try {
-        const result = await submitStep(stepInstanceId, values)
+        const finalValues = { ...values }
+        const supabase = createBrowserClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        )
+
+        for (const [fieldId, files] of Object.entries(filesByField)) {
+          if (!files.length) continue
+          const paths: string[] = []
+
+          for (const file of files) {
+            if (file.size > 10 * 1024 * 1024) {
+              toast.error(`${file.name} exceeds the 10 MB file size limit.`)
+              return
+            }
+            setUploadProgress((p) => ({ ...p, [fieldId]: `Uploading ${file.name}…` }))
+            const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+            const path = `${tenantId}/${instanceId}/${stepNodeId}/${fieldId}/${Date.now()}_${safeName}`
+            const { error: uploadError } = await supabase.storage
+              .from('step-attachments')
+              .upload(path, file, { upsert: false })
+
+            if (uploadError) {
+              toast.error(`Failed to upload ${file.name}: ${uploadError.message}`)
+              setUploadProgress((p) => ({ ...p, [fieldId]: '' }))
+              return
+            }
+            paths.push(path)
+          }
+          setUploadProgress((p) => ({ ...p, [fieldId]: '' }))
+          finalValues[fieldId] = paths
+        }
+
+        const result = await submitStep(stepInstanceId, finalValues)
         if (result.error) {
           toast.error(result.error)
         } else {
@@ -323,6 +372,11 @@ export function TaskDetailModal({
                     onCheckboxChange={(option, checked) =>
                       toggleCheckbox(field.id, option, checked)
                     }
+                    files={filesByField[field.id] ?? []}
+                    uploadProgress={uploadProgress[field.id] ?? ''}
+                    onFilesChange={(files) =>
+                      setFilesByField((prev) => ({ ...prev, [field.id]: files }))
+                    }
                   />
                 ))}
               </div>
@@ -445,7 +499,9 @@ function PreviousStepCard({ step }: { step: PreviousStepData }) {
                 <dt className="w-36 shrink-0 font-medium text-muted-foreground truncate">
                   {f.fieldLabel}
                 </dt>
-                <dd className="flex-1 break-words text-foreground">{f.value}</dd>
+                <dd className="flex-1 break-words text-foreground">
+                  {f.fieldType === 'file' ? <FilePaths value={f.value} /> : f.value}
+                </dd>
               </div>
             ))}
           </dl>
@@ -559,6 +615,9 @@ function FieldRenderer({
   disabled,
   onChange,
   onCheckboxChange,
+  files,
+  uploadProgress,
+  onFilesChange,
 }: {
   field: FormField
   value: unknown
@@ -566,6 +625,9 @@ function FieldRenderer({
   disabled: boolean
   onChange: (val: unknown) => void
   onCheckboxChange: (option: string, checked: boolean) => void
+  files: File[]
+  uploadProgress: string
+  onFilesChange: (files: File[]) => void
 }) {
   return (
     <div className="space-y-1.5">
@@ -661,18 +723,75 @@ function FieldRenderer({
       )}
 
       {field.type === 'file' && (
-        <div className="rounded-md border border-dashed bg-muted/30 px-4 py-3 text-center">
-          <p className="text-sm text-muted-foreground">File upload coming soon.</p>
-          {typeof value === 'string' && value && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Previously uploaded: <span className="font-medium">{value}</span>
-            </p>
+        <div className="space-y-2">
+          {/* Read-only: show download links for already-uploaded files */}
+          {disabled && isFilePaths(value as unknown) && (
+            <div className="space-y-1">
+              {(value as unknown as string[]).map((path) => (
+                <FileDownloadLink key={path} storagePath={path} />
+              ))}
+            </div>
+          )}
+          {/* Editable: show file picker */}
+          {!disabled && (
+            <>
+              <input
+                id={`field-${field.id}`}
+                type="file"
+                multiple
+                disabled={disabled}
+                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-accent"
+                onChange={(e) => onFilesChange(Array.from(e.target.files ?? []))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Max 10 MB per file. Multiple files allowed.
+              </p>
+              {files.length > 0 && (
+                <ul className="space-y-1">
+                  {files.map((f, i) => (
+                    <li key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="truncate flex-1">{f.name}</span>
+                      <span className="shrink-0 tabular-nums">{(f.size / 1024).toFixed(0)} KB</span>
+                      {f.size > 10 * 1024 * 1024 && (
+                        <span className="shrink-0 text-destructive font-medium">Too large</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {uploadProgress && (
+                <p className="text-xs text-blue-600 animate-pulse">{uploadProgress}</p>
+              )}
+            </>
           )}
         </div>
       )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
+  )
+}
+
+// ─── FilePaths ────────────────────────────────────────────────────────────────
+// Parses a JSON-serialized array of storage paths (from getTaskContext/getMyCompletedTasks)
+// and renders a FileDownloadLink for each one.
+
+function FilePaths({ value }: { value: string }) {
+  let paths: string[] = []
+  try {
+    const parsed = JSON.parse(value)
+    if (Array.isArray(parsed)) paths = parsed as string[]
+  } catch {
+    // Fall back to plain text if not valid JSON
+    return <span>{value}</span>
+  }
+  if (paths.length === 0) return <span className="text-muted-foreground">(no files)</span>
+  return (
+    <span className="flex flex-col gap-1">
+      {paths.map((path) => (
+        <FileDownloadLink key={path} storagePath={path} />
+      ))}
+    </span>
   )
 }
 

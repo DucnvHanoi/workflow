@@ -33,4 +33,6 @@ export type InstanceDetail = {
   // but is NOT the flow triggerer. Used to show the correct header copy
   // and to allow assignees to read all completed step data.
   viewer_is_assignee: boolean
+  // passed from page.tsx so the client can show admin-only actions
+  isAdmin: boolean
 }

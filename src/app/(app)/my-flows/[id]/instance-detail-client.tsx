@@ -7,17 +7,23 @@
 // When the user submits a step, router.refresh() re-fetches the server data
 // so both the step timeline and activity log update without a full page reload.
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
   CheckIcon,
   CircleDotIcon,
   LockIcon,
   ArrowLeftIcon,
-  // ── NEW: icons for activity log event types
   RocketIcon,
   UserIcon,
   SaveIcon,
@@ -28,13 +34,17 @@ import {
   BanIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  XIcon,
+  UserPenIcon,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { StepFormModal } from '@/components/canvas/StepFormModal'
 import type { InstanceDetail, StepInstanceRow } from './types'
 import type { SerializedNode } from '@/lib/flows/graph'
 import type { FormField } from '@/store/canvas-store'
-// ── NEW: event log type
 import type { FlowEventLog } from '@/lib/flows/actions'
+import { cancelInstance, reassignStep, getTenantUsers } from '@/lib/flows/actions'
+import { FileDownloadLink, isFilePaths } from '@/components/canvas/FileDownloadLink'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -42,8 +52,9 @@ interface InstanceDetailClientProps {
   detail: InstanceDetail
   orderedNodeIds: string[]
   currentUserId: string
-  // ── NEW
+  isAdmin: boolean
   timeline: FlowEventLog[]
+  tenantId: string
 }
 
 // ─── Modal state ──────────────────────────────────────────────────────────────
@@ -51,6 +62,7 @@ interface InstanceDetailClientProps {
 interface ModalState {
   open: boolean
   stepInstanceId: string
+  stepNodeId: string // graph node id — used for storage path
   stepLabel: string
   formSchema: FormField[]
   initialData: Record<string, unknown>
@@ -60,6 +72,7 @@ interface ModalState {
 const CLOSED_MODAL: ModalState = {
   open: false,
   stepInstanceId: '',
+  stepNodeId: '',
   stepLabel: '',
   formSchema: [],
   initialData: {},
@@ -72,10 +85,26 @@ export function InstanceDetailClient({
   detail,
   orderedNodeIds,
   currentUserId,
-  timeline, // ── NEW
+  isAdmin,
+  timeline,
+  tenantId,
 }: InstanceDetailClientProps) {
   const router = useRouter()
   const [modal, setModal] = useState<ModalState>(CLOSED_MODAL)
+
+  // ── Admin: cancel instance state
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [isCancelling, startCancel] = useTransition()
+
+  // ── Admin: reassign step state
+  const [reassignStepInstanceId, setReassignStepInstanceId] = useState<string | null>(null)
+  const [reassignStepLabel, setReassignStepLabel] = useState('')
+  const [tenantUsers, setTenantUsers] = useState<
+    { id: string; full_name: string | null; email: string; role: string }[]
+  >([])
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [isReassigning, startReassign] = useTransition()
 
   // Build node lookup map
   const nodeMap = new Map<string, SerializedNode>(detail.graph.nodes.map((n) => [n.id, n]))
@@ -93,6 +122,7 @@ export function InstanceDetailClient({
       setModal({
         open: true,
         stepInstanceId: stepInstance?.id ?? '',
+        stepNodeId: node.id, // graph node id for storage path
         stepLabel: node.data?.label ?? 'Step',
         formSchema,
         initialData: (stepInstance?.form_data as Record<string, unknown>) ?? {},
@@ -107,6 +137,55 @@ export function InstanceDetailClient({
   const handleSubmitted = useCallback(() => {
     router.refresh()
   }, [router])
+
+  // ── Admin/requester: cancel flow instance
+  function handleCancelInstance() {
+    startCancel(async () => {
+      try {
+        const result = await cancelInstance(detail.id, cancelReason)
+        if (result.error) {
+          toast.error(result.error)
+        } else {
+          toast.success('Flow cancelled.')
+          setShowCancelConfirm(false)
+          setCancelReason('')
+          router.refresh()
+        }
+      } catch {
+        toast.error('Failed to cancel flow.')
+      }
+    })
+  }
+
+  // ── Admin: open reassign dialog, load users lazily
+  async function openReassignDialog(stepInstanceId: string, stepLabel: string) {
+    setReassignStepInstanceId(stepInstanceId)
+    setReassignStepLabel(stepLabel)
+    setSelectedUserId('')
+    if (tenantUsers.length === 0) {
+      const { users } = await getTenantUsers()
+      setTenantUsers(users)
+    }
+  }
+
+  // ── Admin: submit reassignment
+  function handleReassign() {
+    if (!reassignStepInstanceId || !selectedUserId) return
+    startReassign(async () => {
+      try {
+        const result = await reassignStep(reassignStepInstanceId, selectedUserId)
+        if (result.error) {
+          toast.error(result.error)
+        } else {
+          toast.success('Step reassigned.')
+          setReassignStepInstanceId(null)
+          router.refresh()
+        }
+      } catch {
+        toast.error('Failed to reassign step.')
+      }
+    })
+  }
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -129,7 +208,21 @@ export function InstanceDetailClient({
               : `Started by ${detail.triggered_by_name ?? 'you'} on ${formatDate(detail.created_at)}`}
           </p>
         </div>
-        <InstanceStatusBadge status={detail.status} />
+        <div className="flex items-center gap-2">
+          <InstanceStatusBadge status={detail.status} />
+          {/* Admin or triggerer: cancel button — only shown when flow is still pending */}
+          {(isAdmin || currentUserId === detail.triggered_by) && detail.status === 'pending' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={() => setShowCancelConfirm(true)}
+            >
+              <XIcon className="mr-1.5 h-3.5 w-3.5" />
+              Cancel Flow
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* ── Step timeline ── */}
@@ -178,6 +271,12 @@ export function InstanceDetailClient({
               isCurrent={isCurrent}
               canOpen={canOpen && formSchema.length > 0}
               onOpen={() => openModal(node, stepInstance, state === 'done')}
+              isAdmin={isAdmin}
+              onReassign={
+                isAdmin && state === 'current' && stepInstance
+                  ? () => openReassignDialog(stepInstance.id, stepLabel)
+                  : undefined
+              }
             />
           )
         })}
@@ -229,8 +328,108 @@ export function InstanceDetailClient({
           formSchema={modal.formSchema}
           initialData={modal.initialData}
           isReadOnly={modal.isReadOnly}
+          tenantId={tenantId}
+          instanceId={detail.id}
+          stepId={modal.stepNodeId}
         />
       )}
+
+      {/* ── Cancel confirmation dialog ── */}
+      <Dialog
+        open={showCancelConfirm}
+        onOpenChange={(open) => {
+          setShowCancelConfirm(open)
+          if (!open) setCancelReason('')
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel this flow?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              This will mark the flow as cancelled and skip all pending steps. This cannot be
+              undone.
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                Reason <span className="text-muted-foreground font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Request withdrawn, no longer needed…"
+                rows={3}
+                disabled={isCancelling}
+                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowCancelConfirm(false)
+                setCancelReason('')
+              }}
+              disabled={isCancelling}
+            >
+              Keep flow
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleCancelInstance}
+              disabled={isCancelling}
+            >
+              {isCancelling ? 'Cancelling…' : 'Yes, cancel flow'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Admin: Reassign step dialog ── */}
+      <Dialog
+        open={!!reassignStepInstanceId}
+        onOpenChange={(open) => {
+          if (!open) setReassignStepInstanceId(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reassign &ldquo;{reassignStepLabel}&rdquo;</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">Select a user to assign this step to.</p>
+            <select
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">Select a user…</option>
+              {tenantUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.full_name ?? u.email} {u.role === 'admin' ? '(admin)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setReassignStepInstanceId(null)}
+              disabled={isReassigning}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleReassign} disabled={!selectedUserId || isReassigning}>
+              {isReassigning ? 'Reassigning…' : 'Reassign'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -291,7 +490,7 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
 
   // For step_submitted, look up the form schema to show field labels
   // The stepId is stored in event.metadata.stepId
-  let formValues: { label: string; value: string }[] = []
+  let formValues: { label: string; value: string; fieldType: string; rawValue: unknown }[] = []
   if (event.eventType === 'step_submitted') {
     const stepId = event.metadata.stepId as string | undefined
     const node = stepId ? nodeMap.get(stepId) : undefined
@@ -302,23 +501,44 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
       .map((field) => {
         const raw = rawFormData[field.id]
         let display = ''
-        if (Array.isArray(raw)) {
-          // checkbox: array of selected values
+        if (field.type === 'file') {
+          // File fields: keep rawValue as-is (array of paths) for FileDownloadLink
+          display = isFilePaths(raw) ? `${(raw as string[]).length} file(s)` : '(empty)'
+        } else if (Array.isArray(raw)) {
           display = raw.length > 0 ? raw.join(', ') : '(none selected)'
         } else if (raw === null || raw === undefined || raw === '') {
           display = '(empty)'
         } else {
           display = String(raw)
         }
-        return { label: field.label || field.id, value: display }
+        return {
+          label: field.label || field.id,
+          value: display,
+          fieldType: field.type,
+          rawValue: raw,
+        }
       })
-      .filter((f) => f.value !== '(empty)') // hide empty optional fields
+      .filter((f) => f.value !== '(empty)')
 
-    // Also add any raw keys not in the schema (file fields etc.)
+    // Also add any raw keys not in the schema (extra file fields stored by path)
     const schemaIds = new Set(formSchema.map((f) => f.id))
     for (const [key, val] of Object.entries(rawFormData)) {
       if (!schemaIds.has(key)) {
-        formValues.push({ label: key, value: String(val ?? '') })
+        if (isFilePaths(val)) {
+          formValues.push({
+            label: key,
+            value: `${(val as string[]).length} file(s)`,
+            fieldType: 'file',
+            rawValue: val,
+          })
+        } else {
+          formValues.push({
+            label: key,
+            value: String(val ?? ''),
+            fieldType: 'text',
+            rawValue: val,
+          })
+        }
       }
     }
   }
@@ -413,7 +633,17 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
                   <dt className="w-32 shrink-0 truncate font-medium text-muted-foreground">
                     {fv.label}
                   </dt>
-                  <dd className="flex-1 break-words text-foreground">{fv.value}</dd>
+                  <dd className="flex-1 break-words text-foreground">
+                    {fv.fieldType === 'file' && isFilePaths(fv.rawValue) ? (
+                      <span className="flex flex-col gap-1">
+                        {(fv.rawValue as string[]).map((path) => (
+                          <FileDownloadLink key={path} storagePath={path} />
+                        ))}
+                      </span>
+                    ) : (
+                      fv.value
+                    )}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -486,6 +716,8 @@ function StepCard({
   isCurrent,
   canOpen,
   onOpen,
+  isAdmin,
+  onReassign,
 }: {
   label: string
   nodeType: string
@@ -494,6 +726,8 @@ function StepCard({
   isCurrent: boolean
   canOpen: boolean
   onOpen: () => void
+  isAdmin?: boolean
+  onReassign?: () => void
 }) {
   const iconClass = 'h-5 w-5 shrink-0'
 
@@ -557,17 +791,30 @@ function StepCard({
           )}
         </div>
 
-        {/* Open button */}
-        {canOpen && (
-          <Button
-            variant={state === 'current' ? 'default' : 'outline'}
-            size="sm"
-            className="shrink-0"
-            onClick={onOpen}
-          >
-            {state === 'current' ? 'Open' : 'View'}
-          </Button>
-        )}
+        {/* Buttons */}
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Admin: reassign button — only on pending steps */}
+          {isAdmin && onReassign && state === 'current' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={onReassign}
+            >
+              <UserPenIcon className="mr-1.5 h-3.5 w-3.5" />
+              Reassign
+            </Button>
+          )}
+          {canOpen && (
+            <Button
+              variant={state === 'current' ? 'default' : 'outline'}
+              size="sm"
+              onClick={onOpen}
+            >
+              {state === 'current' ? 'Open' : 'View'}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )

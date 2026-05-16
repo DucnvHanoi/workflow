@@ -20,7 +20,7 @@
 //   2. "Save Draft" → calls saveDraftStep(), shows toast, keeps modal open
 //   3. "Submit"     → validates required fields client-side, calls submitStep(),
 //                     shows toast, closes modal, calls onSubmitted()
-
+import { FileDownloadLink, isFilePaths } from '@/components/canvas/FileDownloadLink'
 import { useState, useEffect, useTransition } from 'react'
 import {
   Dialog,
@@ -36,6 +36,7 @@ import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { saveDraftStep, submitStep } from '@/lib/flows/actions'
 import type { FormField } from '@/store/canvas-store'
+import { createBrowserClient } from '@supabase/ssr'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -48,6 +49,10 @@ interface StepFormModalProps {
   formSchema: FormField[]
   initialData: Record<string, unknown>
   isReadOnly: boolean
+  // Required for file upload path construction
+  tenantId: string
+  instanceId: string
+  stepId: string
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -61,6 +66,9 @@ export function StepFormModal({
   formSchema,
   initialData,
   isReadOnly,
+  tenantId,
+  instanceId,
+  stepId,
 }: StepFormModalProps) {
   // Local form state — keyed by FormField.id
   const [values, setValues] = useState<Record<string, unknown>>({})
@@ -69,11 +77,17 @@ export function StepFormModal({
   const [isSavingDraft, startSaveDraft] = useTransition()
   const [isSubmitting, startSubmit] = useTransition()
 
+  // File upload state: fieldId → File[]
+  const [filesByField, setFilesByField] = useState<Record<string, File[]>>({})
+  const [uploadProgress, setUploadProgress] = useState<Record<string, string>>({})
+
   // Re-initialise values whenever the modal opens or initialData changes
   useEffect(() => {
     if (open) {
       setValues(initialData ?? {})
       setErrors({})
+      setFilesByField({})
+      setUploadProgress({})
     }
   }, [open, initialData])
 
@@ -120,6 +134,10 @@ export function StepFormModal({
       if (field.type === 'checkbox') {
         const arr = (val as string[]) ?? []
         if (arr.length === 0) newErrors[field.id] = 'Please select at least one option.'
+      } else if (field.type === 'file') {
+        // File fields store selected files in filesByField, not in values
+        const selectedFiles = filesByField[field.id] ?? []
+        if (selectedFiles.length === 0) newErrors[field.id] = 'Please select at least one file.'
       } else {
         const str = typeof val === 'string' ? val.trim() : ''
         if (!str) newErrors[field.id] = 'This field is required.'
@@ -154,7 +172,50 @@ export function StepFormModal({
 
     startSubmit(async () => {
       try {
-        const result = await submitStep(stepInstanceId, values)
+        // 1. Upload any files first, collect storage paths into values
+        const finalValues = { ...values }
+        const supabase = createBrowserClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        )
+
+        for (const [fieldId, files] of Object.entries(filesByField)) {
+          if (!files.length) continue
+          const paths: string[] = []
+
+          for (const file of files) {
+            // Enforce 10 MB limit client-side (bucket policy also enforces it)
+            if (file.size > 10 * 1024 * 1024) {
+              toast.error(`${file.name} exceeds the 10 MB file size limit.`)
+              return
+            }
+
+            setUploadProgress((p) => ({ ...p, [fieldId]: `Uploading ${file.name}…` }))
+
+            // Path: {tenantId}/{instanceId}/{stepId}/{fieldId}/{filename}
+            const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+            const path = `${tenantId}/${instanceId}/${stepId}/${fieldId}/${Date.now()}_${safeName}`
+
+            const { error: uploadError } = await supabase.storage
+              .from('step-attachments')
+              .upload(path, file, { upsert: false })
+
+            if (uploadError) {
+              toast.error(`Failed to upload ${file.name}: ${uploadError.message}`)
+              setUploadProgress((p) => ({ ...p, [fieldId]: '' }))
+              return
+            }
+
+            paths.push(path)
+          }
+
+          setUploadProgress((p) => ({ ...p, [fieldId]: '' }))
+          // Store as array of paths — download via signed URL in read-only view
+          finalValues[fieldId] = paths
+        }
+
+        // 2. Submit with file paths included in form_data
+        const result = await submitStep(stepInstanceId, finalValues)
         if (result.error) {
           toast.error(result.error)
         } else {
@@ -204,6 +265,12 @@ export function StepFormModal({
               disabled={isReadOnly || isSubmitting || isSavingDraft}
               onChange={(val) => setValue(field.id, val)}
               onCheckboxChange={(option, checked) => toggleCheckbox(field.id, option, checked)}
+              files={filesByField[field.id] ?? []}
+              uploadProgress={uploadProgress[field.id] ?? ''}
+              onFilesChange={(files) => setFilesByField((prev) => ({ ...prev, [field.id]: files }))}
+              tenantId={tenantId}
+              supabaseUrl={process.env.NEXT_PUBLIC_SUPABASE_URL!}
+              supabaseAnonKey={process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}
             />
           ))}
         </div>
@@ -253,6 +320,12 @@ function FieldRenderer({
   disabled,
   onChange,
   onCheckboxChange,
+  files,
+  uploadProgress,
+  onFilesChange,
+  tenantId: _tenantId,
+  supabaseUrl: _supabaseUrl,
+  supabaseAnonKey: _supabaseAnonKey,
 }: {
   field: FormField
   value: unknown
@@ -260,6 +333,12 @@ function FieldRenderer({
   disabled: boolean
   onChange: (val: unknown) => void
   onCheckboxChange: (option: string, checked: boolean) => void
+  files: File[]
+  uploadProgress: string
+  onFilesChange: (files: File[]) => void
+  tenantId: string
+  supabaseUrl: string
+  supabaseAnonKey: string
 }) {
   return (
     <div className="space-y-1.5">
@@ -364,12 +443,46 @@ function FieldRenderer({
       )}
 
       {field.type === 'file' && (
-        <div className="rounded-md border border-dashed bg-muted/30 px-4 py-3 text-center">
-          <p className="text-sm text-muted-foreground">File upload coming soon.</p>
-          {typeof value === 'string' && value && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Previously uploaded: <span className="font-medium">{value}</span>
-            </p>
+        <div className="space-y-2">
+          {/* Read-only: show download links for already-uploaded files */}
+          {disabled && isFilePaths(value as unknown) && (
+            <div className="space-y-1">
+              {(value as unknown as string[]).map((path) => (
+                <FileDownloadLink key={path} storagePath={path} />
+              ))}
+            </div>
+          )}
+          {/* Editable: show file picker */}
+          {!disabled && (
+            <>
+              <input
+                id={`field-${field.id}`}
+                type="file"
+                multiple
+                disabled={disabled}
+                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-accent"
+                onChange={(e) => onFilesChange(Array.from(e.target.files ?? []))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Max 10 MB per file. Multiple files allowed.
+              </p>
+              {files.length > 0 && (
+                <ul className="space-y-1">
+                  {files.map((f, i) => (
+                    <li key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="truncate flex-1">{f.name}</span>
+                      <span className="shrink-0 tabular-nums">{(f.size / 1024).toFixed(0)} KB</span>
+                      {f.size > 10 * 1024 * 1024 && (
+                        <span className="shrink-0 text-destructive font-medium">Too large</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {uploadProgress && (
+                <p className="text-xs text-blue-600 animate-pulse">{uploadProgress}</p>
+              )}
+            </>
           )}
         </div>
       )}

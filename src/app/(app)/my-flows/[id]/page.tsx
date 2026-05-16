@@ -150,6 +150,7 @@ async function getInstanceDetail(
     steps,
     // ── NEW: tell the client whether the viewer is here as an assignee
     viewer_is_assignee: isAssignee && !isTriggerer,
+    isAdmin,
   }
 }
 
@@ -181,6 +182,8 @@ export default async function InstanceDetailPage(props: { params: Promise<{ id: 
       detail={detail}
       orderedNodeIds={orderedNodeIds}
       currentUserId={user.id}
+      isAdmin={isAdmin}
+      tenantId={claims.tenant_id!}
       timeline={timeline}
     />
   )
