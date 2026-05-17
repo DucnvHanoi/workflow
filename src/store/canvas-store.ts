@@ -16,7 +16,7 @@ import { saveDraftVersion } from '@/lib/flows/actions'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type FormFieldType = 'text' | 'dropdown' | 'radio' | 'checkbox' | 'file'
+export type FormFieldType = 'text' | 'dropdown' | 'radio' | 'checkbox' | 'file' | 'date'
 
 export interface FormField {
   id: string
@@ -29,6 +29,7 @@ export interface FormField {
 export interface BranchCondition {
   id: string
   fieldId: string
+  nodeId?: string // which upstream node owns this field; undefined = use immediately preceding step (legacy)
   operator: 'eq'
   value: string
   handleId: 'yes' | 'no'

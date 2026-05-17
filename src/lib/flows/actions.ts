@@ -1066,14 +1066,40 @@ async function advanceFlow(
     const yesEdge = outboundEdges.find((e) => e.sourceHandle === 'yes')
     const noEdge = outboundEdges.find((e) => e.sourceHandle === 'no')
 
-    // ── CHANGED: evaluate handle conditions
+    // ── Fetch all completed step instances for this flow instance ─────────
+    // Needed so conditions can reference fields from any previous step,
+    // not just the step that was just submitted.
+    // Build a map: stepNodeId → form_data
+    const { data: allStepInstances } = await db
+      .from('step_instances')
+      .select('step_id, form_data, status')
+      .eq('instance_id', instanceId)
+      .eq('status', 'completed')
+
+    const stepFormDataByNodeId = new Map<string, Record<string, unknown>>()
+    for (const si of allStepInstances ?? []) {
+      stepFormDataByNodeId.set(si.step_id, (si.form_data ?? {}) as Record<string, unknown>)
+    }
+    // Also include the just-submitted step's data (it may not be 'completed' yet
+    // if advanceFlow is called before the status update — safe to always include)
+    stepFormDataByNodeId.set(completedStepNodeId, submittedFormData)
+
+    // ── Evaluate handle conditions ─────────────────────────────────────────
     // A handle matches when it has at least one condition AND all conditions pass.
-    // A handle with zero conditions never matches (not a fallback).
+    // Each condition specifies:
+    //   - nodeId: which step's form_data to look in (undefined = preceding step)
+    //   - fieldId: the field key within that form_data
+    //   - value: the expected string value
     const handleMatches = (handleId: 'yes' | 'no'): boolean => {
       const conds = branchConditions.filter((c) => c.handleId === handleId)
       if (conds.length === 0) return false // zero conditions = no match
       return conds.every((cond) => {
-        const rawValue = submittedFormData[cond.fieldId]
+        // Look up form_data: use nodeId if set, otherwise fall back to the
+        // just-submitted step (backwards-compat with pre-enhancement conditions)
+        const sourceData = cond.nodeId
+          ? (stepFormDataByNodeId.get(cond.nodeId) ?? submittedFormData)
+          : submittedFormData
+        const rawValue = sourceData[cond.fieldId]
         const fieldValue = Array.isArray(rawValue)
           ? rawValue.map(String).join(',') // checkbox multi-value: join for eq check
           : String(rawValue ?? '')

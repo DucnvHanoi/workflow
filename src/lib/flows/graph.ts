@@ -114,6 +114,7 @@ export function validateGraph(nodes: SerializedNode[], edges: SerializedEdge[]):
     // Action + Branch: must have at least one form field
     // Fields live in formSchema inside NodeData
     const fields = node.data?.formSchema ?? []
+    const fieldIds = new Set(fields.map((f: { id: string }) => f.id))
     if (fields.length === 0) {
       errors.push({
         nodeId: node.id,
@@ -132,7 +133,12 @@ export function validateGraph(nodes: SerializedNode[], edges: SerializedEdge[]):
       })
     }
 
-    // Branch: yes and no handles must each have at least one condition
+    // Branch: conditions check.
+    // advanceFlow supports one side being empty (acts as default/else when the
+    // other side's conditions don't match). So we only error when BOTH sides
+    // have zero conditions — that means the branch can never be evaluated.
+    // We also validate that every condition references a field that exists in
+    // this node's own formSchema.
     if (node.type === 'branch') {
       const conditions = (node.data?.branchConditions ?? []) as Array<{
         handleId: string
@@ -140,30 +146,56 @@ export function validateGraph(nodes: SerializedNode[], edges: SerializedEdge[]):
       }>
       const yesCount = conditions.filter((c) => c.handleId === 'yes').length
       const noCount = conditions.filter((c) => c.handleId === 'no').length
-      if (yesCount === 0) {
+
+      if (yesCount === 0 && noCount === 0) {
         errors.push({
           nodeId: node.id,
           nodeName: label,
-          message: 'Branch "Yes" path needs at least one condition.',
+          message: 'Branch needs at least one condition on the "Yes" or "No" path.',
         })
-      }
-      if (noCount === 0) {
-        errors.push({
-          nodeId: node.id,
-          nodeName: label,
-          message: 'Branch "No" path needs at least one condition.',
-        })
+      } else if (yesCount === 0 && noCount > 0) {
+        // No conditions on 'yes' → it acts as the default/else. That's fine.
+        // But warn the user so they understand the behaviour.
+        // (Not an error — advanceFlow handles this correctly.)
+      } else if (noCount === 0 && yesCount > 0) {
+        // Same: 'no' is the default/else.
       }
 
-      // Ensure every condition references a valid field from the node's own formSchema
-      const fieldIds = new Set(fields.map((f) => f.id))
+      // Every condition must reference a valid field.
+      // - If condition has nodeId: verify that node exists AND has that fieldId
+      // - If condition has no nodeId (legacy): verify fieldId exists in this branch node's own formSchema
+      const nodeFieldMap = new Map<string, Set<string>>()
+      for (const n of nodes) {
+        const nFields = (n.data?.formSchema ?? []) as Array<{ id: string }>
+        nodeFieldMap.set(n.id, new Set(nFields.map((f) => f.id)))
+      }
+
       for (const cond of conditions) {
-        if (!cond.fieldId || !fieldIds.has(cond.fieldId)) {
-          errors.push({
-            nodeId: node.id,
-            nodeName: label,
-            message: `Condition for "${cond.handleId}" references a missing or invalid field.`,
-          })
+        if (cond.nodeId) {
+          // Cross-node reference: check the referenced node and its field both exist
+          const referencedFieldIds = nodeFieldMap.get(cond.nodeId)
+          if (!referencedFieldIds) {
+            errors.push({
+              nodeId: node.id,
+              nodeName: label,
+              message: `Condition for "${cond.handleId}" path references a step that no longer exists.`,
+            })
+          } else if (!cond.fieldId || !referencedFieldIds.has(cond.fieldId)) {
+            errors.push({
+              nodeId: node.id,
+              nodeName: label,
+              message: `Condition for "${cond.handleId}" path references a missing or unselected field.`,
+            })
+          }
+        } else {
+          // Legacy: no nodeId — field must exist in this branch node's own formSchema
+          if (!cond.fieldId || !fieldIds.has(cond.fieldId)) {
+            errors.push({
+              nodeId: node.id,
+              nodeName: label,
+              message: `Condition for "${cond.handleId}" path references a missing or unselected field.`,
+            })
+          }
         }
       }
     }

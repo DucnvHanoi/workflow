@@ -36,6 +36,7 @@ const FIELD_TYPES: { type: FormFieldType; label: string; description: string }[]
   { type: 'radio', label: 'Radio', description: 'Pick one from visible options' },
   { type: 'checkbox', label: 'Checkbox', description: 'One or more selections' },
   { type: 'file', label: 'File upload', description: 'Upload one or more files' },
+  { type: 'date', label: 'Date & Time', description: 'Date and time picker' },
 ]
 
 // ─── Component ────────────────────────────────────────────────────────────────

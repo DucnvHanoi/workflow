@@ -113,7 +113,15 @@ export function TaskDetailModal({
     setContextError(null)
     setContextLoading(true)
     setActiveTab('context')
-    setValues(initialData ?? {})
+
+    // For date fields with no saved value, default to today at 23:59:59
+    const dateDefaults: Record<string, unknown> = {}
+    for (const field of formSchema) {
+      if (field.type === 'date' && !initialData?.[field.id]) {
+        dateDefaults[field.id] = defaultDateValueTDM()
+      }
+    }
+    setValues({ ...dateDefaults, ...(initialData ?? {}) })
     setFieldErrors({})
     setFilesByField({})
     setUploadProgress({})
@@ -767,6 +775,30 @@ function FieldRenderer({
         </div>
       )}
 
+      {/* ── Date & Time field ── */}
+      {field.type === 'date' && (
+        <div className="space-y-1">
+          {disabled ? (
+            <p className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm text-foreground">
+              {value ? (
+                formatDateFieldDisplay(String(value))
+              ) : (
+                <span className="text-muted-foreground">(no date set)</span>
+              )}
+            </p>
+          ) : (
+            <input
+              id={`field-${field.id}`}
+              type="datetime-local"
+              value={toDatetimeLocalStr(String(value ?? ''))}
+              disabled={disabled}
+              onChange={(e) => onChange(fromDatetimeLocalStr(e.target.value))}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          )}
+        </div>
+      )}
+
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   )
@@ -793,6 +825,52 @@ function FilePaths({ value }: { value: string }) {
       ))}
     </span>
   )
+}
+
+// ─── Date helpers (date field type) ──────────────────────────────────────────
+
+function defaultDateValueTDM(): string {
+  const d = new Date()
+  d.setHours(23, 59, 59, 0)
+  return d.toISOString()
+}
+
+function toDatetimeLocalStr(iso: string): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  } catch {
+    return ''
+  }
+}
+
+function fromDatetimeLocalStr(localStr: string): string {
+  if (!localStr) return ''
+  try {
+    const d = new Date(localStr)
+    d.setSeconds(59, 0)
+    return d.toISOString()
+  } catch {
+    return localStr
+  }
+}
+
+function formatDateFieldDisplay(iso: string): string {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    })
+  } catch {
+    return iso
+  }
 }
 
 // ─── Date helper ──────────────────────────────────────────────────────────────

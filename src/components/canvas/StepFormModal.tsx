@@ -84,12 +84,19 @@ export function StepFormModal({
   // Re-initialise values whenever the modal opens or initialData changes
   useEffect(() => {
     if (open) {
-      setValues(initialData ?? {})
+      // For date fields with no saved value, default to today at 23:59:59
+      const defaults: Record<string, unknown> = {}
+      for (const field of formSchema) {
+        if (field.type === 'date' && !initialData?.[field.id]) {
+          defaults[field.id] = defaultDateValue()
+        }
+      }
+      setValues({ ...defaults, ...(initialData ?? {}) })
       setErrors({})
       setFilesByField({})
       setUploadProgress({})
     }
-  }, [open, initialData])
+  }, [open, initialData, formSchema])
 
   // ── Field change helpers ─────────────────────────────────────────────────
 
@@ -487,8 +494,96 @@ function FieldRenderer({
         </div>
       )}
 
+      {/* ── Date & Time field ── */}
+      {field.type === 'date' && (
+        <div className="space-y-1">
+          {disabled ? (
+            // Read-only: display as friendly string
+            <p className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm text-foreground">
+              {value ? (
+                formatDateDisplay(String(value))
+              ) : (
+                <span className="text-muted-foreground">(no date set)</span>
+              )}
+            </p>
+          ) : (
+            <input
+              id={`field-${field.id}`}
+              type="datetime-local"
+              value={toDatetimeLocal(String(value ?? ''))}
+              disabled={disabled}
+              onChange={(e) => onChange(fromDatetimeLocal(e.target.value))}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          )}
+        </div>
+      )}
+
       {/* Error message */}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   )
+}
+// ─── Date helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Returns ISO string for today at 23:59:59 local time.
+ * Used as the default value for date fields when no draft value exists.
+ */
+function defaultDateValue(): string {
+  const d = new Date()
+  d.setHours(23, 59, 59, 0)
+  return d.toISOString()
+}
+
+/**
+ * Converts an ISO string (stored in form_data) to the "YYYY-MM-DDTHH:mm"
+ * format required by <input type="datetime-local">.
+ */
+function toDatetimeLocal(iso: string): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    // toISOString gives UTC; we want local time for the input
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Converts the "YYYY-MM-DDTHH:mm" value from datetime-local back to ISO string
+ * with seconds set to :59 (to include the full minute as per design).
+ */
+function fromDatetimeLocal(localStr: string): string {
+  if (!localStr) return ''
+  try {
+    // datetime-local gives "2026-05-17T23:59" — parse as local time
+    const d = new Date(localStr)
+    d.setSeconds(59, 0)
+    return d.toISOString()
+  } catch {
+    return localStr
+  }
+}
+
+/**
+ * Formats an ISO date string for friendly display in read-only mode.
+ * e.g. "2026-05-17T23:59:00.000Z" → "17 May 2026, 11:59 PM"
+ */
+function formatDateDisplay(iso: string): string {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    })
+  } catch {
+    return iso
+  }
 }

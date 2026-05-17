@@ -478,7 +478,7 @@ function ActivityLog({ timeline, graph }: ActivityLogProps) {
 
 interface ActivityEventProps {
   event: FlowEventLog
-  nodeMap: Map<string, ReturnType<typeof Array.prototype.find>>
+  nodeMap: Map<string, SerializedNode>
   isLast: boolean
 }
 
