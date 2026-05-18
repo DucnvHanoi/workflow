@@ -15,12 +15,15 @@ export default async function UsersPage() {
   const supabase = createClient()
 
   // Query 1 — all users with department
+  // FK hint required: two relationships exist between users↔departments after
+  // adding departments.head_user_id. We specify department_id!departments to
+  // tell PostgREST to use the users.department_id → departments.id FK.
   const { data, error } = await supabase
     .from('users')
     .select(
       `
       id, email, full_name, role, created_at, manager_id, department_id,
-      departments ( id, name )
+      departments!department_id ( id, name )
     `
     )
     .order('full_name', { ascending: true, nullsFirst: false })
