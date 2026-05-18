@@ -1,5 +1,7 @@
 'use client'
 
+// FILE PATH: src/components/departments/department-actions.tsx
+
 import { useState } from 'react'
 import { MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -12,6 +14,14 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { EditDepartmentDialog } from './rename-department-dialog'
 import { DeleteDepartmentDialog } from './delete-department-dialog'
+import { SetDepartmentHeadDialog } from './set-department-head-dialog'
+
+interface DeptUser {
+  id: string
+  full_name: string | null
+  email: string
+  department_id: string | null
+}
 
 interface Props {
   department: {
@@ -19,13 +29,17 @@ interface Props {
     name: string
     parent_id: string | null
     userCount: number
+    head_user_id: string | null
+    head_name: string | null
   }
   allDepartments: { id: string; name: string; parent_id: string | null }[]
+  allUsers: DeptUser[]
 }
 
-export function DepartmentActions({ department, allDepartments }: Props) {
+export function DepartmentActions({ department, allDepartments, allUsers }: Props) {
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [setHeadOpen, setSetHeadOpen] = useState(false)
 
   return (
     <>
@@ -38,6 +52,7 @@ export function DepartmentActions({ department, allDepartments }: Props) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => setEditOpen(true)}>Edit</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setSetHeadOpen(true)}>Set Head</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => setDeleteOpen(true)}
@@ -54,10 +69,17 @@ export function DepartmentActions({ department, allDepartments }: Props) {
         department={department}
         allDepartments={allDepartments}
       />
+      <SetDepartmentHeadDialog
+        open={setHeadOpen}
+        onOpenChange={setSetHeadOpen}
+        department={department}
+        allUsers={allUsers}
+      />
       <DeleteDepartmentDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         department={department}
+        userCount={department.userCount}
       />
     </>
   )

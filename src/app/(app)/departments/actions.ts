@@ -216,3 +216,49 @@ export async function deleteDepartment(departmentId: string): Promise<{ error: s
   revalidatePath('/departments')
   return { error: null }
 }
+
+// ─── set department head ──────────────────────────────────────────────────────
+
+export async function setDepartmentHead(
+  departmentId: string,
+  userId: string | null // null = clear the head
+): Promise<{ error: string | null }> {
+  const { user, claims } = await getSessionClaims()
+  if (!user || claims.role !== 'admin') return { error: 'Unauthorised' }
+
+  const adminClient = createAdminClient()
+
+  // Verify dept belongs to this tenant
+  const { data: dept } = await adminClient
+    .from('departments')
+    .select('id')
+    .eq('id', departmentId)
+    .eq('tenant_id', claims.tenant_id)
+    .maybeSingle()
+
+  if (!dept) return { error: 'Department not found.' }
+
+  // If setting a user, verify they belong to this tenant
+  if (userId) {
+    const { data: u } = await adminClient
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .eq('tenant_id', claims.tenant_id)
+      .maybeSingle()
+
+    if (!u) return { error: 'User not found in this tenant.' }
+  }
+
+  const { error } = await adminClient
+    .from('departments')
+    .update({ head_user_id: userId })
+    .eq('id', departmentId)
+    .eq('tenant_id', claims.tenant_id)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/departments')
+  revalidatePath('/users')
+  return { error: null }
+}

@@ -33,6 +33,7 @@ export type UserRow = {
   department_id: string | null
   departments: { id: string; name: string } | null
   manager: { id: string; full_name: string | null; email: string } | null
+  headOf: string | null // department name this user heads; null if not a head
 }
 
 type UsersTableProps = {
@@ -99,7 +100,20 @@ export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: Us
         accessorKey: 'departments',
         header: 'Department',
         enableSorting: false,
-        cell: ({ row }) => row.original.departments?.name ?? '—',
+        cell: ({ row }) => {
+          const deptName = row.original.departments?.name
+          const headOf = row.original.headOf
+          return (
+            <div className="space-y-1">
+              <span>{deptName ?? '—'}</span>
+              {headOf && (
+                <span className="flex w-fit items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">
+                  Head of {headOf}
+                </span>
+              )}
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'manager',

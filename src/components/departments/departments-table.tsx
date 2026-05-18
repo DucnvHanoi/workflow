@@ -1,5 +1,7 @@
 'use client'
 
+// FILE PATH: src/components/departments/departments-table.tsx
+
 import { useState } from 'react'
 import {
   Table,
@@ -10,12 +12,21 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 import { DepartmentActions } from './department-actions'
 import type { DepartmentTreeNode } from '@/lib/departments/tree'
 
+interface DeptUser {
+  id: string
+  full_name: string | null
+  email: string
+  department_id: string | null
+}
+
 interface Props {
-  rows: DepartmentTreeNode[] // already flattened in display order
+  rows: DepartmentTreeNode[]
   allDepartments: { id: string; name: string; parent_id: string | null }[]
+  allUsers: DeptUser[]
 }
 
 function formatDate(iso: string) {
@@ -26,10 +37,9 @@ function formatDate(iso: string) {
   })
 }
 
-// Indent multiplier per depth level
 const INDENT = ['', 'pl-0', 'pl-6', 'pl-12'] as const
 
-export function DepartmentsTable({ rows, allDepartments }: Props) {
+export function DepartmentsTable({ rows, allDepartments, allUsers }: Props) {
   const [search, setSearch] = useState('')
 
   const filtered = search.trim()
@@ -50,6 +60,7 @@ export function DepartmentsTable({ rows, allDepartments }: Props) {
           <TableHeader>
             <TableRow>
               <TableHead>Department Name</TableHead>
+              <TableHead>Head</TableHead>
               <TableHead>Members</TableHead>
               <TableHead>Created</TableHead>
               <TableHead className="w-10" />
@@ -58,7 +69,7 @@ export function DepartmentsTable({ rows, allDepartments }: Props) {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                   {search
                     ? 'No departments match your search.'
                     : 'No departments yet. Create one to get started.'}
@@ -67,23 +78,47 @@ export function DepartmentsTable({ rows, allDepartments }: Props) {
             ) : (
               filtered.map((row) => (
                 <TableRow key={row.id}>
+                  {/* Name */}
                   <TableCell>
                     <div className={`flex items-center gap-2 ${INDENT[row.depth] ?? 'pl-12'}`}>
-                      {/* Tree connector for non-root items */}
                       {row.depth > 1 && (
                         <span className="text-muted-foreground text-xs select-none">↳</span>
                       )}
                       <span className={row.depth === 1 ? 'font-medium' : ''}>{row.name}</span>
                     </div>
                   </TableCell>
+
+                  {/* Head */}
+                  <TableCell>
+                    {row.head_name ? (
+                      <Badge
+                        variant="secondary"
+                        className="border-violet-200 bg-violet-50 text-violet-700 font-normal"
+                      >
+                        {row.head_name}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+
+                  {/* Members */}
                   <TableCell className="text-muted-foreground">
                     {row.userCount} {row.userCount === 1 ? 'user' : 'users'}
                   </TableCell>
+
+                  {/* Created */}
                   <TableCell className="text-muted-foreground">
                     {formatDate(row.created_at)}
                   </TableCell>
+
+                  {/* Actions */}
                   <TableCell>
-                    <DepartmentActions department={row} allDepartments={allDepartments} />
+                    <DepartmentActions
+                      department={row}
+                      allDepartments={allDepartments}
+                      allUsers={allUsers}
+                    />
                   </TableCell>
                 </TableRow>
               ))

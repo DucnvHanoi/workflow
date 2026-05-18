@@ -47,10 +47,10 @@ export default async function UsersPage() {
     }
   }
 
-  // Query 3 — all departments for the edit department dropdown
+  // Query 3 — all departments for the edit department dropdown + head info
   const { data: deptRows } = await supabase
     .from('departments')
-    .select('id, name, parent_id')
+    .select('id, name, parent_id, head_user_id')
     .order('name', { ascending: true })
 
   const allDepartments = (deptRows ?? []).map((d) => ({
@@ -58,6 +58,14 @@ export default async function UsersPage() {
     name: d.name,
     parent_id: d.parent_id,
   }))
+
+  // Build map: userId → department name they head
+  const headOfMap: Record<string, string> = {}
+  for (const d of deptRows ?? []) {
+    if (d.head_user_id) {
+      headOfMap[d.head_user_id] = d.name
+    }
+  }
 
   // Build UserRow[]
   const users = rawUsers.map((u) => {
@@ -77,6 +85,7 @@ export default async function UsersPage() {
       department_id: (u.department_id ?? null) as string | null,
       departments: dept ? { id: dept.id as string, name: dept.name as string } : null,
       manager: u.manager_id ? (managerMap[u.manager_id] ?? null) : null,
+      headOf: headOfMap[u.id as string] ?? null,
     }
   }) satisfies UserRow[]
 

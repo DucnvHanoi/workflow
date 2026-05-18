@@ -1,5 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
-import { cookies } from 'next/headers'
+// FILE PATH: src/app/(app)/departments/page.tsx
+
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { DepartmentsTable } from '@/components/departments/departments-table'
@@ -7,59 +8,57 @@ import { CreateDepartmentButton } from '@/components/departments/create-departme
 import { buildDepartmentTree, flattenTree, type FlatDepartment } from '@/lib/departments/tree'
 
 export default async function DepartmentsPage() {
-  const cookieStore = cookies()
-  const supabase = createClient()
-  // const supabase = createClient(
-  //   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  //   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  //   {
-  //     cookies: {
-  //       getAll: () => cookieStore.getAll(),
-  //       setAll: (toSet) => {
-  //         try {
-  //           toSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
-  //         } catch {}
-  //       },
-  //     },
-  //   }
-  // )
-
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
   if (claims.role !== 'admin') redirect('/unauthorized')
 
-  const { data: departments, error } = await supabase
+  const db = createAdminClient()
+
+  const { data: departments, error } = await db
     .from('departments')
-    .select('id, name, parent_id, created_at')
+    .select('id, name, parent_id, created_at, head_user_id')
+    .eq('tenant_id', claims.tenant_id!)
+    .order('name', { ascending: true })
 
   if (error) console.error('Failed to fetch departments:', error.message)
 
-  // User counts per department
-  const { data: userCounts } = await supabase
+  const { data: userRows } = await db
     .from('users')
-    .select('department_id')
-    .not('department_id', 'is', null)
+    .select('id, full_name, email, department_id')
+    .eq('tenant_id', claims.tenant_id!)
+    .order('full_name', { ascending: true, nullsFirst: false })
+
+  const allUsers = (userRows ?? []).map((u) => ({
+    id: u.id as string,
+    full_name: (u.full_name ?? null) as string | null,
+    email: u.email as string,
+    department_id: (u.department_id ?? null) as string | null,
+  }))
 
   const countMap: Record<string, number> = {}
-  for (const u of userCounts ?? []) {
+  for (const u of allUsers) {
     if (u.department_id) {
       countMap[u.department_id] = (countMap[u.department_id] ?? 0) + 1
     }
   }
 
-  const flat: FlatDepartment[] = (departments ?? []).map((d) => ({
-    id: d.id,
-    name: d.name,
-    parent_id: d.parent_id,
-    created_at: d.created_at,
-    userCount: countMap[d.id] ?? 0,
-  }))
+  const userMap = new Map(allUsers.map((u) => [u.id, u]))
+
+  const flat: FlatDepartment[] = (departments ?? []).map((d) => {
+    const head = d.head_user_id ? (userMap.get(d.head_user_id) ?? null) : null
+    return {
+      id: d.id,
+      name: d.name,
+      parent_id: d.parent_id,
+      created_at: d.created_at,
+      userCount: countMap[d.id] ?? 0,
+      head_user_id: d.head_user_id ?? null,
+      head_name: head ? (head.full_name ?? head.email) : null,
+    }
+  })
 
   const tree = buildDepartmentTree(flat)
   const rows = flattenTree(tree)
-  console.log(tree)
-
-  // Pass flat list to dialogs for parent selector
   const allDepartments = flat.map((d) => ({ id: d.id, name: d.name, parent_id: d.parent_id }))
 
   return (
@@ -74,7 +73,7 @@ export default async function DepartmentsPage() {
         <CreateDepartmentButton allDepartments={allDepartments} />
       </div>
 
-      <DepartmentsTable rows={rows} allDepartments={allDepartments} />
+      <DepartmentsTable rows={rows} allDepartments={allDepartments} allUsers={allUsers} />
     </div>
   )
 }

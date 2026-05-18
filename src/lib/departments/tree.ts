@@ -4,6 +4,8 @@ export interface FlatDepartment {
   parent_id: string | null
   created_at: string
   userCount: number
+  head_user_id: string | null
+  head_name: string | null // resolved display name — null when no head set
 }
 
 export interface DepartmentTreeNode extends FlatDepartment {
