@@ -22,7 +22,6 @@ interface AssigneePanelProps {
 }
 
 // ─── Rule type options ────────────────────────────────────────────────────────
-// ADD: 'requester' at the top — most common self-service use case
 
 const RULE_OPTIONS: { type: AssigneeRuleType; label: string; description: string }[] = [
   {
@@ -46,14 +45,19 @@ const RULE_OPTIONS: { type: AssigneeRuleType; label: string; description: string
     description: "Manager's manager of the requestor",
   },
   {
+    type: 'requester_dept_head',
+    label: "Requester's department head",
+    description: "Head of the requester's own department at the time they trigger the flow",
+  },
+  {
     type: 'department_head',
-    label: 'Department head',
-    description: 'First user in a chosen department',
+    label: 'Specific department head',
+    description: 'Head of a specific department chosen now (walks up to parent if no head set)',
   },
   {
     type: 'role_in_dept',
     label: 'Role in department',
-    description: 'First user with a specific role in a department',
+    description: 'First user with a specific role in a chosen department',
   },
 ]
 
@@ -111,9 +115,9 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
     let rule: AssigneeRule = null
 
     switch (type) {
-      case 'requester': // ADD
-        rule = { type: 'requester' } // ADD
-        break // ADD
+      case 'requester':
+        rule = { type: 'requester' }
+        break
       case 'fixed':
         rule = email ? { type: 'fixed', email } : null
         break
@@ -122,6 +126,9 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
         break
       case 'skip_level':
         rule = { type: 'skip_level' }
+        break
+      case 'requester_dept_head':
+        rule = { type: 'requester_dept_head' }
         break
       case 'department_head':
         rule = departmentId ? { type: 'department_head', departmentId } : null
@@ -176,13 +183,15 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
     if (!currentRule) return null
     switch (currentRule.type) {
       case 'requester':
-        return 'Requester (self)' // ADD
+        return 'Requester (self)'
       case 'fixed':
         return `Fixed: ${currentRule.email}`
       case 'manager_of_requestor':
         return "Requestor's manager"
       case 'skip_level':
         return 'Skip-level manager'
+      case 'requester_dept_head':
+        return "Head of requester's department"
       case 'department_head':
         return `Dept head: ${deptLabel(currentRule.departmentId)}`
       case 'role_in_dept':
@@ -298,7 +307,7 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
         </div>
       )}
 
-      {/* Department head — department dropdown */}
+      {/* Specific department head — department dropdown */}
       {selectedType === 'department_head' && (
         <div className="flex flex-col gap-1.5 rounded-md border border-border bg-muted/20 p-2">
           <p className="text-xs font-medium text-foreground">Department</p>
@@ -317,6 +326,9 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
               </option>
             ))}
           </select>
+          <p className="text-[10px] text-muted-foreground">
+            If the selected department has no head, the parent department head is used instead.
+          </p>
         </div>
       )}
 
@@ -354,8 +366,9 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
         </div>
       )}
 
-      {/* ADD: requester, manager_of_requestor, skip_level — no sub-fields needed */}
+      {/* No sub-fields needed for these rule types */}
       {(selectedType === 'requester' ||
+        selectedType === 'requester_dept_head' ||
         selectedType === 'manager_of_requestor' ||
         selectedType === 'skip_level') && (
         <p className="text-xs text-muted-foreground italic">

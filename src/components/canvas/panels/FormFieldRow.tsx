@@ -16,12 +16,15 @@ interface FormFieldRowProps {
 
 // ─── Field type label map ─────────────────────────────────────────────────────
 
+// ─── Field type label map ─────────────────────────────────────────────────────
+
 const FIELD_TYPE_LABELS: Record<FormField['type'], string> = {
   text: 'Text',
   dropdown: 'Dropdown',
   radio: 'Radio',
   checkbox: 'Checkbox',
-  file: 'File upload',
+  file: 'File',
+  date: 'Date', // <-- Add this missing line!
 }
 
 const FIELD_TYPE_COLORS: Record<FormField['type'], string> = {
@@ -30,6 +33,7 @@ const FIELD_TYPE_COLORS: Record<FormField['type'], string> = {
   radio: 'bg-orange-100 text-orange-700',
   checkbox: 'bg-teal-100 text-teal-700',
   file: 'bg-pink-100 text-pink-700',
+  date: 'bg-emerald-100 text-emerald-700', // <-- Add this line (or choose your preferred Tailwind colors)
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────

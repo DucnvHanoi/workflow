@@ -96,6 +96,22 @@ type AdminDb = ReturnType<typeof createAdminClient>
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
+// ─── Translate canvas AssigneeRule (camelCase) → Edge Function format (snake_case) ──
+// The canvas store saves departmentId in camelCase. The Edge Function expects
+// snake_case. This translation happens at the call site only — no other code changes.
+function toEdgeFunctionRule(rule: { type?: string } | null): Record<string, unknown> | null {
+  if (!rule?.type) return null
+  const r = rule as Record<string, unknown>
+  switch (r.type) {
+    case 'department_head':
+      return { type: 'department_head', department_id: r.departmentId }
+    case 'role_in_dept':
+      return { type: 'role_in_dept', department_id: r.departmentId, role: r.role }
+    default:
+      return rule as Record<string, unknown>
+  }
+}
+
 async function requireAdminWithTenant(): Promise<
   { ok: true; tenantId: string; db: AdminDb } | { ok: false; error: string }
 > {
@@ -647,7 +663,7 @@ export async function triggerFlow(
           Authorization: `Bearer ${serviceRoleKey}`,
         },
         body: JSON.stringify({
-          rule: assigneeRule,
+          rule: toEdgeFunctionRule(assigneeRule),
           triggered_by_user_id: userId,
           tenant_id: tenantId,
         }),
@@ -1210,7 +1226,7 @@ async function advanceFlow(
           Authorization: `Bearer ${serviceRoleKey}`,
         },
         body: JSON.stringify({
-          rule: assigneeRule,
+          rule: toEdgeFunctionRule(assigneeRule),
           triggered_by_user_id: triggeredByUserId,
           tenant_id: tenantId,
         }),

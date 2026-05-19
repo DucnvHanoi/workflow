@@ -110,7 +110,7 @@ export default function BranchConfigPanel({ node }: Props) {
     })
 
     return [...own, ...upstreamOptions]
-  }, [node.id, node.data, allNodes, allEdges])
+  }, [node.id, node.data, allNodes, allEdges, data.formSchema])
 
   const persist = (updated: BranchCondition[]) => {
     setConditions(updated)
@@ -251,8 +251,11 @@ function ConditionRow({ condition, fieldOptions, onUpdate, onRemove }: RowProps)
         map.set(opt.nodeLabel, { nodeId: opt.nodeId, isOwn: opt.isOwn, fields: [] })
       map.get(opt.nodeLabel)!.fields.push(opt)
     }
-    const own = [...map.entries()].filter(([, v]) => v.isOwn)
-    const upstream = [...map.entries()].filter(([, v]) => !v.isOwn)
+    // FIX: use Array.from() instead of spread on MapIterator
+    // (spread of map.entries() fails when TS target is below ES2015)
+    const entries = Array.from(map.entries())
+    const own = entries.filter(([, v]) => v.isOwn)
+    const upstream = entries.filter(([, v]) => !v.isOwn)
     return [...own, ...upstream]
   }, [fieldOptions])
 

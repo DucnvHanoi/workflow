@@ -143,6 +143,7 @@ export function validateGraph(nodes: SerializedNode[], edges: SerializedEdge[]):
       const conditions = (node.data?.branchConditions ?? []) as Array<{
         handleId: string
         fieldId: string
+        nodeId?: string
       }>
       const yesCount = conditions.filter((c) => c.handleId === 'yes').length
       const noCount = conditions.filter((c) => c.handleId === 'no').length

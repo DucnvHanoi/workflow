@@ -8,11 +8,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.4'
 // ---------------------------------------------------------------------------
 
 type AssigneeRule =
-  | { type: 'requester' } // ADD
+  | { type: 'requester' }
   | { type: 'fixed'; email: string }
   | { type: 'manager_of_requestor' }
   | { type: 'skip_level' }
   | { type: 'department_head'; department_id: string }
+  | { type: 'requester_dept_head' }
   | { type: 'role_in_dept'; department_id: string; role: string }
 
 interface RequestBody {
@@ -55,12 +56,80 @@ function getAdminClient() {
 }
 
 // ---------------------------------------------------------------------------
+// Shared: walk department hierarchy upward looking for a head_user_id.
+// Used by both department_head and requester_dept_head rules.
+//
+// Resolution order per level:
+//   1. Department has head_user_id set and the user still exists → return that user.
+//   2. head_user_id set but user was deleted → treat as no head, walk up.
+//   3. No head_user_id → walk up to parent_id.
+//   4. Reached root (no parent_id) with no head found → error.
+//
+// Max depth guard (10) prevents infinite loops from corrupt data.
+// ---------------------------------------------------------------------------
+
+async function walkDeptHierarchyForHead(
+  supabase: ReturnType<typeof getAdminClient>,
+  startDeptId: string,
+  tenantId: string
+): Promise<ResolveResult> {
+  let currentDeptId = startDeptId
+  const visited = new Set<string>()
+  const MAX_DEPTH = 10
+
+  for (let depth = 0; depth < MAX_DEPTH; depth++) {
+    if (visited.has(currentDeptId)) {
+      return err(`Circular parent_id detected in department hierarchy at id "${currentDeptId}".`)
+    }
+    visited.add(currentDeptId)
+
+    const { data: dept, error: deptError } = await supabase
+      .from('departments')
+      .select('id, name, parent_id, head_user_id')
+      .eq('id', currentDeptId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+
+    if (deptError) return err(`DB error looking up department: ${deptError.message}`)
+    if (!dept)
+      return err(`Department not found: no department with id "${currentDeptId}" in this tenant.`)
+
+    // ── Step 1: explicit head_user_id set ─────────────────────────────────
+    if (dept.head_user_id) {
+      const { data: headUser, error: headErr } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', dept.head_user_id)
+        .eq('tenant_id', tenantId)
+        .maybeSingle()
+
+      if (headErr) return err(`DB error verifying department head: ${headErr.message}`)
+      if (headUser) return ok(headUser.id)
+      // head_user_id set but user was deleted — treat as no head, walk up
+    }
+
+    // ── Step 2: no head — walk up if possible, otherwise error ────────────
+    if (!dept.parent_id) {
+      return err(
+        `No department head found in "${dept.name}" or any of its parent departments. ` +
+          `Please assign a head to at least one department in this hierarchy.`
+      )
+    }
+
+    currentDeptId = dept.parent_id
+  }
+
+  return err(`Department hierarchy too deep (max ${MAX_DEPTH} levels). Could not resolve head.`)
+}
+
+// ---------------------------------------------------------------------------
 // Rule resolvers
 // ---------------------------------------------------------------------------
 
-// ADD: requester — simply return triggered_by_user_id as-is.
-// The step is assigned back to whoever triggered the flow.
-// We still verify the user exists in the tenant as a safety check.
+/**
+ * requester: assigned back to whoever triggered the flow.
+ * Verifies the user exists in the tenant as a safety check.
+ */
 async function resolveRequester(
   supabase: ReturnType<typeof getAdminClient>,
   triggeredByUserId: string,
@@ -76,7 +145,6 @@ async function resolveRequester(
   if (error) return err(`DB error looking up requester: ${error.message}`)
   if (!data)
     return err(`Requester not found: no user with id "${triggeredByUserId}" in this tenant.`)
-
   return ok(data.id)
 }
 
@@ -119,11 +187,10 @@ async function resolveManagerOfRequestor(
   if (requestorError) return err(`DB error looking up requestor: ${requestorError.message}`)
   if (!requestor)
     return err(`Requestor not found: no user with id "${triggeredByUserId}" in this tenant.`)
-  if (!requestor.manager_id) {
+  if (!requestor.manager_id)
     return err(
       `Cannot resolve manager: user "${requestor.full_name ?? triggeredByUserId}" has no manager assigned.`
     )
-  }
 
   const { data: manager, error: managerError } = await supabase
     .from('users')
@@ -133,12 +200,10 @@ async function resolveManagerOfRequestor(
     .maybeSingle()
 
   if (managerError) return err(`DB error looking up manager: ${managerError.message}`)
-  if (!manager) {
+  if (!manager)
     return err(
       `Manager not found: manager_id "${requestor.manager_id}" does not exist in this tenant.`
     )
-  }
-
   return ok(manager.id)
 }
 
@@ -161,11 +226,10 @@ async function resolveSkipLevel(
   if (requestorError) return err(`DB error looking up requestor: ${requestorError.message}`)
   if (!requestor)
     return err(`Requestor not found: no user with id "${triggeredByUserId}" in this tenant.`)
-  if (!requestor.manager_id) {
+  if (!requestor.manager_id)
     return err(
       `Cannot resolve skip-level: user "${requestor.full_name ?? triggeredByUserId}" has no manager assigned.`
     )
-  }
 
   const { data: manager, error: managerError } = await supabase
     .from('users')
@@ -180,7 +244,7 @@ async function resolveSkipLevel(
       `Manager not found: manager_id "${requestor.manager_id}" does not exist in this tenant.`
     )
 
-  // Fallback: direct manager has no manager — return direct manager
+  // Fallback: direct manager has no skip-level — return direct manager
   if (!manager.manager_id) return ok(manager.id)
 
   const { data: skipLevel, error: skipLevelError } = await supabase
@@ -193,47 +257,55 @@ async function resolveSkipLevel(
   if (skipLevelError)
     return err(`DB error looking up skip-level manager: ${skipLevelError.message}`)
   if (!skipLevel) return ok(manager.id) // defensive fallback
-
   return ok(skipLevel.id)
 }
 
 /**
- * department_head: first user in a department, ordered alphabetically.
+ * department_head: resolve the head of a SPECIFIC department chosen at
+ * design time, walking up the parent hierarchy if that dept has no head.
+ * The department_id is fixed in the rule config and does NOT depend on
+ * who triggers the flow.
  */
 async function resolveDepartmentHead(
   supabase: ReturnType<typeof getAdminClient>,
   rule: Extract<AssigneeRule, { type: 'department_head' }>,
   tenantId: string
 ): Promise<ResolveResult> {
-  const { data: dept, error: deptError } = await supabase
-    .from('departments')
-    .select('id, name')
-    .eq('id', rule.department_id)
+  return walkDeptHierarchyForHead(supabase, rule.department_id, tenantId)
+}
+
+/**
+ * requester_dept_head: resolve the head of the REQUESTER'S OWN department
+ * at runtime, walking up the parent hierarchy if that dept has no head.
+ *
+ * Errors immediately if:
+ *   - The requester has no department_id set.
+ *   - No head found all the way to the root department.
+ */
+async function resolveRequesterDeptHead(
+  supabase: ReturnType<typeof getAdminClient>,
+  triggeredByUserId: string,
+  tenantId: string
+): Promise<ResolveResult> {
+  // 1. Look up the requester's own department
+  const { data: requester, error: requesterError } = await supabase
+    .from('users')
+    .select('id, full_name, department_id')
+    .eq('id', triggeredByUserId)
     .eq('tenant_id', tenantId)
     .maybeSingle()
 
-  if (deptError) return err(`DB error looking up department: ${deptError.message}`)
-  if (!dept)
+  if (requesterError) return err(`DB error looking up requester: ${requesterError.message}`)
+  if (!requester)
+    return err(`Requester not found: no user with id "${triggeredByUserId}" in this tenant.`)
+  if (!requester.department_id)
     return err(
-      `Department not found: no department with id "${rule.department_id}" in this tenant.`
+      `Cannot resolve requester's department head: user "${requester.full_name ?? triggeredByUserId}" ` +
+        `has no department assigned. Please assign them to a department first.`
     )
 
-  const { data: users, error: usersError } = await supabase
-    .from('users')
-    .select('id, full_name')
-    .eq('department_id', rule.department_id)
-    .eq('tenant_id', tenantId)
-    .order('full_name', { ascending: true })
-    .limit(1)
-
-  if (usersError) return err(`DB error looking up department head: ${usersError.message}`)
-  if (!users || users.length === 0) {
-    return err(
-      `No user found in department "${dept.name}". Assign at least one user to this department.`
-    )
-  }
-
-  return ok(users[0].id)
+  // 2. Walk up the hierarchy from the requester's own department
+  return walkDeptHierarchyForHead(supabase, requester.department_id, tenantId)
 }
 
 /**
@@ -267,10 +339,8 @@ async function resolveRoleInDept(
     .limit(1)
 
   if (usersError) return err(`DB error looking up role in department: ${usersError.message}`)
-  if (!users || users.length === 0) {
+  if (!users || users.length === 0)
     return err(`No user with role "${rule.role}" found in department "${dept.name}".`)
-  }
-
   return ok(users[0].id)
 }
 
@@ -307,9 +377,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
   let result: ResolveResult
 
   switch (rule.type) {
-    case 'requester': // ADD
+    case 'requester':
       result = await resolveRequester(supabase, triggered_by_user_id, tenant_id)
-      break // ADD
+      break
     case 'fixed':
       result = await resolveFixed(supabase, rule, tenant_id)
       break
@@ -321,6 +391,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       break
     case 'department_head':
       result = await resolveDepartmentHead(supabase, rule, tenant_id)
+      break
+    case 'requester_dept_head':
+      result = await resolveRequesterDeptHead(supabase, triggered_by_user_id, tenant_id)
       break
     case 'role_in_dept':
       result = await resolveRoleInDept(supabase, rule, tenant_id)

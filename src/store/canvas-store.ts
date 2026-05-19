@@ -41,6 +41,7 @@ export type AssigneeRuleType =
   | 'manager_of_requestor'
   | 'skip_level'
   | 'department_head'
+  | 'requester_dept_head'
   | 'role_in_dept'
 
 export type AssigneeRule =
@@ -49,6 +50,7 @@ export type AssigneeRule =
   | { type: 'manager_of_requestor' }
   | { type: 'skip_level' }
   | { type: 'department_head'; departmentId: string }
+  | { type: 'requester_dept_head' }
   | { type: 'role_in_dept'; departmentId: string; role: string }
   | null
 
@@ -83,39 +85,31 @@ export interface CanvasStore {
   flowId: string | null
   _debounceTimer: ReturnType<typeof setTimeout> | null
 
-  // When true: canvas is showing a historical version preview.
-  // All panels hide their edit controls; auto-save is suppressed.
   isReadOnly: boolean
 
   nodes: Node[]
   edges: Edge[]
   selectedNodeId: string | null
 
-  // React Flow handlers
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
   onConnect: (connection: Connection) => void
 
-  // Node helpers
   setSelectedNodeId: (id: string | null) => void
   addNode: (type: string, position?: { x: number; y: number }) => void
   updateNodeData: (id: string, partialData: Partial<NodeData>) => void
 
-  // Form field actions
   addFormField: (nodeId: string, type: FormFieldType) => void
   updateFormField: (nodeId: string, fieldId: string, patch: Partial<FormField>) => void
   removeFormField: (nodeId: string, fieldId: string) => void
   reorderFormFields: (nodeId: string, fields: FormField[]) => void
 
-  // Assignee action
   setAssigneeRule: (nodeId: string, rule: AssigneeRule) => void
 
-  // Save status + flowId setters
   setSaveStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void
   setLatestVersionId: (id: string | null) => void
   setFlowId: (id: string) => void
 
-  // Read-only / version preview
   setReadOnly: (val: boolean) => void
   loadVersion: (graph: SerializedGraph) => void
 
@@ -152,8 +146,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   edges: [],
   selectedNodeId: null,
 
-  // ── React Flow handlers ──────────────────────────────────────────────────
-
   onNodesChange: (changes) => {
     set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) }))
   },
@@ -165,8 +157,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   onConnect: (connection) => {
     set((state) => ({ edges: addEdge(connection, state.edges) }))
   },
-
-  // ── Node helpers ─────────────────────────────────────────────────────────
 
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),
 
@@ -198,8 +188,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }))
   },
 
-  // ── Form field actions ───────────────────────────────────────────────────
-
   addFormField: (nodeId, type) => {
     const fieldId = generateId()
     const newField: FormField = {
@@ -207,8 +195,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       type,
       label: '',
       required: false,
-      // FIX: checkbox also needs options — previously only dropdown and radio
-      // were included, causing checkbox fields to be saved with no options array.
       ...(type === 'dropdown' || type === 'radio' || type === 'checkbox'
         ? { options: ['', ''] }
         : {}),
@@ -267,8 +253,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }))
   },
 
-  // ── Assignee action ──────────────────────────────────────────────────────
-
   setAssigneeRule: (nodeId, rule) => {
     set((state) => ({
       nodes: state.nodes.map((node) =>
@@ -277,17 +261,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }))
   },
 
-  // ── Save status + flowId ─────────────────────────────────────────────────
-
   setSaveStatus: (status) => set({ saveStatus: status }),
   setLatestVersionId: (id) => set({ latestVersionId: id }),
   setFlowId: (id) => set({ flowId: id }),
 
-  // ── Read-only / version preview ──────────────────────────────────────────
-
   setReadOnly: (val) => set({ isReadOnly: val }),
 
-  // Loads an old version's graph into the canvas and locks it read-only.
   loadVersion: (graph: SerializedGraph) => {
     const { nodes, edges } = deserializeGraph(graph)
     set({
@@ -297,9 +276,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       isReadOnly: true,
     })
   },
-
-  // ── triggerSave ──────────────────────────────────────────────────────────
-  // Debounced 300ms. Suppressed when isReadOnly (version preview).
 
   triggerSave: () => {
     const state = get()
@@ -315,9 +291,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       if (!flowId) return
 
       try {
-        // Cast needed: store types nodes as Node[] (React Flow base) but
-        // serializeGraph expects Node<NodeData>[]. Data is always NodeData
-        // at runtime — the cast is safe.
         const graph = serializeGraph(nodes as Node<NodeData>[], edges)
         const result = await saveDraftVersion(flowId, graph)
         if (result.error) {
@@ -333,8 +306,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
     set({ _debounceTimer: timer })
   },
-
-  // ── Reset ────────────────────────────────────────────────────────────────
 
   reset: () => {
     const state = get()

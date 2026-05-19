@@ -17,7 +17,7 @@ import type { SerializedGraph } from '@/lib/flows/graph'
 import { walkGraphOrder } from '@/lib/flows/graph-utils'
 import { InstanceDetailClient } from './instance-detail-client'
 import type { InstanceDetail, StepInstanceRow } from './types'
-import { getFlowTimeline, type FlowEventLog } from '@/lib/flows/actions'
+import { getFlowTimeline } from '@/lib/flows/actions'
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
 

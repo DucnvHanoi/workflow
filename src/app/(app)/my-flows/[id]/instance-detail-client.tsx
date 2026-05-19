@@ -504,6 +504,9 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
         if (field.type === 'file') {
           // File fields: keep rawValue as-is (array of paths) for FileDownloadLink
           display = isFilePaths(raw) ? `${(raw as string[]).length} file(s)` : '(empty)'
+        } else if (field.type === 'date') {
+          // Date fields: format ISO string to human-readable
+          display = raw ? formatFieldDate(String(raw)) : '(empty)'
         } else if (Array.isArray(raw)) {
           display = raw.length > 0 ? raw.join(', ') : '(none selected)'
         } else if (raw === null || raw === undefined || raw === '') {
@@ -874,6 +877,23 @@ function formatDate(iso: string) {
     month: 'short',
     year: 'numeric',
   })
+}
+
+// Formats a stored ISO date string (from a date form field) to a friendly
+// human-readable string e.g. "28 May 2026, 4:03 PM"
+function formatFieldDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    })
+  } catch {
+    return iso // fallback to raw if parsing fails
+  }
 }
 
 // ── NEW: precise timestamp for activity log — "1 Jun 2026, 11:00:02 AM"

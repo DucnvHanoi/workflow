@@ -77,7 +77,7 @@ export default function ConfirmPage() {
     }
 
     handleHashSession()
-  }, [])
+  }, [router, supabase])
 
   return (
     <div className="min-h-screen flex items-center justify-center">
