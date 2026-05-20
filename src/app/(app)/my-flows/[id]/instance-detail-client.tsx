@@ -1,13 +1,8 @@
 'use client'
 
 // FILE PATH: src/app/(app)/my-flows/[id]/instance-detail-client.tsx
-//
-// Client component that owns the modal open/close state.
-// Receives all data as props from the server component (page.tsx).
-// When the user submits a step, router.refresh() re-fetches the server data
-// so both the step timeline and activity log update without a full page reload.
 
-import { useState, useCallback, useTransition } from 'react'
+import React, { useState, useCallback, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
@@ -55,11 +50,6 @@ interface InstanceDetailClientProps {
   isAdmin: boolean
   timeline: FlowEventLog[]
   tenantId: string
-  // When rendered inside the Tasks side panel instead of the standalone page:
-  //   - hides the top/bottom back links (panel has its own close button)
-  //   - removes max-w-3xl wrapper (panel controls its own width)
-  //   - router.refresh() is replaced by onPanelRefresh() so the panel
-  //     re-fetches its own data instead of doing a full page refresh
   panelMode?: boolean
   onPanelClose?: () => void
   onPanelRefresh?: () => void
@@ -70,7 +60,7 @@ interface InstanceDetailClientProps {
 interface ModalState {
   open: boolean
   stepInstanceId: string
-  stepNodeId: string // graph node id — used for storage path
+  stepNodeId: string
   stepLabel: string
   formSchema: FormField[]
   initialData: Record<string, unknown>
@@ -85,6 +75,206 @@ const CLOSED_MODAL: ModalState = {
   formSchema: [],
   initialData: {},
   isReadOnly: false,
+}
+
+// ─── StepProgressBar ──────────────────────────────────────────────────────────
+// Layout: three stacked rows share the same column grid so dots & lines align.
+//   Row 1 (top labels)  — step names, fixed height
+//   Row 2 (dot + line)  — perfectly centred; line is a flex sibling of dots
+//   Row 3 (sub labels)  — step description, fixed height
+//
+// Start and Complete bookend dots are always shown.
+// Branch nodes → amber; action nodes → blue.
+
+interface StepProgressBarProps {
+  orderedNodeIds: string[]
+  nodeMap: Map<string, SerializedNode>
+  stepByNodeId: Map<string, StepInstanceRow>
+  currentStepId: string | null
+}
+
+// Column width for each step (px). Bookends are the same width.
+const COL_W = 88
+// Connector line width between any two columns (px).
+const LINE_W = 32
+// Dot diameter (px) — ~2/3 of the original h-9 (36px).
+const DOT_SIZE = 24
+
+function StepProgressBar({
+  orderedNodeIds,
+  nodeMap,
+  stepByNodeId,
+  currentStepId,
+}: StepProgressBarProps) {
+  if (orderedNodeIds.length === 0) return null
+
+  // Build a unified list including Start and Complete bookends
+  type BarItem =
+    | { kind: 'bookend'; id: string; label: string; isDone: boolean }
+    | {
+        kind: 'step'
+        id: string
+        label: string
+        description: string
+        isBranch: boolean
+        isDone: boolean
+        isCurrent: boolean
+      }
+
+  const allDone = orderedNodeIds.every((nid) => {
+    const si = stepByNodeId.get(nid)
+    return si && (si.status === 'completed' || si.status === 'skipped')
+  })
+
+  const items: BarItem[] = [
+    { kind: 'bookend', id: '__start__', label: 'Start', isDone: true },
+    ...orderedNodeIds.map((nodeId): BarItem => {
+      const node = nodeMap.get(nodeId)!
+      const si = stepByNodeId.get(nodeId) ?? null
+      const isDone = si !== null && (si.status === 'completed' || si.status === 'skipped')
+      const isCurrent = si !== null && si.status === 'pending' && currentStepId === si.id
+      return {
+        kind: 'step',
+        id: nodeId,
+        label: node.data?.label ?? 'Step',
+        description: (node.data?.description as string | undefined) ?? '',
+        isBranch: node.type === 'branch',
+        isDone,
+        isCurrent,
+      }
+    }),
+    { kind: 'bookend', id: '__complete__', label: 'Complete', isDone: allDone },
+  ]
+
+  // ── helpers ──
+  function dotClasses(item: BarItem): { bg: string; text: string; line: string } {
+    if (item.kind === 'bookend') {
+      return item.isDone
+        ? {
+            bg: 'bg-emerald-600 border-2 border-emerald-600',
+            text: 'text-white',
+            line: 'bg-emerald-500',
+          }
+        : { bg: 'bg-white border-2 border-zinc-300', text: 'text-zinc-400', line: 'bg-zinc-200' }
+    }
+    const s = item as Extract<BarItem, { kind: 'step' }>
+    if (s.isDone) {
+      return s.isBranch
+        ? { bg: 'bg-amber-500 border-2 border-amber-500', text: 'text-white', line: 'bg-amber-400' }
+        : { bg: 'bg-blue-600 border-2 border-blue-600', text: 'text-white', line: 'bg-blue-500' }
+    }
+    if (s.isCurrent) {
+      return s.isBranch
+        ? {
+            bg: 'bg-amber-100 border-2 border-amber-500 ring-2 ring-amber-200',
+            text: 'text-amber-700',
+            line: 'bg-zinc-200',
+          }
+        : {
+            bg: 'bg-blue-100 border-2 border-blue-600 ring-2 ring-blue-200',
+            text: 'text-blue-700',
+            line: 'bg-zinc-200',
+          }
+    }
+    return { bg: 'bg-white border-2 border-zinc-300', text: 'text-zinc-400', line: 'bg-zinc-200' }
+  }
+
+  function topLabelColor(item: BarItem): string {
+    if (item.kind === 'bookend') return item.isDone ? 'text-emerald-700' : 'text-muted-foreground'
+    const s = item as Extract<BarItem, { kind: 'step' }>
+    if (s.isCurrent) return s.isBranch ? 'text-amber-700' : 'text-blue-700'
+    if (s.isDone) return 'text-foreground'
+    return 'text-muted-foreground'
+  }
+
+  const totalWidth = items.length * COL_W + (items.length - 1) * LINE_W
+
+  return (
+    <div className="mb-6 overflow-x-auto pb-1">
+      <div style={{ width: totalWidth, minWidth: totalWidth }}>
+        {/* ── Row 1: top labels ── */}
+        <div className="flex items-end" style={{ height: 36 }}>
+          {items.map((item, idx) => (
+            <React.Fragment key={item.id}>
+              <div style={{ width: COL_W }} className="flex justify-center">
+                <p
+                  className={`w-full text-center text-[10px] font-semibold leading-tight ${topLabelColor(item)}`}
+                  title={item.label}
+                >
+                  {item.label.length > 12 ? item.label.slice(0, 11) + '…' : item.label}
+                </p>
+              </div>
+              {idx < items.length - 1 && <div style={{ width: LINE_W }} />}
+            </React.Fragment>
+          ))}
+        </div>
+
+        {/* ── Row 2: dots + connecting lines ── */}
+        <div className="flex items-center" style={{ height: DOT_SIZE + 8 }}>
+          {items.map((item, idx) => {
+            const { bg, text, line } = dotClasses(item)
+            const isLast = idx === items.length - 1
+            const isDone = item.isDone
+            const isCurrent =
+              item.kind === 'step' && (item as Extract<BarItem, { kind: 'step' }>).isCurrent
+
+            return (
+              <React.Fragment key={item.id}>
+                {/* Dot */}
+                <div style={{ width: COL_W }} className="flex justify-center">
+                  <div
+                    style={{ width: DOT_SIZE, height: DOT_SIZE }}
+                    className={`flex shrink-0 items-center justify-center rounded-full transition-all ${bg}`}
+                  >
+                    {isDone ? (
+                      <CheckIcon style={{ width: 12, height: 12 }} className={text} />
+                    ) : isCurrent ? (
+                      <div
+                        style={{ width: 8, height: 8 }}
+                        className={`rounded-full ${item.kind === 'step' && (item as Extract<BarItem, { kind: 'step' }>).isBranch ? 'bg-amber-500' : 'bg-blue-600'}`}
+                      />
+                    ) : (
+                      <span className={`text-[9px] font-bold ${text}`}>{idx}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Connector line */}
+                {!isLast && (
+                  <div style={{ width: LINE_W }} className="flex items-center">
+                    <div style={{ height: 2 }} className={`w-full ${line}`} />
+                  </div>
+                )}
+              </React.Fragment>
+            )
+          })}
+        </div>
+
+        {/* ── Row 3: sub-labels (step description) ── */}
+        <div className="flex items-start" style={{ height: 32 }}>
+          {items.map((item, idx) => {
+            const subLabel =
+              item.kind === 'step' ? (item as Extract<BarItem, { kind: 'step' }>).description : ''
+            return (
+              <React.Fragment key={item.id}>
+                <div style={{ width: COL_W }} className="flex justify-center">
+                  {subLabel && (
+                    <p
+                      className="mt-1 w-full text-center text-[10px] leading-tight text-muted-foreground"
+                      title={subLabel}
+                    >
+                      {subLabel.length > 14 ? subLabel.slice(0, 13) + '…' : subLabel}
+                    </p>
+                  )}
+                </div>
+                {idx < items.length - 1 && <div style={{ width: LINE_W }} />}
+              </React.Fragment>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -103,12 +293,10 @@ export function InstanceDetailClient({
   const router = useRouter()
   const [modal, setModal] = useState<ModalState>(CLOSED_MODAL)
 
-  // ── Admin: cancel instance state
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [isCancelling, startCancel] = useTransition()
 
-  // ── Admin: reassign step state
   const [reassignStepInstanceId, setReassignStepInstanceId] = useState<string | null>(null)
   const [reassignStepLabel, setReassignStepLabel] = useState('')
   const [tenantUsers, setTenantUsers] = useState<
@@ -126,14 +314,13 @@ export function InstanceDetailClient({
     stepByNodeId.set(s.step_id, s)
   }
 
-  // Open modal for a step card
   const openModal = useCallback(
     (node: SerializedNode, stepInstance: StepInstanceRow | null, isReadOnly: boolean) => {
       const formSchema = (node.data?.formSchema as FormField[]) ?? []
       setModal({
         open: true,
         stepInstanceId: stepInstance?.id ?? '',
-        stepNodeId: node.id, // graph node id for storage path
+        stepNodeId: node.id,
         stepLabel: node.data?.label ?? 'Step',
         formSchema,
         initialData: (stepInstance?.form_data as Record<string, unknown>) ?? {},
@@ -153,7 +340,6 @@ export function InstanceDetailClient({
     }
   }, [router, panelMode, onPanelRefresh])
 
-  // ── Admin/requester: cancel flow instance
   function handleCancelInstance() {
     startCancel(async () => {
       try {
@@ -176,7 +362,6 @@ export function InstanceDetailClient({
     })
   }
 
-  // ── Admin: open reassign dialog, load users lazily
   async function openReassignDialog(stepInstanceId: string, stepLabel: string) {
     setReassignStepInstanceId(stepInstanceId)
     setReassignStepLabel(stepLabel)
@@ -187,7 +372,6 @@ export function InstanceDetailClient({
     }
   }
 
-  // ── Admin: submit reassignment
   function handleReassign() {
     if (!reassignStepInstanceId || !selectedUserId) return
     startReassign(async () => {
@@ -212,7 +396,7 @@ export function InstanceDetailClient({
 
   return (
     <div className={panelMode ? 'p-6' : 'mx-auto max-w-3xl p-6'}>
-      {/* ── Back link — hidden in panel mode (panel has its own close button) ── */}
+      {/* ── Back link ── */}
       {!panelMode && (
         <Link
           href={detail.viewer_is_assignee ? '/tasks' : '/my-flows'}
@@ -235,7 +419,6 @@ export function InstanceDetailClient({
         </div>
         <div className="flex items-center gap-2">
           <InstanceStatusBadge status={detail.status} />
-          {/* Admin or triggerer: cancel button — only shown when flow is still pending */}
           {(isAdmin || currentUserId === detail.triggered_by) && detail.status === 'pending' && (
             <Button
               variant="outline"
@@ -249,6 +432,14 @@ export function InstanceDetailClient({
           )}
         </div>
       </div>
+
+      {/* ── NEW: Step Progress Bar ── */}
+      <StepProgressBar
+        orderedNodeIds={orderedNodeIds}
+        nodeMap={nodeMap}
+        stepByNodeId={stepByNodeId}
+        currentStepId={detail.current_step_id}
+      />
 
       {/* ── Step timeline ── */}
       <div className="space-y-3">
@@ -272,12 +463,7 @@ export function InstanceDetailClient({
 
           const isCurrent = !!stepInstance && detail.current_step_id === stepInstance.id
 
-          // FIXED: for a PENDING step, only the assignee may open the form to submit.
-          // The triggerer can view the step card but cannot submit on behalf of others.
-          // For DONE steps, anyone with a role in the flow (triggerer OR assignee)
-          // can open completed steps read-only — full picture for everyone involved.
           const isAssignee = stepInstance?.assigned_to === currentUserId
-          // viewer_is_assignee: set by server when viewer is an assignee but not triggerer
           const isInvolvedInFlow =
             detail.triggered_by === currentUserId || detail.viewer_is_assignee
 
@@ -323,14 +509,13 @@ export function InstanceDetailClient({
           This flow was cancelled.
         </div>
       )}
-      {/* ── NEW: error banner ── */}
       {detail.status === 'error' && (
         <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           This flow encountered an error and has stopped. Check the activity log below for details.
         </div>
       )}
 
-      {/* ── NEW: Activity Log ── */}
+      {/* ── Activity Log ── */}
       <ActivityLog timeline={timeline} graph={detail.graph} />
 
       {/* ── Bottom back / close button ── */}
@@ -468,9 +653,6 @@ export function InstanceDetailClient({
 }
 
 // ─── ActivityLog ──────────────────────────────────────────────────────────────
-// Renders the full audit trail for this flow instance.
-// Each event gets an icon, a description, a precise timestamp, and —
-// for step_submitted events — an expandable panel showing every field value.
 
 import type { SerializedGraph } from '@/lib/flows/graph'
 
@@ -480,7 +662,6 @@ interface ActivityLogProps {
 }
 
 function ActivityLog({ timeline, graph }: ActivityLogProps) {
-  // Build a map of node id → node so we can look up form schemas for submitted steps
   const nodeMap = new Map(graph.nodes.map((n) => [n.id, n]))
 
   return (
@@ -516,13 +697,10 @@ interface ActivityEventProps {
 }
 
 function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
-  // For step_submitted: show expandable form values
   const [expanded, setExpanded] = useState(false)
 
   const config = EVENT_CONFIG[event.eventType] ?? EVENT_CONFIG.flow_triggered
 
-  // For step_submitted, look up the form schema to show field labels
-  // The stepId is stored in event.metadata.stepId
   let formValues: { label: string; value: string; fieldType: string; rawValue: unknown }[] = []
   if (event.eventType === 'step_submitted') {
     const stepId = event.metadata.stepId as string | undefined
@@ -535,10 +713,8 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
         const raw = rawFormData[field.id]
         let display = ''
         if (field.type === 'file') {
-          // File fields: keep rawValue as-is (array of paths) for FileDownloadLink
           display = isFilePaths(raw) ? `${(raw as string[]).length} file(s)` : '(empty)'
         } else if (field.type === 'date') {
-          // Date fields: format ISO string to human-readable
           display = raw ? formatFieldDate(String(raw)) : '(empty)'
         } else if (Array.isArray(raw)) {
           display = raw.length > 0 ? raw.join(', ') : '(none selected)'
@@ -556,7 +732,6 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
       })
       .filter((f) => f.value !== '(empty)')
 
-    // Also add any raw keys not in the schema (extra file fields stored by path)
     const schemaIds = new Set(formSchema.map((f) => f.id))
     for (const [key, val] of Object.entries(rawFormData)) {
       if (!schemaIds.has(key)) {
@@ -579,7 +754,6 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
     }
   }
 
-  // For branch_evaluated: extract path from metadata
   const branchPath =
     event.eventType === 'branch_evaluated'
       ? ((event.metadata.path as string | undefined) ?? null)
@@ -587,24 +761,19 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
 
   return (
     <li className={`ml-4 ${isLast ? 'pb-0' : 'pb-5'}`}>
-      {/* Dot on the timeline line */}
       <span
         className={`absolute -left-[9px] flex h-4 w-4 items-center justify-center rounded-full border-2 border-background ${config.dotColor}`}
       />
 
       <div className="rounded-lg border bg-card px-4 py-3 shadow-sm">
-        {/* ── Top row: icon + description + timestamp ── */}
         <div className="flex items-start gap-2.5">
-          {/* Icon */}
           <span className={`mt-0.5 shrink-0 ${config.iconColor}`}>
             <config.Icon className="h-4 w-4" />
           </span>
 
-          {/* Description + metadata */}
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium leading-snug text-foreground">{event.description}</p>
 
-            {/* Branch path pill */}
             {branchPath && (
               <span
                 className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -618,14 +787,12 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
               </span>
             )}
 
-            {/* Error detail */}
             {event.eventType === 'flow_error' && (
               <p className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-700">
                 {String(event.metadata.error ?? event.description)}
               </p>
             )}
 
-            {/* Form values toggle (step_submitted only) */}
             {event.eventType === 'step_submitted' && formValues.length > 0 && (
               <button
                 onClick={() => setExpanded((v) => !v)}
@@ -647,7 +814,6 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
             )}
           </div>
 
-          {/* Timestamp — right-aligned, always visible */}
           <time
             dateTime={event.createdAt}
             className="shrink-0 whitespace-nowrap text-xs text-muted-foreground"
@@ -657,7 +823,6 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
           </time>
         </div>
 
-        {/* ── Expanded form values ── */}
         {expanded && formValues.length > 0 && (
           <div className="mt-3 rounded-md border bg-muted/40 px-3 py-2">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -691,7 +856,6 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
 }
 
 // ─── Event config ─────────────────────────────────────────────────────────────
-// Maps each event type to its icon, colors, and dot color on the timeline.
 
 type EventConfig = {
   Icon: React.ComponentType<{ className?: string }>
@@ -778,14 +942,12 @@ function StepCard({
       }`}
     >
       <div className="flex items-start gap-3">
-        {/* State icon */}
         <div className="mt-0.5">
           {state === 'done' && <CheckIcon className={`${iconClass} text-emerald-600`} />}
           {state === 'current' && <CircleDotIcon className={`${iconClass} text-blue-600`} />}
           {state === 'locked' && <LockIcon className={`${iconClass} text-muted-foreground/40`} />}
         </div>
 
-        {/* Content */}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span
@@ -809,7 +971,6 @@ function StepCard({
             )}
           </div>
 
-          {/* Assignee */}
           {stepInstance?.assignee_name && (
             <p className="mt-1 text-xs text-muted-foreground">
               Assigned to <span className="font-medium">{stepInstance.assignee_name}</span>
@@ -819,7 +980,6 @@ function StepCard({
             <p className="mt-1 text-xs text-muted-foreground">Unassigned</p>
           )}
 
-          {/* Completed timestamp */}
           {stepInstance?.completed_at && (
             <p className="mt-1 text-xs text-muted-foreground">
               Completed {formatRelative(stepInstance.completed_at)}
@@ -827,9 +987,7 @@ function StepCard({
           )}
         </div>
 
-        {/* Buttons */}
         <div className="flex shrink-0 items-center gap-2">
-          {/* Admin: reassign button — only on pending steps */}
           {isAdmin && onReassign && state === 'current' && (
             <Button
               variant="outline"
@@ -874,7 +1032,6 @@ function NodeTypePill({ type }: { type: string }) {
 
 // ─── InstanceStatusBadge ──────────────────────────────────────────────────────
 
-// ── CHANGED: added 'error' status variant
 function InstanceStatusBadge({
   status,
 }: {
@@ -912,8 +1069,6 @@ function formatDate(iso: string) {
   })
 }
 
-// Formats a stored ISO date string (from a date form field) to a friendly
-// human-readable string e.g. "28 May 2026, 4:03 PM"
 function formatFieldDate(iso: string): string {
   try {
     return new Date(iso).toLocaleString('en-GB', {
@@ -925,11 +1080,10 @@ function formatFieldDate(iso: string): string {
       hour12: true,
     })
   } catch {
-    return iso // fallback to raw if parsing fails
+    return iso
   }
 }
 
-// ── NEW: precise timestamp for activity log — "1 Jun 2026, 11:00:02 AM"
 function formatExact(iso: string) {
   return new Date(iso).toLocaleString('en-GB', {
     day: 'numeric',
