@@ -147,15 +147,15 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   selectedNodeId: null,
 
   onNodesChange: (changes) => {
-    set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) }))
+    set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) })) // _changes is unused parameter
   },
 
   onEdgesChange: (changes) => {
-    set((state) => ({ edges: applyEdgeChanges(changes, state.edges) }))
+    set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })) // _changes is unused parameter
   },
 
   onConnect: (connection) => {
-    set((state) => ({ edges: addEdge(connection, state.edges) }))
+    set((state) => ({ edges: addEdge(connection, state.edges) })) // _connection is unused parameter
   },
 
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),

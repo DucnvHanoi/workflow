@@ -38,10 +38,10 @@ interface Props {
   categories: FlowCategory[]
   // Called when category is updated so FlowsClient can patch its local state
   onCategoryUpdated: (
-    flowId: string,
-    categoryId: string | null,
-    categoryName: string | null,
-    categoryColor: string | null
+    _flowId: string,
+    _categoryId: string | null,
+    _categoryName: string | null,
+    _categoryColor: string | null
   ) => void
 }
 

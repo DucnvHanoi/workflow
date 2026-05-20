@@ -30,7 +30,7 @@ interface Props {
   allDepartments: { id: string; name: string; parent_id: string | null }[]
 }
 
-function getValidParents(
+function getValidParents( // _open is unused parameter
   all: { id: string; name: string; parent_id: string | null }[],
   departmentId: string
 ) {

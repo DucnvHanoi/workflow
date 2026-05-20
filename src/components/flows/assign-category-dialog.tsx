@@ -17,12 +17,12 @@ interface Props {
   flowId: string
   flowName: string
   currentCategoryId: string | null
-  categories: FlowCategory[]
+  categories: FlowCategory[] // _open is unused parameter
   // Called after a successful update so the parent can update UI without reload
   onUpdated: (
-    categoryId: string | null,
-    categoryName: string | null,
-    categoryColor: string | null
+    _categoryId: string | null,
+    _categoryName: string | null,
+    _categoryColor: string | null
   ) => void
 }
 

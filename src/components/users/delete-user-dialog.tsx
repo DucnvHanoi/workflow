@@ -22,6 +22,7 @@ interface Props {
 }
 
 export function DeleteUserDialog({ open, onOpenChange, user, currentUserId }: Props) {
+  // _open is unused parameter
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const isSelf = user.id === currentUserId

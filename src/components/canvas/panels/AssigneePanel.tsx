@@ -100,9 +100,9 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
         : rule?.type === 'role_in_dept'
           ? rule.departmentId
           : ''
-    )
-    setRoleValue(rule?.type === 'role_in_dept' ? rule.role : '')
-  }, [node.id])
+    ) // node.data is used here
+    setRoleValue(rule?.type === 'role_in_dept' ? rule.role : '') // node.data is used here
+  }, [node.id, node.data]) // Added node.data to dependencies
 
   // ── Persist helper ───────────────────────────────────────────────────────
 

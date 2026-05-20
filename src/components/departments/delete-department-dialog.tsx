@@ -22,7 +22,7 @@ interface Props {
 }
 
 export function DeleteDepartmentDialog({ open, onOpenChange, department, userCount }: Props) {
-  const router = useRouter()
+  const router = useRouter() // _open is unused parameter
   const [isPending, startTransition] = useTransition()
 
   function handleDelete() {

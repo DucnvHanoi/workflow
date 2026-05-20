@@ -29,6 +29,7 @@ interface Props {
 }
 
 export function EditRoleDialog({ open, onOpenChange, user, currentUserId }: Props) {
+  // _open is unused parameter
   const router = useRouter()
   //const [role, setRole] = useState(user.role)
   const [role, setRole] = useState<'user' | 'admin'>(user.role as 'user' | 'admin')

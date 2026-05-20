@@ -23,6 +23,7 @@ interface Props {
 }
 
 export function EditProfileDialog({ open, onOpenChange, user }: Props) {
+  // _open is unused parameter
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [fullName, setFullName] = useState('')

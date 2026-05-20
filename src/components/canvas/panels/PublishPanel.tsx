@@ -16,7 +16,7 @@ import type { Node } from '@xyflow/react'
 interface PublishPanelProps {
   flowId: string
   flowStatus: 'draft' | 'published'
-  onStatusChange: (status: 'draft' | 'published') => void
+  onStatusChange: (status: 'draft' | 'published') => void // Removed unused 'status' property
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────

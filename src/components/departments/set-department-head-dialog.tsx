@@ -46,6 +46,7 @@ interface Props {
 }
 
 export function SetDepartmentHeadDialog({ open, onOpenChange, department, allUsers }: Props) {
+  // _open is unused parameter
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 

@@ -27,9 +27,10 @@ function createQueuedSupabaseMock(queue: Array<{ data: unknown; error: unknown |
   function dequeue() {
     const next = queue.shift()
     if (!next) {
+      // _value and _reason are unused parameters
       return Promise.resolve({
         data: null,
-        error: { message: 'mock queue exhausted' },
+        error: { message: 'mock queue exhausted' }, // _reason is unused parameter
       })
     }
     return Promise.resolve(next)
@@ -43,8 +44,8 @@ function createQueuedSupabaseMock(queue: Array<{ data: unknown; error: unknown |
     order: () => chain,
     limit: () => chain,
     single: () => dequeue(),
-    maybeSingle: () => dequeue(),
-    then: (onFulfilled: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) =>
+    maybeSingle: () => dequeue(), // _value and _reason are unused parameters
+    then: (onFulfilled: (_value: unknown) => unknown, onRejected?: (_reason: unknown) => unknown) =>
       dequeue().then(onFulfilled, onRejected),
     catch: (onRejected: (reason: unknown) => unknown) => dequeue().catch(onRejected),
   }
@@ -53,6 +54,7 @@ function createQueuedSupabaseMock(queue: Array<{ data: unknown; error: unknown |
 }
 
 const emptyGraph: SerializedGraph = {
+  // _table is unused parameter
   nodes: [],
   edges: [],
   metadata: { schemaVersion: 1 },

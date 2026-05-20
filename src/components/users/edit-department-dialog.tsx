@@ -31,6 +31,7 @@ interface Props {
 }
 
 export function EditDepartmentDialog({ open, onOpenChange, user, allDepartments }: Props) {
+  // _open is unused parameter
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [selectedDeptId, setSelectedDeptId] = useState<string>('__none__')

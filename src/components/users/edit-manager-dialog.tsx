@@ -31,6 +31,7 @@ interface Props {
 }
 
 export function EditManagerDialog({ open, onOpenChange, user, allUsers }: Props) {
+  // _open is unused parameter
   const router = useRouter()
   const [selectedManagerId, setSelectedManagerId] = useState<string>('__none__')
   const [isPending, startTransition] = useTransition()

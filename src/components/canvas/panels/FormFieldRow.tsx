@@ -9,9 +9,9 @@ import type { FormField } from '@/store/canvas-store'
 
 interface FormFieldRowProps {
   nodeId: string
-  field: FormField
-  onUpdate: (fieldId: string, patch: Partial<FormField>) => void
-  onRemove: (fieldId: string) => void
+  field: FormField // _field is unused parameter
+  onUpdate: (_fieldId: string, _patch: Partial<FormField>) => void
+  onRemove: (_fieldId: string) => void
 }
 
 // ─── Field type label map ─────────────────────────────────────────────────────

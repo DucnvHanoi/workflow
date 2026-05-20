@@ -50,7 +50,7 @@ const COLOR_OPTIONS = [
 
 interface Props {
   categories: FlowCategory[]
-  onCategoriesChange: (categories: FlowCategory[]) => void
+  onCategoriesChange: (_categories: FlowCategory[]) => void
 }
 
 export function ManageCategoriesDialog({ categories, onCategoriesChange }: Props) {
@@ -271,20 +271,24 @@ export function ManageCategoriesDialog({ categories, onCategoriesChange }: Props
 function ColorPicker({ value, onChange }: { value: string; onChange: (c: string) => void }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {COLOR_OPTIONS.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          title={opt.label}
-          onClick={() => onChange(opt.value)}
-          className="h-6 w-6 rounded-full ring-offset-background transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-          style={{
-            backgroundColor: opt.value,
-            outline: value === opt.value ? `2px solid ${opt.value}` : undefined,
-            outlineOffset: value === opt.value ? '2px' : undefined,
-          }}
-        />
-      ))}
+      {COLOR_OPTIONS.map(
+        (
+          opt // _c is unused parameter
+        ) => (
+          <button
+            key={opt.value}
+            type="button"
+            title={opt.label}
+            onClick={() => onChange(opt.value)}
+            className="h-6 w-6 rounded-full ring-offset-background transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            style={{
+              backgroundColor: opt.value,
+              outline: value === opt.value ? `2px solid ${opt.value}` : undefined,
+              outlineOffset: value === opt.value ? '2px' : undefined,
+            }}
+          />
+        )
+      )}
     </div>
   )
 }

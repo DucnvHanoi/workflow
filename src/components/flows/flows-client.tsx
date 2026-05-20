@@ -329,9 +329,10 @@ function FlowDescription({
   isAdmin: boolean
   onSaved: (desc: string | null) => void
 }) {
+  // _desc is unused parameter
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(flow.description ?? '')
-  const [isPending, startTransition] = useTransition()
+  const [isPending, startTransition] = useTransition() // _desc is unused parameter
 
   // Live word count
   const wordCount = draft.trim() ? draft.trim().split(/\s+/).filter(Boolean).length : 0
@@ -441,10 +442,10 @@ function FlowTableRow({
   isAdmin: boolean
   categories: FlowCategory[]
   onCategoryUpdated: (
-    flowId: string,
-    categoryId: string | null,
-    categoryName: string | null,
-    categoryColor: string | null
+    _flowId: string,
+    _categoryId: string | null,
+    _categoryName: string | null,
+    _categoryColor: string | null
   ) => void
   onDescriptionUpdated: (flowId: string, description: string | null) => void
 }) {

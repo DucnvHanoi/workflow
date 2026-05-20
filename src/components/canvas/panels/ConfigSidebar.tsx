@@ -22,18 +22,16 @@ interface ConfigSidebarProps {
   users: TenantUser[]
   departments: TenantDepartment[]
   flowId: string
-  flowStatus: 'draft' | 'published'
+  flowStatus: 'draft' | 'published' // Removed unused 'status' property
   onFlowStatusChange: (status: 'draft' | 'published') => void
   onVersionRestored: () => void
 }
 
-// ─── Idle panel (no node selected) — Publish + Versions tabs ─────────────────
-
 type SidebarTab = 'publish' | 'versions'
 
 interface IdlePanelProps {
-  flowId: string
-  flowStatus: 'draft' | 'published'
+  flowId: string // Removed unused 'status' property
+  flowStatus: 'draft' | 'published' // Removed unused 'status' property
   onFlowStatusChange: (status: 'draft' | 'published') => void
   onVersionRestored: () => void
 }

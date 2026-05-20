@@ -39,7 +39,7 @@ function getValidParents(all: { id: string; name: string; parent_id: string | nu
 }
 
 export function CreateDepartmentDialog({ open, onOpenChange, allDepartments }: Props) {
-  const router = useRouter()
+  const router = useRouter() // _open is unused parameter
   const [name, setName] = useState('')
   const [parentId, setParentId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()

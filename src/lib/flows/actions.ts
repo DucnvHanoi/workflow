@@ -9,6 +9,7 @@ import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import type { SerializedGraph } from '@/lib/flows/graph'
 import type { FormField, BranchCondition } from '@/store/canvas-store'
 import { sendAssignmentEmail, sendCompletionEmail } from '@/lib/email/resend'
+// import { sendAssignmentEmail } from '@/lib/email/resend'
 
 export type FlowListItem = {
   id: string
@@ -1045,9 +1046,9 @@ async function advanceFlow(
   tenantId: string,
   submittedFormData: Record<string, unknown>,
   db: ReturnType<typeof createAdminClient>,
-  // ── NEW params
+  // ── NEW params (actorName is not used in this function, only actorId)
   actorId: string,
-  actorName: string
+  _actorName: string
 ): Promise<void> {
   // 1. Find the completed node
   const completedNode = graph.nodes.find((n) => n.id === completedStepNodeId)

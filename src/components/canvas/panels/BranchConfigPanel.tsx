@@ -175,11 +175,11 @@ export default function BranchConfigPanel({ node }: Props) {
 interface GroupProps {
   label: string
   color: 'emerald' | 'rose'
-  conditions: BranchCondition[]
-  fieldOptions: FieldOption[]
+  conditions: BranchCondition[] // _conditions is unused parameter
+  fieldOptions: FieldOption[] // _fieldOptions is unused parameter
   onAdd: () => void
-  onUpdate: (id: string, patch: Partial<BranchCondition>) => void
-  onRemove: (id: string) => void
+  onUpdate: (_id: string, _patch: Partial<BranchCondition>) => void
+  onRemove: (_id: string) => void
 }
 
 function BranchGroup({
@@ -238,7 +238,7 @@ function BranchGroup({
 interface RowProps {
   condition: BranchCondition
   fieldOptions: FieldOption[]
-  onUpdate: (patch: Partial<BranchCondition>) => void
+  onUpdate: (_patch: Partial<BranchCondition>) => void
   onRemove: () => void
 }
 
