@@ -2216,3 +2216,229 @@ export async function getSignedUrl(
 
   return { url: data.signedUrl, error: null }
 }
+
+// ─── getInstanceDetailForPanel ────────────────────────────────────────────────
+// Server action used by the Tasks page slide-in panel.
+// Returns everything the InstanceDetailClient needs in a single call:
+// instance detail, ordered node IDs (graph walk), and the activity timeline.
+// Access rules mirror my-flows/[id]/page.tsx:
+//   - Tenant admin           → always allowed
+//   - Flow triggerer         → always allowed
+//   - Step assignee          → allowed
+//   - Anyone else            → returns error
+
+import { walkGraphOrder } from '@/lib/flows/graph-utils'
+
+export type StepInstanceRow = {
+  id: string
+  step_id: string
+  assigned_to: string | null
+  form_data: Record<string, unknown>
+  status: 'pending' | 'completed' | 'skipped'
+  completed_at: string | null
+  created_at: string
+  assignee_name: string | null
+}
+
+export type InstanceDetail = {
+  id: string
+  status: 'pending' | 'completed' | 'cancelled' | 'error'
+  triggered_by: string
+  triggered_by_name: string | null
+  current_step_id: string | null
+  created_at: string
+  updated_at: string
+  flow_name: string
+  flow_description: string | null
+  graph: SerializedGraph
+  steps: StepInstanceRow[]
+  viewer_is_assignee: boolean
+  isAdmin: boolean
+}
+
+export type InstanceDetailForPanel = {
+  detail: InstanceDetail
+  orderedNodeIds: string[]
+  timeline: FlowEventLog[]
+}
+
+export async function getInstanceDetailForPanel(instanceId: string): Promise<{
+  data: InstanceDetailForPanel | null
+  error: string | null
+}> {
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { data: null, error: gate.error }
+
+  const { userId, tenantId, role, db } = gate
+  const isAdmin = role === 'admin'
+
+  // ── 1. Fetch the flow instance + version + flow meta ──────────────────────
+  const { data: instance, error: instanceError } = await db
+    .from('flow_instances')
+    .select(
+      `
+      id,
+      status,
+      triggered_by,
+      current_step_id,
+      created_at,
+      updated_at,
+      flow_versions!flow_version_id (
+        graph,
+        flows!flow_id ( name, description, tenant_id )
+      )
+    `
+    )
+    .eq('id', instanceId)
+    .maybeSingle()
+
+  if (instanceError || !instance) return { data: null, error: 'Instance not found.' }
+
+  const version = Array.isArray(instance.flow_versions)
+    ? instance.flow_versions[0]
+    : instance.flow_versions
+  if (!version) return { data: null, error: 'Flow version not found.' }
+
+  const flow = Array.isArray((version as Record<string, unknown>).flows)
+    ? ((version as Record<string, unknown>).flows as Record<string, unknown>[])[0]
+    : (version as Record<string, unknown>).flows
+  if (!flow) return { data: null, error: 'Flow not found.' }
+
+  // Tenant isolation — always enforced
+  if ((flow as Record<string, unknown>).tenant_id !== tenantId) {
+    return { data: null, error: 'Access denied.' }
+  }
+
+  const isTriggerer = instance.triggered_by === userId
+
+  // ── 2. Access check for non-admins ────────────────────────────────────────
+  let isAssignee = false
+  if (!isAdmin && !isTriggerer) {
+    const { count } = await db
+      .from('step_instances')
+      .select('id', { count: 'exact', head: true })
+      .eq('instance_id', instanceId)
+      .eq('assigned_to', userId)
+
+    isAssignee = (count ?? 0) > 0
+    if (!isAssignee) return { data: null, error: 'Access denied.' }
+  }
+
+  const graph = (version as Record<string, unknown>).graph as SerializedGraph
+
+  // ── 3. Fetch all step instances ───────────────────────────────────────────
+  const { data: stepRows } = await db
+    .from('step_instances')
+    .select('id, step_id, assigned_to, form_data, status, completed_at, created_at')
+    .eq('instance_id', instanceId)
+    .order('created_at', { ascending: true })
+
+  // ── 4. Resolve assignee display names ─────────────────────────────────────
+  const assigneeIds = (stepRows ?? [])
+    .map((s: { assigned_to: string | null }) => s.assigned_to)
+    .filter(Boolean) as string[]
+
+  let assigneeMap: Record<string, string> = {}
+  if (assigneeIds.length > 0) {
+    const { data: assignees } = await db.from('users').select('id, full_name').in('id', assigneeIds)
+    assigneeMap = Object.fromEntries(
+      (assignees ?? []).map((u: { id: string; full_name: string | null }) => [
+        u.id,
+        u.full_name ?? 'Unknown',
+      ])
+    )
+  }
+
+  // ── 5. Resolve triggerer name ──────────────────────────────────────────────
+  const { data: triggerer } = await db
+    .from('users')
+    .select('full_name')
+    .eq('id', instance.triggered_by)
+    .maybeSingle()
+
+  const steps: StepInstanceRow[] = (stepRows ?? []).map(
+    (s: {
+      id: string
+      step_id: string
+      assigned_to: string | null
+      form_data: Record<string, unknown>
+      status: string
+      completed_at: string | null
+      created_at: string
+    }) => ({
+      ...s,
+      status: s.status as StepInstanceRow['status'],
+      assignee_name: s.assigned_to ? (assigneeMap[s.assigned_to] ?? null) : null,
+    })
+  )
+
+  // ── 6. Walk graph to get ordered node IDs (excluding trigger + complete) ──
+  const nodeMap = new Map(graph.nodes.map((n) => [n.id, n]))
+  const orderedNodeIds = walkGraphOrder(graph).filter((id) => {
+    const node = nodeMap.get(id)
+    return node && node.type !== 'trigger' && node.type !== 'complete'
+  })
+
+  // ── 7. Fetch activity timeline ─────────────────────────────────────────────
+  const { data: logRows, error: logError } = await db
+    .from('flow_event_logs')
+    .select(
+      `
+      id,
+      instance_id,
+      step_instance_id,
+      tenant_id,
+      actor_id,
+      event_type,
+      description,
+      metadata,
+      created_at,
+      users!actor_id (
+        full_name,
+        email
+      )
+    `
+    )
+    .eq('instance_id', instanceId)
+    .order('created_at', { ascending: true })
+
+  if (logError) return { data: null, error: logError.message }
+
+  const timeline: FlowEventLog[] = (logRows ?? []).map((row) => {
+    const actor = Array.isArray(row.users) ? row.users[0] : row.users
+    const actorName =
+      (actor as { full_name?: string | null; email?: string } | null)?.full_name ??
+      (actor as { full_name?: string | null; email?: string } | null)?.email ??
+      null
+    return {
+      id: row.id as string,
+      instanceId: row.instance_id as string,
+      stepInstanceId: (row.step_instance_id as string | null) ?? null,
+      tenantId: row.tenant_id as string,
+      actorId: (row.actor_id as string | null) ?? null,
+      actorName,
+      eventType: row.event_type as FlowEventLog['eventType'],
+      description: row.description as string,
+      metadata: (row.metadata as Record<string, unknown>) ?? {},
+      createdAt: row.created_at as string,
+    }
+  })
+
+  const detail: InstanceDetail = {
+    id: instance.id as string,
+    status: instance.status as InstanceDetail['status'],
+    triggered_by: instance.triggered_by as string,
+    triggered_by_name: triggerer?.full_name ?? null,
+    current_step_id: (instance.current_step_id as string | null) ?? null,
+    created_at: instance.created_at as string,
+    updated_at: instance.updated_at as string,
+    flow_name: (flow as Record<string, unknown>).name as string,
+    flow_description: ((flow as Record<string, unknown>).description as string | null) ?? null,
+    graph,
+    steps,
+    viewer_is_assignee: isAssignee && !isTriggerer,
+    isAdmin,
+  }
+
+  return { data: { detail, orderedNodeIds, timeline }, error: null }
+}

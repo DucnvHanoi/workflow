@@ -1,28 +1,39 @@
 // FILE PATH: src/app/(app)/tasks/page.tsx
 //
-// Server component — fetches pending tasks AND completed task history for the
-// current user, then passes both to TasksClient.
+// Server component — fetches:
+//   1. Pending tasks assigned to the current user
+//   2. Completed task history for the current user
+//   3. All flow instances triggered by the current user (My Flows tab)
+// All three fetches run in parallel.
+//
+// Also reads session claims so TasksClient can pass currentUserId, tenantId,
+// and isAdmin down to the InstanceDetailClient rendered inside the panel.
 
-import { getMyTasks, getMyCompletedTasks } from '@/lib/flows/actions'
+import { getMyTasks, getMyCompletedTasks, getMyInstances } from '@/lib/flows/actions'
+import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { redirect } from 'next/navigation'
 import { TasksClient } from './tasks-client'
 
 export const dynamic = 'force-dynamic'
 
 export default async function TasksPage() {
-  // Fetch both in parallel — neither depends on the other
+  const { user, claims } = await getSessionClaims()
+  if (!user) redirect('/login')
+
   const [
     { tasks: pendingTasks, error: pendingError },
     { tasks: completedTasks, error: completedError },
-  ] = await Promise.all([getMyTasks(), getMyCompletedTasks()])
+    { instances: myFlowInstances, error: instancesError },
+  ] = await Promise.all([getMyTasks(), getMyCompletedTasks(), getMyInstances()])
 
-  const error = pendingError ?? completedError
+  const error = pendingError ?? completedError ?? instancesError
 
   return (
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">My Tasks</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Steps assigned to you — pending actions and completed history.
+          Your pending actions, flows you started, and completed history.
         </p>
       </div>
 
@@ -31,7 +42,14 @@ export default async function TasksPage() {
           Failed to load tasks: {error}
         </div>
       ) : (
-        <TasksClient pendingTasks={pendingTasks} completedTasks={completedTasks} />
+        <TasksClient
+          pendingTasks={pendingTasks}
+          completedTasks={completedTasks}
+          myFlowInstances={myFlowInstances}
+          currentUserId={user.id}
+          tenantId={claims.tenant_id!}
+          isAdmin={claims.role === 'admin'}
+        />
       )}
     </div>
   )

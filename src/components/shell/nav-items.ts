@@ -19,7 +19,6 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   // Normal user items (visible to all roles)
   { label: 'My Tasks', href: '/tasks', icon: CheckSquare, adminOnly: false },
-  { label: 'My Flows', href: '/my-flows', icon: GitBranch, adminOnly: false },
   { label: 'Start a Flow', href: '/flows', icon: PlayCircle, adminOnly: false },
   // Admin-only items
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, adminOnly: true },
@@ -30,9 +29,7 @@ export const NAV_ITEMS: NavItem[] = [
 ]
 
 export function getNavItems(role: string): NavItem[] {
-  if (role === 'admin')
-    return NAV_ITEMS.filter(
-      (item) => item.adminOnly || item.href === '/my-flows' || item.href === '/tasks'
-    )
-  return NAV_ITEMS.filter((item) => !item.adminOnly)
+  // Admins see all items (both adminOnly and shared).
+  // Regular users see only non-adminOnly items.
+  return role === 'admin' ? NAV_ITEMS : NAV_ITEMS.filter((item) => !item.adminOnly)
 }

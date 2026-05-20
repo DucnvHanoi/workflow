@@ -55,6 +55,14 @@ interface InstanceDetailClientProps {
   isAdmin: boolean
   timeline: FlowEventLog[]
   tenantId: string
+  // When rendered inside the Tasks side panel instead of the standalone page:
+  //   - hides the top/bottom back links (panel has its own close button)
+  //   - removes max-w-3xl wrapper (panel controls its own width)
+  //   - router.refresh() is replaced by onPanelRefresh() so the panel
+  //     re-fetches its own data instead of doing a full page refresh
+  panelMode?: boolean
+  onPanelClose?: () => void
+  onPanelRefresh?: () => void
 }
 
 // ─── Modal state ──────────────────────────────────────────────────────────────
@@ -88,6 +96,9 @@ export function InstanceDetailClient({
   isAdmin,
   timeline,
   tenantId,
+  panelMode = false,
+  onPanelClose,
+  onPanelRefresh,
 }: InstanceDetailClientProps) {
   const router = useRouter()
   const [modal, setModal] = useState<ModalState>(CLOSED_MODAL)
@@ -135,8 +146,12 @@ export function InstanceDetailClient({
   const closeModal = useCallback(() => setModal(CLOSED_MODAL), [])
 
   const handleSubmitted = useCallback(() => {
-    router.refresh()
-  }, [router])
+    if (panelMode && onPanelRefresh) {
+      onPanelRefresh()
+    } else {
+      router.refresh()
+    }
+  }, [router, panelMode, onPanelRefresh])
 
   // ── Admin/requester: cancel flow instance
   function handleCancelInstance() {
@@ -149,7 +164,11 @@ export function InstanceDetailClient({
           toast.success('Flow cancelled.')
           setShowCancelConfirm(false)
           setCancelReason('')
-          router.refresh()
+          if (panelMode && onPanelRefresh) {
+            onPanelRefresh()
+          } else {
+            router.refresh()
+          }
         }
       } catch {
         toast.error('Failed to cancel flow.')
@@ -179,7 +198,11 @@ export function InstanceDetailClient({
         } else {
           toast.success('Step reassigned.')
           setReassignStepInstanceId(null)
-          router.refresh()
+          if (panelMode && onPanelRefresh) {
+            onPanelRefresh()
+          } else {
+            router.refresh()
+          }
         }
       } catch {
         toast.error('Failed to reassign step.')
@@ -188,15 +211,17 @@ export function InstanceDetailClient({
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      {/* ── Back link ── */}
-      <Link
-        href={detail.viewer_is_assignee ? '/tasks' : '/my-flows'}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeftIcon className="h-3.5 w-3.5" />
-        {detail.viewer_is_assignee ? 'My Tasks' : 'My Flows'}
-      </Link>
+    <div className={panelMode ? 'p-6' : 'mx-auto max-w-3xl p-6'}>
+      {/* ── Back link — hidden in panel mode (panel has its own close button) ── */}
+      {!panelMode && (
+        <Link
+          href={detail.viewer_is_assignee ? '/tasks' : '/my-flows'}
+          className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeftIcon className="h-3.5 w-3.5" />
+          {detail.viewer_is_assignee ? 'My Tasks' : 'My Flows'}
+        </Link>
+      )}
 
       {/* ── Header ── */}
       <div className="mb-6 flex items-start justify-between">
@@ -308,13 +333,21 @@ export function InstanceDetailClient({
       {/* ── NEW: Activity Log ── */}
       <ActivityLog timeline={timeline} graph={detail.graph} />
 
+      {/* ── Bottom back / close button ── */}
       <div className="mt-4">
-        <Button asChild variant="outline" size="sm">
-          <Link href={detail.viewer_is_assignee ? '/tasks' : '/my-flows'}>
+        {panelMode ? (
+          <Button variant="outline" size="sm" onClick={onPanelClose}>
             <ArrowLeftIcon className="mr-1.5 h-3.5 w-3.5" />
-            {detail.viewer_is_assignee ? 'Back to My Tasks' : 'Back to My Flows'}
-          </Link>
-        </Button>
+            Close
+          </Button>
+        ) : (
+          <Button asChild variant="outline" size="sm">
+            <Link href={detail.viewer_is_assignee ? '/tasks' : '/my-flows'}>
+              <ArrowLeftIcon className="mr-1.5 h-3.5 w-3.5" />
+              {detail.viewer_is_assignee ? 'Back to My Tasks' : 'Back to My Flows'}
+            </Link>
+          </Button>
+        )}
       </div>
 
       {/* ── Step Form Modal ── */}
