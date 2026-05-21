@@ -1,3 +1,5 @@
+// FILE PATH: src/app/login/page.tsx
+
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { LoginForm } from '@/components/auth/login-form'
@@ -8,8 +10,8 @@ export default async function LoginPage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Already logged in — send to dashboard
-  if (user) redirect('/dashboard')
+  // Already logged in — send to tasks
+  if (user) redirect('/tasks') // ← was /dashboard
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-background px-4">

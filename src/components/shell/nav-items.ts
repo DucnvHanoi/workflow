@@ -1,3 +1,5 @@
+// FILE PATH: src/components/shell/nav-items.ts
+
 import {
   LayoutDashboard,
   CheckSquare,
@@ -6,6 +8,8 @@ import {
   Building2,
   UserPlus,
   PlayCircle,
+  List,
+  ScrollText,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -14,7 +18,7 @@ export interface NavItem {
   href: string
   icon: LucideIcon
   adminOnly: boolean
-  hideFromAdmin?: boolean // ← new flag
+  hideFromAdmin?: boolean
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -30,6 +34,8 @@ export const NAV_ITEMS: NavItem[] = [
   // Admin-only items
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, adminOnly: true },
   { label: 'Flow Builder', href: '/flows', icon: GitBranch, adminOnly: true },
+  { label: 'Instances', href: '/admin/instances', icon: List, adminOnly: true },
+  { label: 'Audit Trail', href: '/admin/audit', icon: ScrollText, adminOnly: true },
   { label: 'Users', href: '/users', icon: Users, adminOnly: true },
   { label: 'Departments', href: '/departments', icon: Building2, adminOnly: true },
   { label: 'Invite', href: '/invite', icon: UserPlus, adminOnly: true },
@@ -37,9 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
 
 export function getNavItems(role: string): NavItem[] {
   if (role === 'admin') {
-    // Admins see all items except those explicitly hidden from them
     return NAV_ITEMS.filter((item) => !item.hideFromAdmin)
   }
-  // Regular users see only non-adminOnly items
   return NAV_ITEMS.filter((item) => !item.adminOnly)
 }

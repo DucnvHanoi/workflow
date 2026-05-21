@@ -6,12 +6,11 @@ const PUBLIC_ROUTES = ['/login', '/auth/callback', '/auth/confirm']
 
 // Routes that require the 'admin' role
 const ADMIN_ONLY_ROUTES = [
+  '/dashboard', // ← added: admin dashboard
   '/invite',
   '/users',
   '/departments',
   '/admin',
-  //'/flows',
-  // Add more admin routes here as the project grows
 ]
 
 function isPublicRoute(pathname: string): boolean {
@@ -48,8 +47,7 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Refresh the session — this is required on every request
-  // getUser() validates the token server-side with Supabase Auth
+  // Refresh the session — required on every request
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -58,10 +56,10 @@ export async function middleware(request: NextRequest) {
 
   // 1. Public routes — always allow through
   if (isPublicRoute(pathname)) {
-    // If already logged in and visiting /login, redirect to /dashboard
+    // If already logged in and visiting /login, redirect to /tasks
     if (pathname === '/login' && user) {
       const url = request.nextUrl.clone()
-      url.pathname = '/dashboard'
+      url.pathname = '/tasks' // ← was /dashboard
       return NextResponse.redirect(url)
     }
     return supabaseResponse
@@ -71,15 +69,11 @@ export async function middleware(request: NextRequest) {
   if (!user) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    // Preserve the original destination so we can redirect back after login
-    // (we'll use this in a future enhancement — for now just redirect to /login)
     return NextResponse.redirect(url)
   }
 
-  // 3. User is authenticated — check role for admin-only routes
+  // 3. Authenticated — check role for admin-only routes
   if (isAdminOnlyRoute(pathname)) {
-    // Read role from JWT app_metadata (injected by our custom_access_token_hook)
-    // session.access_token is the JWT — decode the payload to get app_metadata
     const {
       data: { session },
     } = await supabase.auth.getSession()
@@ -88,13 +82,10 @@ export async function middleware(request: NextRequest) {
 
     if (session?.access_token) {
       try {
-        // JWT payload is the middle segment, base64url encoded
         const payload = session.access_token.split('.')[1]
-        // atob is available in Edge Runtime (Vercel/Next.js middleware)
         const decoded = JSON.parse(atob(payload))
         role = decoded?.app_metadata?.role ?? null
       } catch {
-        // Malformed token — treat as unauthorised
         role = null
       }
     }
@@ -106,19 +97,10 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 4. All checks passed — allow the request through
+  // 4. All checks passed
   return supabaseResponse
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths EXCEPT:
-     * - _next/static (static files)
-     * - _next/image (image optimisation)
-     * - favicon.ico
-     * - public folder files (images, etc.)
-     */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 }

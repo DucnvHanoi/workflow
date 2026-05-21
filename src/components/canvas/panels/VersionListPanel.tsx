@@ -17,10 +17,19 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { GitCompare } from 'lucide-react'
 import { toast } from 'sonner'
 import { getFlowVersions, restoreVersion } from '@/lib/flows/actions'
 import { useCanvasStore } from '@/store/canvas-store'
 import type { SerializedGraph } from '@/lib/flows/graph'
+import VersionDiffDialog from './VersionDiffDialog'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -67,6 +76,12 @@ export default function VersionListPanel({ flowId, onRestored }: VersionListPane
   const [previewingId, setPreviewingId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
+  // ── Compare state ───────────────────────────────────────────────────────────
+  const [showCompare, setShowCompare] = useState(false)
+  const [baseId, setBaseId] = useState<string | null>(null)
+  const [compareId, setCompareId] = useState<string | null>(null)
+  const [diffOpen, setDiffOpen] = useState(false)
+
   const loadVersion = useCanvasStore((s) => s.loadVersion)
   const setReadOnly = useCanvasStore((s) => s.setReadOnly)
 
@@ -74,9 +89,17 @@ export default function VersionListPanel({ flowId, onRestored }: VersionListPane
   useEffect(() => {
     getFlowVersions(flowId).then(({ versions: v }) => {
       setVersions(v)
+      // Default compare: newest version (v[0]) against the one before it.
+      if (v.length >= 2) {
+        setCompareId(v[0].id)
+        setBaseId(v[1].id)
+      }
       setLoading(false)
     })
   }, [flowId])
+
+  const baseRef = versions.find((v) => v.id === baseId) ?? null
+  const compareRef = versions.find((v) => v.id === compareId) ?? null
 
   // ── Preview an old version ────────────────────────────────────────────────
 
@@ -138,6 +161,74 @@ export default function VersionListPanel({ flowId, onRestored }: VersionListPane
 
   return (
     <div className="flex flex-col h-full">
+      {/* ── Compare versions ─────────────────────────────────────────── */}
+      {versions.length >= 2 && (
+        <div className="border-b border-border p-2 shrink-0">
+          {!showCompare ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-full gap-1.5 text-xs"
+              onClick={() => setShowCompare(true)}
+            >
+              <GitCompare className="h-3.5 w-3.5" />
+              Compare versions
+            </Button>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Select value={baseId ?? undefined} onValueChange={setBaseId}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Base" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {versions.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        v{v.version_number}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground">→</span>
+                <Select value={compareId ?? undefined} onValueChange={setCompareId}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Compare" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {versions.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        v{v.version_number}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-1.5">
+                <Button
+                  size="sm"
+                  className="h-7 flex-1 text-xs"
+                  disabled={!baseId || !compareId || baseId === compareId}
+                  onClick={() => setDiffOpen(true)}
+                >
+                  View changes
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  onClick={() => setShowCompare(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+              {baseId === compareId && (
+                <p className="text-xs text-muted-foreground">Select two different versions.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Preview banner ───────────────────────────────────────────── */}
       {previewingId && (
         <div className="bg-amber-50 border-b border-amber-200 px-3 py-2 flex items-center justify-between gap-2 shrink-0">
@@ -213,6 +304,14 @@ export default function VersionListPanel({ flowId, onRestored }: VersionListPane
           )
         })}
       </div>
+
+      {/* ── Diff dialog ──────────────────────────────────────────────── */}
+      <VersionDiffDialog
+        open={diffOpen}
+        onOpenChange={setDiffOpen}
+        base={baseRef}
+        compare={compareRef}
+      />
     </div>
   )
 }

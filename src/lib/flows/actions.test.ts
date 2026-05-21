@@ -12,8 +12,17 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: mockCreateAdminClient,
 }))
 
+// actions.ts imports the email module, which instantiates `new Resend(API_KEY)`
+// at load time. Vitest doesn't load .env.local, so stub it to keep the suite
+// importable without a real key.
+vi.mock('@/lib/email/resend', () => ({
+  sendAssignmentEmail: vi.fn(),
+  sendCompletionEmail: vi.fn(),
+}))
+
 import {
   saveDraftVersion,
+  updateDraftGraph,
   getLatestDraftGraph,
   getFlowVersions,
   getFlows,
@@ -170,6 +179,70 @@ describe('saveDraftVersion', () => {
     const result = await saveDraftVersion('flow-1', emptyGraph)
     expect(result.error).toBeUndefined()
     expect(result.versionId).toBe('ver-new')
+    expect(result.versionNumber).toBe(1)
+  })
+})
+
+describe('updateDraftGraph', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAdminSession()
+  })
+
+  it('updates the latest draft in place without creating a new version', async () => {
+    mockCreateAdminClient.mockReturnValue(
+      createQueuedSupabaseMock([
+        { data: { id: 'flow-1' }, error: null }, // assertFlowInTenant
+        { data: { id: 'ver-5', version_number: 5, published_at: null }, error: null }, // latest = draft
+        { data: null, error: null }, // UPDATE flow_versions.graph
+        { data: null, error: null }, // UPDATE flows.updated_at
+      ])
+    )
+
+    const result = await updateDraftGraph('flow-1', emptyGraph)
+    expect(result.error).toBeUndefined()
+    expect(result.versionId).toBe('ver-5')
+    expect(result.versionNumber).toBe(5) // unchanged — same version reused
+  })
+
+  it('falls back to a new version when the latest version is published', async () => {
+    mockCreateAdminClient.mockReturnValue(
+      createQueuedSupabaseMock([
+        { data: { id: 'flow-1' }, error: null }, // assertFlowInTenant (updateDraftGraph)
+        {
+          data: { id: 'ver-9', version_number: 9, published_at: '2026-05-01T00:00:00Z' },
+          error: null,
+        }, // latest = published
+        // ── delegates to saveDraftVersion ──
+        { data: { id: 'flow-1' }, error: null }, // assertFlowInTenant (saveDraftVersion)
+        { data: { version_number: 9 }, error: null }, // max version
+        { data: { id: 'ver-10', version_number: 10 }, error: null }, // insert new draft
+        { data: null, error: null }, // update flows.latest_version_id
+      ])
+    )
+
+    const result = await updateDraftGraph('flow-1', emptyGraph)
+    expect(result.error).toBeUndefined()
+    expect(result.versionId).toBe('ver-10')
+    expect(result.versionNumber).toBe(10) // bumped — new version created
+  })
+
+  it('falls back to a new version when no version exists yet', async () => {
+    mockCreateAdminClient.mockReturnValue(
+      createQueuedSupabaseMock([
+        { data: { id: 'flow-1' }, error: null }, // assertFlowInTenant (updateDraftGraph)
+        { data: null, error: null }, // no latest version
+        // ── delegates to saveDraftVersion ──
+        { data: { id: 'flow-1' }, error: null }, // assertFlowInTenant (saveDraftVersion)
+        { data: null, error: { code: 'PGRST116' } }, // no max version
+        { data: { id: 'ver-1', version_number: 1 }, error: null }, // insert first draft
+        { data: null, error: null }, // update flows
+      ])
+    )
+
+    const result = await updateDraftGraph('flow-1', emptyGraph)
+    expect(result.error).toBeUndefined()
+    expect(result.versionId).toBe('ver-1')
     expect(result.versionNumber).toBe(1)
   })
 })

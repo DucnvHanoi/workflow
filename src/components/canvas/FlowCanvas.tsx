@@ -42,8 +42,11 @@ const nodeTypes = {
 
 // ─── Change types that should trigger auto-save ───────────────────────────────
 // 'select' and 'dimensions' fire on every click/layout — must NOT save on those.
+// Structural changes snapshot a NEW version; position-only moves update the
+// latest draft in place (see triggerPositionSave) so dragging doesn't bump the
+// version number on every move.
 
-const SAVE_NODE_CHANGES = new Set(['add', 'remove', 'position', 'reset'])
+const STRUCTURAL_NODE_CHANGES = new Set(['add', 'remove', 'reset'])
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +79,7 @@ export default function FlowCanvas({
     onConnect: storeOnConnect,
     setSelectedNodeId,
     triggerSave,
+    triggerPositionSave,
     setFlowId,
     reset,
   } = useCanvasStore()
@@ -107,10 +111,15 @@ export default function FlowCanvas({
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       storeOnNodesChange(changes)
-      const shouldSave = changes.some((c) => SAVE_NODE_CHANGES.has(c.type))
-      if (shouldSave && !isReadOnly) triggerSave()
+      if (isReadOnly) return
+      const hasStructural = changes.some((c) => STRUCTURAL_NODE_CHANGES.has(c.type))
+      const hasPosition = changes.some((c) => c.type === 'position')
+      // Structural wins: an add/remove in the same batch should snapshot a new
+      // version rather than fold into the draft via an in-place position save.
+      if (hasStructural) triggerSave()
+      else if (hasPosition) triggerPositionSave()
     },
-    [storeOnNodesChange, triggerSave, isReadOnly]
+    [storeOnNodesChange, triggerSave, triggerPositionSave, isReadOnly]
   )
 
   // ── onEdgesChange ─────────────────────────────────────────────────────────

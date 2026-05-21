@@ -3,6 +3,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { logAuditEvent } from '@/lib/audit/log'
 import { revalidatePath } from 'next/cache'
 
 export async function updateUserRole(targetUserId: string, newRole: 'admin' | 'user') {
@@ -11,6 +12,14 @@ export async function updateUserRole(targetUserId: string, newRole: 'admin' | 'u
   if (user.id === targetUserId) throw new Error('You cannot change your own role')
 
   const adminClient = createAdminClient()
+
+  // Capture the previous role + display name for the audit description.
+  const { data: before } = await adminClient
+    .from('users')
+    .select('full_name, email, role')
+    .eq('id', targetUserId)
+    .eq('tenant_id', claims.tenant_id)
+    .maybeSingle()
 
   const { data, error } = await adminClient
     .from('users')
@@ -24,6 +33,18 @@ export async function updateUserRole(targetUserId: string, newRole: 'admin' | 'u
 
   // Invalidate their session so JWT hook re-fires on next login
   await adminClient.auth.admin.signOut(targetUserId)
+
+  const targetName = before?.full_name ?? before?.email ?? 'a user'
+  await logAuditEvent(adminClient, {
+    tenantId: claims.tenant_id!,
+    actorId: user.id,
+    action: 'role_changed',
+    targetType: 'user',
+    targetId: targetUserId,
+    targetLabel: targetName,
+    description: `Changed role of ${targetName} from ${before?.role ?? 'unknown'} to ${newRole}`,
+    metadata: { oldRole: before?.role ?? null, newRole },
+  })
 
   revalidatePath('/users')
 }

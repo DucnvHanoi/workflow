@@ -10,6 +10,7 @@ import type { SerializedGraph } from '@/lib/flows/graph'
 import type { FormField, BranchCondition } from '@/store/canvas-store'
 import { sendAssignmentEmail, sendCompletionEmail } from '@/lib/email/resend'
 // import { sendAssignmentEmail } from '@/lib/email/resend'
+import { logAuditEvent } from '@/lib/audit/log'
 
 export type FlowListItem = {
   id: string
@@ -114,13 +115,13 @@ function toEdgeFunctionRule(rule: { type?: string } | null): Record<string, unkn
 }
 
 async function requireAdminWithTenant(): Promise<
-  { ok: true; tenantId: string; db: AdminDb } | { ok: false; error: string }
+  { ok: true; userId: string; tenantId: string; db: AdminDb } | { ok: false; error: string }
 > {
   const { user, claims } = await getSessionClaims()
   if (!user) return { ok: false, error: 'Unauthenticated' }
   if (claims.role !== 'admin') return { ok: false, error: 'Unauthorized' }
   if (!claims.tenant_id) return { ok: false, error: 'Tenant not found' }
-  return { ok: true, tenantId: claims.tenant_id, db: createAdminClient() }
+  return { ok: true, userId: user.id, tenantId: claims.tenant_id, db: createAdminClient() }
 }
 
 /** Works for any authenticated tenant user (admin or regular user). */
@@ -254,6 +255,54 @@ export async function saveDraftVersion(
   return { versionId: version.id, versionNumber: version.version_number }
 }
 
+// ─── Update the latest draft graph in place ───────────────────────────────────
+// Used for position-only canvas changes (node drags). Unlike saveDraftVersion,
+// this does NOT create a new version — it overwrites the latest draft's graph.
+// Guard: if the latest version is already published, we must not mutate it, so
+// we fall back to inserting a fresh draft via saveDraftVersion.
+export async function updateDraftGraph(
+  flowId: string,
+  graph: SerializedGraph
+): Promise<{ versionId: string; versionNumber: number; error?: string }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { versionId: '', versionNumber: 0, error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { versionId: '', versionNumber: 0, error: access.error }
+
+  const { data: latest } = await db
+    .from('flow_versions')
+    .select('id, version_number, published_at')
+    .eq('flow_id', flowId)
+    .order('version_number', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  // No version yet, or the latest is published → don't overwrite history.
+  if (!latest || latest.published_at !== null) {
+    return saveDraftVersion(flowId, graph)
+  }
+
+  const { error: updateErr } = await db
+    .from('flow_versions')
+    .update({ graph: graph as unknown as Record<string, unknown> })
+    .eq('id', latest.id)
+    .eq('flow_id', flowId)
+
+  if (updateErr) {
+    return { versionId: '', versionNumber: 0, error: updateErr.message }
+  }
+
+  await db
+    .from('flows')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+
+  return { versionId: latest.id, versionNumber: latest.version_number }
+}
+
 // ─── Fetch latest graph for a flow ───────────────────────────────────────────
 
 export async function getLatestDraftGraph(
@@ -316,13 +365,13 @@ export async function publishFlow(flowId: string): Promise<{ error: string | nul
   const gate = await requireAdminWithTenant()
   if (!gate.ok) return { error: gate.error }
 
-  const { tenantId, db } = gate
+  const { userId, tenantId, db } = gate
   const access = await assertFlowInTenant(db, flowId, tenantId)
   if (!access.ok) return { error: access.error }
 
   const { data: flow, error: flowError } = await db
     .from('flows')
-    .select('latest_version_id')
+    .select('name, latest_version_id')
     .eq('id', flowId)
     .eq('tenant_id', tenantId)
     .single()
@@ -331,11 +380,13 @@ export async function publishFlow(flowId: string): Promise<{ error: string | nul
     return { error: 'Could not find a saved version to publish.' }
   }
 
-  const { error: verError } = await db
+  const { data: ver, error: verError } = await db
     .from('flow_versions')
     .update({ published_at: new Date().toISOString() })
     .eq('id', flow.latest_version_id)
     .eq('flow_id', flowId)
+    .select('version_number')
+    .maybeSingle()
 
   if (verError) return { error: verError.message }
 
@@ -350,6 +401,17 @@ export async function publishFlow(flowId: string): Promise<{ error: string | nul
 
   if (statusError) return { error: statusError.message }
 
+  await logAuditEvent(db, {
+    tenantId,
+    actorId: userId,
+    action: 'flow_published',
+    targetType: 'flow',
+    targetId: flowId,
+    targetLabel: flow.name,
+    description: `Published "${flow.name}" (v${ver?.version_number ?? '?'})`,
+    metadata: { versionNumber: ver?.version_number ?? null },
+  })
+
   return { error: null }
 }
 
@@ -359,11 +421,11 @@ export async function unpublishFlow(flowId: string): Promise<{ error: string | n
   const gate = await requireAdminWithTenant()
   if (!gate.ok) return { error: gate.error }
 
-  const { tenantId, db } = gate
+  const { userId, tenantId, db } = gate
   const access = await assertFlowInTenant(db, flowId, tenantId)
   if (!access.ok) return { error: access.error }
 
-  const { error } = await db
+  const { data: flow, error } = await db
     .from('flows')
     .update({
       status: 'draft',
@@ -371,8 +433,22 @@ export async function unpublishFlow(flowId: string): Promise<{ error: string | n
     })
     .eq('id', flowId)
     .eq('tenant_id', tenantId)
+    .select('name')
+    .maybeSingle()
 
-  return { error: error?.message ?? null }
+  if (error) return { error: error.message }
+
+  await logAuditEvent(db, {
+    tenantId,
+    actorId: userId,
+    action: 'flow_unpublished',
+    targetType: 'flow',
+    targetId: flowId,
+    targetLabel: flow?.name ?? null,
+    description: `Reverted "${flow?.name ?? 'flow'}" to draft`,
+  })
+
+  return { error: null }
 }
 
 // ─── Restore a version ────────────────────────────────────────────────────────
@@ -2066,7 +2142,7 @@ export async function reassignStep(
   const gate = await requireAdminWithTenant()
   if (!gate.ok) return { error: gate.error }
 
-  const { tenantId, db } = gate
+  const { userId, tenantId, db } = gate
 
   // Fetch step + flow info
   const { data: si, error: siError } = await db
@@ -2146,6 +2222,18 @@ export async function reassignStep(
     eventType: 'step_assigned',
     description: `"${stepLabel}" reassigned to ${assigneeName} by an administrator.`,
     metadata: { stepId: si.step_id, assignedTo: newAssigneeId },
+  })
+
+  // Write administrative audit-trail entry
+  await logAuditEvent(db, {
+    tenantId,
+    actorId: userId,
+    action: 'step_reassigned',
+    targetType: 'step_instance',
+    targetId: stepInstanceId,
+    targetLabel: `${flowName} — ${stepLabel}`,
+    description: `Reassigned "${stepLabel}" in "${flowName}" to ${assigneeName}`,
+    metadata: { stepId: si.step_id, instanceId: si.instance_id, assignedTo: newAssigneeId },
   })
 
   // Send assignment email to the new assignee (fire-and-forget)

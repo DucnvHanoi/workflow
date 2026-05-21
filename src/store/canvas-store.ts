@@ -12,7 +12,7 @@ import {
   type NodeChange,
 } from '@xyflow/react'
 import { serializeGraph, deserializeGraph, type SerializedGraph } from '@/lib/flows/graph'
-import { saveDraftVersion } from '@/lib/flows/actions'
+import { saveDraftVersion, updateDraftGraph } from '@/lib/flows/actions'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -114,6 +114,7 @@ export interface CanvasStore {
   loadVersion: (graph: SerializedGraph) => void
 
   triggerSave: () => void
+  triggerPositionSave: () => void
   reset: () => void
 }
 
@@ -135,149 +136,16 @@ function defaultData(): NodeData {
 
 // ─── Store implementation ─────────────────────────────────────────────────────
 
-export const useCanvasStore = create<CanvasStore>((set, get) => ({
-  saveStatus: 'idle',
-  latestVersionId: null,
-  flowId: null,
-  _debounceTimer: null,
-  isReadOnly: false,
-
-  nodes: [],
-  edges: [],
-  selectedNodeId: null,
-
-  onNodesChange: (changes) => {
-    set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) })) // _changes is unused parameter
-  },
-
-  onEdgesChange: (changes) => {
-    set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })) // _changes is unused parameter
-  },
-
-  onConnect: (connection) => {
-    set((state) => ({ edges: addEdge(connection, state.edges) })) // _connection is unused parameter
-  },
-
-  setSelectedNodeId: (id) => set({ selectedNodeId: id }),
-
-  addNode: (type, position = { x: 250, y: 150 }) => {
-    const id = generateId()
-    const labelMap: Record<string, string> = {
-      trigger: 'Trigger',
-      action: 'New Action',
-      branch: 'Branch',
-      complete: 'Complete',
-    }
-    const newNode: Node = {
-      id,
-      type,
-      position,
-      data: {
-        ...defaultData(),
-        label: labelMap[type] ?? 'New Step',
-      },
-    }
-    set((state) => ({ nodes: [...state.nodes, newNode] }))
-  },
-
-  updateNodeData: (id, partialData) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) =>
-        node.id === id ? { ...node, data: { ...node.data, ...partialData } } : node
-      ),
-    }))
-  },
-
-  addFormField: (nodeId, type) => {
-    const fieldId = generateId()
-    const newField: FormField = {
-      id: fieldId,
-      type,
-      label: '',
-      required: false,
-      ...(type === 'dropdown' || type === 'radio' || type === 'checkbox'
-        ? { options: ['', ''] }
-        : {}),
-    }
-    set((state) => ({
-      nodes: state.nodes.map((node) => {
-        if (node.id !== nodeId) return node
-        const data = node.data as NodeData
-        return {
-          ...node,
-          data: { ...data, formSchema: [...data.formSchema, newField] },
-        }
-      }),
-    }))
-  },
-
-  updateFormField: (nodeId, fieldId, patch) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) => {
-        if (node.id !== nodeId) return node
-        const data = node.data as NodeData
-        return {
-          ...node,
-          data: {
-            ...data,
-            formSchema: data.formSchema.map((f) => (f.id === fieldId ? { ...f, ...patch } : f)),
-          },
-        }
-      }),
-    }))
-  },
-
-  removeFormField: (nodeId, fieldId) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) => {
-        if (node.id !== nodeId) return node
-        const data = node.data as NodeData
-        return {
-          ...node,
-          data: {
-            ...data,
-            formSchema: data.formSchema.filter((f) => f.id !== fieldId),
-          },
-        }
-      }),
-    }))
-  },
-
-  reorderFormFields: (nodeId, fields) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) => {
-        if (node.id !== nodeId) return node
-        const data = node.data as NodeData
-        return { ...node, data: { ...data, formSchema: fields } }
-      }),
-    }))
-  },
-
-  setAssigneeRule: (nodeId, rule) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) =>
-        node.id === nodeId ? { ...node, data: { ...node.data, assigneeRule: rule } } : node
-      ),
-    }))
-  },
-
-  setSaveStatus: (status) => set({ saveStatus: status }),
-  setLatestVersionId: (id) => set({ latestVersionId: id }),
-  setFlowId: (id) => set({ flowId: id }),
-
-  setReadOnly: (val) => set({ isReadOnly: val }),
-
-  loadVersion: (graph: SerializedGraph) => {
-    const { nodes, edges } = deserializeGraph(graph)
-    set({
-      nodes,
-      edges,
-      selectedNodeId: null,
-      isReadOnly: true,
-    })
-  },
-
-  triggerSave: () => {
+export const useCanvasStore = create<CanvasStore>((set, get) => {
+  // Shared debounced save (300ms). `saver` decides the persistence semantics:
+  //   - saveDraftVersion → INSERT a new version (structural edits)
+  //   - updateDraftGraph → UPDATE the latest draft in place (position-only moves)
+  const runDebouncedSave = (
+    saver: (
+      flowId: string,
+      graph: SerializedGraph
+    ) => Promise<{ versionId: string; error?: string }>
+  ) => {
     const state = get()
     if (!state.flowId) return
     if (state.isReadOnly) return
@@ -292,7 +160,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
       try {
         const graph = serializeGraph(nodes as Node<NodeData>[], edges)
-        const result = await saveDraftVersion(flowId, graph)
+        const result = await saver(flowId, graph)
         if (result.error) {
           set({ saveStatus: 'error' })
         } else {
@@ -305,20 +173,171 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }, 300)
 
     set({ _debounceTimer: timer })
-  },
+  }
 
-  reset: () => {
-    const state = get()
-    if (state._debounceTimer) clearTimeout(state._debounceTimer)
-    set({
-      nodes: [],
-      edges: [],
-      selectedNodeId: null,
-      saveStatus: 'idle',
-      latestVersionId: null,
-      flowId: null,
-      _debounceTimer: null,
-      isReadOnly: false,
-    })
-  },
-}))
+  return {
+    saveStatus: 'idle',
+    latestVersionId: null,
+    flowId: null,
+    _debounceTimer: null,
+    isReadOnly: false,
+
+    nodes: [],
+    edges: [],
+    selectedNodeId: null,
+
+    onNodesChange: (changes) => {
+      set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) })) // _changes is unused parameter
+    },
+
+    onEdgesChange: (changes) => {
+      set((state) => ({ edges: applyEdgeChanges(changes, state.edges) })) // _changes is unused parameter
+    },
+
+    onConnect: (connection) => {
+      set((state) => ({ edges: addEdge(connection, state.edges) })) // _connection is unused parameter
+    },
+
+    setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+
+    addNode: (type, position = { x: 250, y: 150 }) => {
+      const id = generateId()
+      const labelMap: Record<string, string> = {
+        trigger: 'Trigger',
+        action: 'New Action',
+        branch: 'Branch',
+        complete: 'Complete',
+      }
+      const newNode: Node = {
+        id,
+        type,
+        position,
+        data: {
+          ...defaultData(),
+          label: labelMap[type] ?? 'New Step',
+        },
+      }
+      set((state) => ({ nodes: [...state.nodes, newNode] }))
+    },
+
+    updateNodeData: (id, partialData) => {
+      set((state) => ({
+        nodes: state.nodes.map((node) =>
+          node.id === id ? { ...node, data: { ...node.data, ...partialData } } : node
+        ),
+      }))
+    },
+
+    addFormField: (nodeId, type) => {
+      const fieldId = generateId()
+      const newField: FormField = {
+        id: fieldId,
+        type,
+        label: '',
+        required: false,
+        ...(type === 'dropdown' || type === 'radio' || type === 'checkbox'
+          ? { options: ['', ''] }
+          : {}),
+      }
+      set((state) => ({
+        nodes: state.nodes.map((node) => {
+          if (node.id !== nodeId) return node
+          const data = node.data as NodeData
+          return {
+            ...node,
+            data: { ...data, formSchema: [...data.formSchema, newField] },
+          }
+        }),
+      }))
+    },
+
+    updateFormField: (nodeId, fieldId, patch) => {
+      set((state) => ({
+        nodes: state.nodes.map((node) => {
+          if (node.id !== nodeId) return node
+          const data = node.data as NodeData
+          return {
+            ...node,
+            data: {
+              ...data,
+              formSchema: data.formSchema.map((f) => (f.id === fieldId ? { ...f, ...patch } : f)),
+            },
+          }
+        }),
+      }))
+    },
+
+    removeFormField: (nodeId, fieldId) => {
+      set((state) => ({
+        nodes: state.nodes.map((node) => {
+          if (node.id !== nodeId) return node
+          const data = node.data as NodeData
+          return {
+            ...node,
+            data: {
+              ...data,
+              formSchema: data.formSchema.filter((f) => f.id !== fieldId),
+            },
+          }
+        }),
+      }))
+    },
+
+    reorderFormFields: (nodeId, fields) => {
+      set((state) => ({
+        nodes: state.nodes.map((node) => {
+          if (node.id !== nodeId) return node
+          const data = node.data as NodeData
+          return { ...node, data: { ...data, formSchema: fields } }
+        }),
+      }))
+    },
+
+    setAssigneeRule: (nodeId, rule) => {
+      set((state) => ({
+        nodes: state.nodes.map((node) =>
+          node.id === nodeId ? { ...node, data: { ...node.data, assigneeRule: rule } } : node
+        ),
+      }))
+    },
+
+    setSaveStatus: (status) => set({ saveStatus: status }),
+    setLatestVersionId: (id) => set({ latestVersionId: id }),
+    setFlowId: (id) => set({ flowId: id }),
+
+    setReadOnly: (val) => set({ isReadOnly: val }),
+
+    loadVersion: (graph: SerializedGraph) => {
+      const { nodes, edges } = deserializeGraph(graph)
+      set({
+        nodes,
+        edges,
+        selectedNodeId: null,
+        isReadOnly: true,
+      })
+    },
+
+    // Structural edits (add/remove node, edge changes, field/assignee/branch
+    // edits) → new version snapshot.
+    triggerSave: () => runDebouncedSave(saveDraftVersion),
+
+    // Position-only node moves → overwrite the latest draft in place (no new
+    // version). Avoids ballooning version_number on every drag.
+    triggerPositionSave: () => runDebouncedSave(updateDraftGraph),
+
+    reset: () => {
+      const state = get()
+      if (state._debounceTimer) clearTimeout(state._debounceTimer)
+      set({
+        nodes: [],
+        edges: [],
+        selectedNodeId: null,
+        saveStatus: 'idle',
+        latestVersionId: null,
+        flowId: null,
+        _debounceTimer: null,
+        isReadOnly: false,
+      })
+    },
+  }
+})

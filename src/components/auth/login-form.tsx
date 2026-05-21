@@ -52,7 +52,7 @@ export function LoginForm() {
     }
 
     // Success — hard refresh to let middleware handle redirect
-    router.push('/dashboard')
+    router.push('/tasks')
     router.refresh()
   }
 
