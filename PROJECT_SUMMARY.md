@@ -216,3 +216,17 @@ Bug 3 — Assignee resolution failure showed "Unassigned" with no explanation: W
 Resolve-assignee edge function redeployed to Supabase (npx supabase functions deploy) to activate the is_active filters added in Day 1 code.
 
 KNOWN TEST SCENARIO — Bulk Reassign button (Test 3): The "Reassign N pending tasks" button on /users/[id] only renders when pendingCount > 0. To test: trigger a flow that assigns a step to User A first, then deactivate User A, then visit their profile. The button appears because the pending step_instance remains assigned to them after deactivation.
+
+16. PHASE 6 ROADMAP (REMAINING)
+
+M1 — User deactivation ✅ COMPLETE (Day 1)
+M2 — Bulk task reassignment ✅ COMPLETE (Day 1)
+
+M3 — Fix invite email delivery (NEXT):
+The /invite page and inviteUser() action exist and correctly call auth.admin.generateLink({ type: 'invite' }) + pre-insert the public.users row. However, generateLink does NOT send an email — it only returns the magic link in inviteData.properties.action_link. The invited user currently receives nothing. Fix: pass action_link to Resend (using the existing RESEND_API_KEY / RESEND_FROM_EMAIL env vars) so the invite email is actually delivered.
+
+M4 — SLA reminder & digest emails + overdue escalation (deferred from Phase 5 M2/M3):
+Parked because Resend requires a verified domain to send to arbitrary recipients. Route: GET /api/cron/sla (Vercel Cron, secured by CRON_SECRET header). Scans pending step_instances for T-1d reminders and overdue notices. De-dupe via notification_logs (track last-sent). Escalation: overdue past threshold → email assignee's manager, log audit 'step_escalated'. Revisit once domain verified.
+
+M5 — User self-service profile page (/settings or /profile):
+Regular users currently have no way to update their own name or notification preferences. Admins can edit any user via /users. Build a lightweight /settings page (accessible to all roles) for self-editing full_name and email (mirrors updateUserProfile but scoped to own account).
