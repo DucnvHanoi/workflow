@@ -2,12 +2,10 @@
 
 // FILE PATH: src/components/canvas/panels/ConfigSidebar.tsx
 
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { X } from 'lucide-react'
 import type { Node } from '@xyflow/react'
 import { useCanvasStore, type TenantUser, type TenantDepartment } from '@/store/canvas-store'
-import { deserializeGraph } from '@/lib/flows/graph'
-import { getLatestDraftGraph } from '@/lib/flows/actions'
 import StepConfigPanel from './StepConfigPanel'
 import BranchConfigPanel from './BranchConfigPanel'
 import FormBuilderPanel from './FormBuilderPanel'

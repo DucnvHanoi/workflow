@@ -8,8 +8,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import type { SerializedGraph } from '@/lib/flows/graph'
 import type { FormField, BranchCondition } from '@/store/canvas-store'
-import { sendAssignmentEmail, sendCompletionEmail } from '@/lib/email/resend'
-// import { sendAssignmentEmail } from '@/lib/email/resend'
+import { sendAssignmentEmail } from '@/lib/email/resend'
 import { logAuditEvent } from '@/lib/audit/log'
 
 export type FlowListItem = {
