@@ -11,6 +11,7 @@ import type { FormField, BranchCondition } from '@/store/canvas-store'
 import { sendAssignmentEmail } from '@/lib/email/resend'
 import { logAuditEvent } from '@/lib/audit/log'
 import { createNotification } from '@/lib/notifications/create'
+import { revalidatePath } from 'next/cache'
 
 export type FlowListItem = {
   id: string
@@ -734,6 +735,7 @@ export async function triggerFlow(
 
   const assigneeRule = (firstNode.data?.assigneeRule ?? null) as { type?: string } | null
   let assignedTo: string | null = null
+  let assigneeError: string | null = null
 
   if (assigneeRule?.type) {
     try {
@@ -759,6 +761,7 @@ export async function triggerFlow(
           error: string | null
         }
         if (result.assigned_to_user_id) assignedTo = result.assigned_to_user_id
+        else if (result.error) assigneeError = result.error
       }
     } catch {
       // Non-fatal
@@ -790,17 +793,19 @@ export async function triggerFlow(
     })
     .eq('id', instance.id)
 
-  // ── NEW: log step_assigned for the first step
   const stepLabel = (firstNode.data?.label as string | undefined) ?? 'Step'
   const assigneeName = assignedTo ? await resolveUserName(db, assignedTo) : 'Unassigned'
+  const assignDescription = assigneeError
+    ? `"${stepLabel}" could not be assigned: ${assigneeError}`
+    : `"${stepLabel}" assigned to ${assigneeName}.`
   await writeEventLog(db, {
     instanceId: instance.id,
     stepInstanceId: stepInstance.id,
     tenantId,
     actorId: null,
-    eventType: 'step_assigned',
-    description: `"${stepLabel}" assigned to ${assigneeName}.`,
-    metadata: { stepId: firstNode.id, assignedTo, assigneeRule },
+    eventType: assigneeError ? 'flow_error' : 'step_assigned',
+    description: assignDescription,
+    metadata: { stepId: firstNode.id, assignedTo, assigneeRule, assigneeError },
   })
 
   if (assignedTo) {
@@ -1327,6 +1332,7 @@ async function advanceFlow(
   // 5. Resolve assignee for the next step
   const assigneeRule = (nextNode.data?.assigneeRule ?? null) as { type?: string } | null
   let assignedTo: string | null = null
+  let assigneeError: string | null = null
 
   if (assigneeRule?.type) {
     try {
@@ -1352,6 +1358,7 @@ async function advanceFlow(
           error: string | null
         }
         if (result.assigned_to_user_id) assignedTo = result.assigned_to_user_id
+        else if (result.error) assigneeError = result.error
       }
     } catch {
       // Non-fatal
@@ -1383,17 +1390,19 @@ async function advanceFlow(
     })
     .eq('id', instanceId)
 
-  // ── NEW: log step_assigned event for the next step
   const nextStepLabel = (nextNode.data?.label as string | undefined) ?? 'Step'
   const assigneeName = assignedTo ? await resolveUserName(db, assignedTo) : 'Unassigned'
+  const assignDescription = assigneeError
+    ? `"${nextStepLabel}" could not be assigned: ${assigneeError}`
+    : `"${nextStepLabel}" assigned to ${assigneeName}.`
   await writeEventLog(db, {
     instanceId,
     stepInstanceId: nextStep.id,
     tenantId,
     actorId: null,
-    eventType: 'step_assigned',
-    description: `"${nextStepLabel}" assigned to ${assigneeName}.`,
-    metadata: { stepId: nextNode.id, assignedTo, assigneeRule },
+    eventType: assigneeError ? 'flow_error' : 'step_assigned',
+    description: assignDescription,
+    metadata: { stepId: nextNode.id, assignedTo, assigneeRule, assigneeError },
   })
 
   if (assignedTo) {
@@ -2323,12 +2332,92 @@ export async function getTenantUsers(): Promise<{
     .from('users')
     .select('id, full_name, email, role')
     .eq('tenant_id', tenantId)
+    .eq('is_active', true)
     .order('full_name', { ascending: true })
 
   if (error) return { users: [], error: error.message }
 
   return { users: data ?? [], error: null }
 }
+
+// ─── bulkReassignTasks ────────────────────────────────────────────────────────
+// Admin only. Moves all pending step_instances from one user to another in a
+// single UPDATE. Sends one notification to the new assignee and one audit entry.
+
+export async function bulkReassignTasks(
+  fromUserId: string,
+  toUserId: string
+): Promise<{ count: number; error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { count: 0, error: gate.error }
+
+  const { tenantId, db, userId: actorId } = gate
+
+  if (fromUserId === toUserId) return { count: 0, error: 'Source and target user must differ' }
+
+  // Verify target user is active and in this tenant
+  const { data: toUser } = await db
+    .from('users')
+    .select('id, full_name, email, is_active')
+    .eq('id', toUserId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  if (!toUser) return { count: 0, error: 'Target user not found' }
+  if (!toUser.is_active) return { count: 0, error: 'Cannot reassign to an inactive user' }
+
+  // Fetch the from-user's name for the audit description
+  const { data: fromUser } = await db
+    .from('users')
+    .select('full_name, email')
+    .eq('id', fromUserId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  // Bulk UPDATE — single query, no row-level audit per step (one audit entry covers all)
+  const { data: updated, error: updateError } = await db
+    .from('step_instances')
+    .update({ assigned_to: toUserId })
+    .eq('assigned_to', fromUserId)
+    .eq('status', 'pending')
+    .select('id')
+
+  if (updateError) return { count: 0, error: updateError.message }
+
+  const count = updated?.length ?? 0
+
+  if (count > 0) {
+    const fromName = fromUser?.full_name ?? fromUser?.email ?? 'another user'
+    const toName = toUser.full_name ?? toUser.email
+
+    void createNotification({
+      tenantId,
+      userId: toUserId,
+      type: 'step_assigned',
+      title: `${count} task${count !== 1 ? 's' : ''} reassigned to you`,
+      body: `An admin reassigned ${count} pending task${count !== 1 ? 's' : ''} from ${fromName} to you.`,
+      link: '/tasks',
+    })
+
+    await logAuditEvent(db, {
+      tenantId,
+      actorId,
+      action: 'tasks_bulk_reassigned',
+      targetType: 'user',
+      targetId: fromUserId,
+      targetLabel: fromName,
+      description: `Bulk reassigned ${count} pending task${count !== 1 ? 's' : ''} from ${fromName} to ${toName}`,
+      metadata: { fromUserId, toUserId, count },
+    })
+  }
+
+  revalidatePath('/users')
+  revalidatePath('/tasks')
+  revalidatePath('/dashboard')
+
+  return { count, error: null }
+}
+
 // ─── getSignedUrl ─────────────────────────────────────────────────────────────
 // On-demand signed URL for a file in the step-attachments bucket.
 // Called by FileDownloadLink on click — generates a fresh 60-second URL each time.

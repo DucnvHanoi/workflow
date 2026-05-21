@@ -16,6 +16,7 @@ import { DeleteUserDialog } from './delete-user-dialog'
 import { EditManagerDialog } from './edit-manager-dialog'
 import { EditProfileDialog } from './edit-profile-dialog'
 import { EditDepartmentDialog } from './edit-department-dialog'
+import { DeactivateUserDialog } from './deactivate-user-dialog'
 
 type UserOption = {
   id: string
@@ -29,6 +30,7 @@ type Props = {
     full_name: string | null
     email: string
     role: 'admin' | 'user'
+    is_active: boolean
     manager_id: string | null
     department_id: string | null
   }
@@ -43,6 +45,7 @@ export function UserActions({ user, currentUserId, allUsers, allDepartments }: P
   const [roleOpen, setRoleOpen] = useState(false)
   const [managerOpen, setManagerOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deactivateOpen, setDeactivateOpen] = useState(false)
   const isSelf = user.id === currentUserId
 
   return (
@@ -69,6 +72,19 @@ export function UserActions({ user, currentUserId, allUsers, allDepartments }: P
           <DropdownMenuItem onSelect={() => setRoleOpen(true)}>Edit Role</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setManagerOpen(true)}>Edit Manager</DropdownMenuItem>
           <DropdownMenuSeparator />
+          {user.is_active ? (
+            <DropdownMenuItem
+              onSelect={() => setDeactivateOpen(true)}
+              disabled={isSelf}
+              className="text-destructive focus:text-destructive"
+            >
+              Deactivate User
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={() => setDeactivateOpen(true)}>
+              Reactivate User
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onSelect={() => setDeleteOpen(true)}
             disabled={isSelf}
@@ -108,6 +124,8 @@ export function UserActions({ user, currentUserId, allUsers, allDepartments }: P
         user={user}
         currentUserId={currentUserId}
       />
+
+      <DeactivateUserDialog open={deactivateOpen} onOpenChange={setDeactivateOpen} user={user} />
     </>
   )
 }

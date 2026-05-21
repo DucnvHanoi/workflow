@@ -45,6 +45,8 @@ type PendingUserRow = {
   email: string
   pendingCount: number
   oldestPendingDate: string | null // ISO string
+  overdueCount: number
+  dueSoonCount: number
 }
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
@@ -104,6 +106,8 @@ async function getDashboardData(tenantId: string) {
   let activePending = 0
   let completedThisMonth = 0
   let cancelledTotal = 0
+  let totalOverdue = 0
+  let totalDueSoon = 0
 
   // Also build per-flow breakdown map
   const flowMap = new Map<
@@ -218,6 +222,22 @@ async function getDashboardData(tenantId: string) {
       bgColor: 'bg-red-50',
       description: 'Total cancelled all time',
     },
+    {
+      label: 'SLA Breached',
+      value: totalOverdue,
+      icon: AlertCircle,
+      color: 'text-red-500',
+      bgColor: 'bg-red-50',
+      description: 'Pending steps past their due date',
+    },
+    {
+      label: 'Due Soon',
+      value: totalDueSoon,
+      icon: Clock,
+      color: 'text-amber-600',
+      bgColor: 'bg-amber-50',
+      description: 'Pending steps due within 24 hours',
+    },
   ]
 
   const flowBreakdown: FlowRow[] = Array.from(flowMap.entries()).map(([id, v]) => ({
@@ -243,6 +263,7 @@ async function getDashboardData(tenantId: string) {
       id,
       assigned_to,
       created_at,
+      due_at,
       flow_instances!instance_id (
         status,
         flow_versions!flow_version_id (
@@ -259,6 +280,7 @@ async function getDashboardData(tenantId: string) {
     id: string
     assigned_to: string | null
     created_at: string
+    due_at: string | null
     flow_instances:
       | {
           status: string
@@ -287,16 +309,34 @@ async function getDashboardData(tenantId: string) {
     return flow?.tenant_id === tenantId
   })
 
-  // Aggregate by assigned_to
-  const userPendingMap = new Map<string, { count: number; oldest: string }>()
+  // Aggregate by assigned_to — track SLA breach and due-soon per user
+  const nowMs = Date.now()
+  const dueSoonThresholdMs = 24 * 60 * 60 * 1000
+
+  const userPendingMap = new Map<
+    string,
+    { count: number; oldest: string; overdueCount: number; dueSoonCount: number }
+  >()
   for (const step of tenantPendingSteps) {
     if (!step.assigned_to) continue
+    const dueAt = step.due_at ? new Date(step.due_at).getTime() : null
+    const isOverdue = dueAt !== null && dueAt < nowMs
+    const isDueSoon = dueAt !== null && !isOverdue && dueAt - nowMs < dueSoonThresholdMs
+    if (isOverdue) totalOverdue++
+    if (isDueSoon) totalDueSoon++
     const existing = userPendingMap.get(step.assigned_to)
     if (!existing) {
-      userPendingMap.set(step.assigned_to, { count: 1, oldest: step.created_at })
+      userPendingMap.set(step.assigned_to, {
+        count: 1,
+        oldest: step.created_at,
+        overdueCount: isOverdue ? 1 : 0,
+        dueSoonCount: isDueSoon ? 1 : 0,
+      })
     } else {
       existing.count++
       if (step.created_at < existing.oldest) existing.oldest = step.created_at
+      if (isOverdue) existing.overdueCount++
+      if (isDueSoon) existing.dueSoonCount++
     }
   }
 
@@ -317,12 +357,14 @@ async function getDashboardData(tenantId: string) {
   }
 
   const pendingByUser: PendingUserRow[] = Array.from(userPendingMap.entries())
-    .map(([userId, { count, oldest }]) => ({
+    .map(([userId, { count, oldest, overdueCount, dueSoonCount }]) => ({
       userId,
       userName: userNameMap[userId]?.name ?? 'Unknown',
       email: userNameMap[userId]?.email ?? '',
       pendingCount: count,
       oldestPendingDate: oldest,
+      overdueCount,
+      dueSoonCount,
     }))
     .sort((a, b) => b.pendingCount - a.pendingCount)
 
@@ -363,7 +405,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── Stat cards ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {statCards.map((card) => {
           const Icon = card.icon
           return (
@@ -506,6 +548,12 @@ export default async function DashboardPage() {
                     Pending Steps
                   </th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                    Overdue
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                    Due Soon
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">
                     Oldest Pending
                   </th>
                 </tr>
@@ -532,6 +580,20 @@ export default async function DashboardPage() {
                         >
                           {row.pendingCount}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {row.overdueCount > 0 ? (
+                          <span className="font-medium text-red-500">{row.overdueCount}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {row.dueSoonCount > 0 ? (
+                          <span className="font-medium text-amber-600">{row.dueSoonCount}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span

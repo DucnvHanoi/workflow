@@ -1,10 +1,12 @@
 // src/app/users/[id]/page.tsx
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server' // your existing server helper
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, AlertTriangle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
+import { UserProfileActions } from '@/components/users/user-profile-actions'
 
 // Fetch a user with up to 3 levels of manager chain
 // Supabase doesn't support recursive joins, so we do 3 separate queries
@@ -14,7 +16,9 @@ async function getUserWithChain(userId: string, tenantId: string) {
   // Level 1 — the user themselves
   const { data: u1 } = await supabase
     .from('users')
-    .select('id, full_name, email, role, department_id, manager_id, created_at, departments(name)')
+    .select(
+      'id, full_name, email, role, is_active, department_id, manager_id, created_at, departments!department_id ( name )'
+    )
     .eq('id', userId)
     .eq('tenant_id', tenantId)
     .single()
@@ -56,12 +60,31 @@ export default async function UserProfilePage({ params }: PageProps) {
   if (!sessionUser || claims.role !== 'admin') redirect('/unauthorized')
   if (!claims.tenant_id) redirect('/login')
 
-  // Line 58 then becomes safe:
   const profile = await getUserWithChain(params.id, claims.tenant_id)
-
-  // Line 58 then becomes safe:
-
   if (!profile) redirect('/users')
+
+  const db = createAdminClient()
+
+  // Pending task count for this user
+  const { count: pendingCount } = await db
+    .from('step_instances')
+    .select('id', { count: 'exact', head: true })
+    .eq('assigned_to', params.id)
+    .eq('status', 'pending')
+
+  // Active users in this tenant for the reassign picker
+  const { data: activeUserRows } = await db
+    .from('users')
+    .select('id, full_name, email')
+    .eq('tenant_id', claims.tenant_id)
+    .eq('is_active', true)
+    .order('full_name', { ascending: true, nullsFirst: false })
+
+  const activeUsers = (activeUserRows ?? []).map((u) => ({
+    id: u.id as string,
+    full_name: (u.full_name ?? null) as string | null,
+    email: u.email as string,
+  }))
 
   // Build org chain array for display: [user, manager, skip-level]
   const chain: {
@@ -80,6 +103,8 @@ export default async function UserProfilePage({ params }: PageProps) {
 
   const displayName = (u: { full_name: string | null; email: string }) => u.full_name ?? u.email
 
+  const isSelf = sessionUser.id === params.id
+
   return (
     <div className="mx-auto max-w-2xl space-y-8 p-6">
       {/* Back link */}
@@ -87,9 +112,19 @@ export default async function UserProfilePage({ params }: PageProps) {
         ← Back to Users
       </Link>
 
+      {/* Inactive banner */}
+      {!profile.is_active && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>This account is deactivated. The user cannot log in.</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-4">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-lg font-bold text-primary">
+        <div
+          className={`flex h-14 w-14 items-center justify-center rounded-full text-lg font-bold ${profile.is_active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}
+        >
           {profile.full_name
             ? profile.full_name
                 .split(' ')
@@ -100,13 +135,33 @@ export default async function UserProfilePage({ params }: PageProps) {
             : profile.email[0].toUpperCase()}
         </div>
         <div>
-          <h1 className="text-2xl font-semibold">{profile.full_name ?? profile.email}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold">{profile.full_name ?? profile.email}</h1>
+            {!profile.is_active && (
+              <Badge variant="outline" className="text-muted-foreground">
+                Inactive
+              </Badge>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">{profile.email}</p>
         </div>
         <Badge variant={profile.role === 'admin' ? 'default' : 'secondary'} className="ml-auto">
           {profile.role}
         </Badge>
       </div>
+
+      {/* Actions */}
+      <UserProfileActions
+        user={{
+          id: profile.id,
+          full_name: profile.full_name ?? null,
+          email: profile.email,
+          is_active: profile.is_active,
+        }}
+        pendingCount={pendingCount ?? 0}
+        activeUsers={activeUsers}
+        isSelf={isSelf}
+      />
 
       {/* Details */}
       <div className="rounded-lg border p-4 space-y-3 text-sm">

@@ -101,11 +101,12 @@ async function walkDeptHierarchyForHead(
         .select('id')
         .eq('id', dept.head_user_id)
         .eq('tenant_id', tenantId)
+        .eq('is_active', true)
         .maybeSingle()
 
       if (headErr) return err(`DB error verifying department head: ${headErr.message}`)
       if (headUser) return ok(headUser.id)
-      // head_user_id set but user was deleted — treat as no head, walk up
+      // head_user_id set but user was deleted or deactivated — treat as no head, walk up
     }
 
     // ── Step 2: no head — walk up if possible, otherwise error ────────────
@@ -140,11 +141,12 @@ async function resolveRequester(
     .select('id')
     .eq('id', triggeredByUserId)
     .eq('tenant_id', tenantId)
+    .eq('is_active', true)
     .maybeSingle()
 
   if (error) return err(`DB error looking up requester: ${error.message}`)
   if (!data)
-    return err(`Requester not found: no user with id "${triggeredByUserId}" in this tenant.`)
+    return err(`Requester not found: no active user with id "${triggeredByUserId}" in this tenant.`)
   return ok(data.id)
 }
 
@@ -161,11 +163,14 @@ async function resolveFixed(
     .select('id')
     .eq('email', rule.email)
     .eq('tenant_id', tenantId)
+    .eq('is_active', true)
     .maybeSingle()
 
   if (error) return err(`DB error looking up fixed assignee: ${error.message}`)
   if (!data)
-    return err(`Fixed assignee not found: no user with email "${rule.email}" in this tenant.`)
+    return err(
+      `Fixed assignee not found: no active user with email "${rule.email}" in this tenant.`
+    )
   return ok(data.id)
 }
 
@@ -197,12 +202,13 @@ async function resolveManagerOfRequestor(
     .select('id, full_name')
     .eq('id', requestor.manager_id)
     .eq('tenant_id', tenantId)
+    .eq('is_active', true)
     .maybeSingle()
 
   if (managerError) return err(`DB error looking up manager: ${managerError.message}`)
   if (!manager)
     return err(
-      `Manager not found: manager_id "${requestor.manager_id}" does not exist in this tenant.`
+      `Manager not found or inactive: manager_id "${requestor.manager_id}" does not exist or is deactivated.`
     )
   return ok(manager.id)
 }
@@ -236,12 +242,13 @@ async function resolveSkipLevel(
     .select('id, full_name, manager_id')
     .eq('id', requestor.manager_id)
     .eq('tenant_id', tenantId)
+    .eq('is_active', true)
     .maybeSingle()
 
   if (managerError) return err(`DB error looking up manager: ${managerError.message}`)
   if (!manager)
     return err(
-      `Manager not found: manager_id "${requestor.manager_id}" does not exist in this tenant.`
+      `Manager not found or inactive: manager_id "${requestor.manager_id}" does not exist or is deactivated.`
     )
 
   // Fallback: direct manager has no skip-level — return direct manager
@@ -252,6 +259,7 @@ async function resolveSkipLevel(
     .select('id, full_name')
     .eq('id', manager.manager_id)
     .eq('tenant_id', tenantId)
+    .eq('is_active', true)
     .maybeSingle()
 
   if (skipLevelError)
@@ -335,12 +343,13 @@ async function resolveRoleInDept(
     .eq('department_id', rule.department_id)
     .eq('tenant_id', tenantId)
     .eq('role', rule.role)
+    .eq('is_active', true)
     .order('full_name', { ascending: true })
     .limit(1)
 
   if (usersError) return err(`DB error looking up role in department: ${usersError.message}`)
   if (!users || users.length === 0)
-    return err(`No user with role "${rule.role}" found in department "${dept.name}".`)
+    return err(`No active user with role "${rule.role}" found in department "${dept.name}".`)
   return ok(users[0].id)
 }
 

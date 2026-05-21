@@ -30,6 +30,7 @@ export type UserRow = {
   full_name: string | null
   role: string
   created_at: string
+  is_active: boolean
   department_id: string | null
   departments: { id: string; name: string } | null
   manager: { id: string; full_name: string | null; email: string } | null
@@ -77,11 +78,20 @@ export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: Us
             : user.email[0].toUpperCase()
           return (
             <a href={`/users/${user.id}`} className="flex items-center gap-3 hover:underline">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+              <div
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${user.is_active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}
+              >
                 {initials}
               </div>
               <div>
-                <div className="font-medium">{name}</div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{name}</span>
+                  {!user.is_active && (
+                    <Badge variant="outline" className="text-xs text-muted-foreground">
+                      Inactive
+                    </Badge>
+                  )}
+                </div>
                 <div className="text-xs text-muted-foreground">{user.email}</div>
               </div>
             </a>
@@ -146,6 +156,7 @@ export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: Us
                 full_name: r.full_name,
                 email: r.email,
                 role: r.role as 'admin' | 'user',
+                is_active: r.is_active,
                 manager_id: r.manager?.id ?? null,
                 department_id: r.department_id,
               }}
@@ -222,7 +233,10 @@ export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: Us
               </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
+                <TableRow
+                  key={row.id}
+                  className={!row.original.is_active ? 'opacity-60' : undefined}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

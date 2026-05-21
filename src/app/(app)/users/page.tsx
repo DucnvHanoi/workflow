@@ -22,7 +22,7 @@ export default async function UsersPage() {
     .from('users')
     .select(
       `
-      id, email, full_name, role, created_at, manager_id, department_id,
+      id, email, full_name, role, is_active, created_at, manager_id, department_id,
       departments!department_id ( id, name )
     `
     )
@@ -84,6 +84,7 @@ export default async function UsersPage() {
       email: u.email as string,
       full_name: (u.full_name ?? null) as string | null,
       role: u.role as string,
+      is_active: (u.is_active ?? true) as boolean,
       created_at: u.created_at as string,
       department_id: (u.department_id ?? null) as string | null,
       departments: dept ? { id: dept.id as string, name: dept.name as string } : null,
@@ -109,7 +110,9 @@ export default async function UsersPage() {
       <UsersTable
         rows={users}
         currentUserId={user.id}
-        allUsers={users.map((u) => ({ id: u.id, full_name: u.full_name, email: u.email }))}
+        allUsers={users
+          .filter((u) => u.is_active)
+          .map((u) => ({ id: u.id, full_name: u.full_name, email: u.email }))}
         allDepartments={allDepartments}
       />
     </div>

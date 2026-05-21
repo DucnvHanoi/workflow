@@ -7,7 +7,15 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export type AuditAction = 'role_changed' | 'flow_published' | 'flow_unpublished' | 'step_reassigned'
+export type AuditAction =
+  | 'role_changed'
+  | 'flow_published'
+  | 'flow_unpublished'
+  | 'step_reassigned'
+  | 'step_escalated'
+  | 'user_deactivated'
+  | 'user_reactivated'
+  | 'tasks_bulk_reassigned'
 
 export type AuditTargetType = 'user' | 'flow' | 'step_instance'
 
