@@ -461,7 +461,10 @@ export function InstanceDetailClient({
               : 'done'
             : 'locked'
 
-          const isCurrent = !!stepInstance && detail.current_step_id === stepInstance.id
+          const isCurrent =
+            !!stepInstance &&
+            detail.current_step_id === stepInstance.id &&
+            detail.status === 'pending'
 
           const isAssignee = stepInstance?.assigned_to === currentUserId
           const isInvolvedInFlow =
