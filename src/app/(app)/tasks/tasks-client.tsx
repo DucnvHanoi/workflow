@@ -425,6 +425,11 @@ function PendingTaskCard({
           </p>
         )}
         <p className="mt-1 text-xs text-muted-foreground">{formatRelative(task.createdAt)}</p>
+        {task.dueAt &&
+          (() => {
+            const { label, className } = formatDue(task.dueAt)
+            return <p className={`mt-0.5 text-xs ${className}`}>{label}</p>
+          })()}
       </div>
       <div className="shrink-0">
         {task.formSchema.length > 0 ? (
@@ -703,6 +708,31 @@ function FlowStatusPill({ status }: { status: 'pending' | 'completed' | 'cancell
 }
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
+
+function formatDue(iso: string): { label: string; className: string } {
+  const diff = new Date(iso).getTime() - Date.now() // positive = future
+  const absMins = Math.floor(Math.abs(diff) / 60_000)
+  const absHrs = Math.floor(absMins / 60)
+  const absDays = Math.floor(absHrs / 24)
+
+  if (diff < 0) {
+    const label =
+      absMins < 60
+        ? `${absMins}m overdue`
+        : absHrs < 24
+          ? `${absHrs}h overdue`
+          : `${absDays}d overdue`
+    return { label, className: 'text-red-600 font-medium' }
+  }
+  if (diff < 24 * 60 * 60 * 1000) {
+    const label = absHrs < 1 ? `Due in ${absMins}m` : `Due in ${absHrs}h`
+    return { label, className: 'text-amber-600 font-medium' }
+  }
+  return {
+    label: `Due ${new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
+    className: 'text-muted-foreground',
+  }
+}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', {

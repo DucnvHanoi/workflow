@@ -988,6 +988,12 @@ function StepCard({
               Completed {formatRelative(stepInstance.completed_at)}
             </p>
           )}
+          {stepInstance?.due_at &&
+            stepInstance.status === 'pending' &&
+            (() => {
+              const { label, className } = formatDue(stepInstance.due_at)
+              return <p className={`mt-0.5 text-xs ${className}`}>{label}</p>
+            })()}
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
@@ -1097,6 +1103,30 @@ function formatExact(iso: string) {
     second: '2-digit',
     hour12: true,
   })
+}
+
+function formatDue(iso: string): { label: string; className: string } {
+  const diff = new Date(iso).getTime() - Date.now()
+  const absMins = Math.floor(Math.abs(diff) / 60_000)
+  const absHrs = Math.floor(absMins / 60)
+  const absDays = Math.floor(absHrs / 24)
+  if (diff < 0) {
+    const label =
+      absMins < 60
+        ? `${absMins}m overdue`
+        : absHrs < 24
+          ? `${absHrs}h overdue`
+          : `${absDays}d overdue`
+    return { label, className: 'text-red-600 font-medium' }
+  }
+  if (diff < 24 * 60 * 60 * 1000) {
+    const label = absHrs < 1 ? `Due in ${absMins}m` : `Due in ${absHrs}h`
+    return { label, className: 'text-amber-600 font-medium' }
+  }
+  return {
+    label: `Due ${new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
+    className: 'text-muted-foreground',
+  }
 }
 
 function formatRelative(iso: string) {

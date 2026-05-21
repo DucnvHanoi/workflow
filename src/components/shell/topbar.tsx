@@ -1,13 +1,16 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { Badge } from '@/components/ui/badge'
+import { NotificationBell } from './NotificationBell'
+import type { NotificationItem } from '@/lib/notifications/actions'
 
 interface TopbarProps {
+  userId: string
   userEmail: string
   tenantId: string
   role: string
 }
 
-// Get initials from email (fallback) or full name
 function getInitials(email: string): string {
   const local = email.split('@')[0]
   const parts = local.split(/[._-]/)
@@ -17,11 +20,11 @@ function getInitials(email: string): string {
   return local.slice(0, 2).toUpperCase()
 }
 
-export async function Topbar({ userEmail, tenantId, role }: TopbarProps) {
-  // Fetch tenant name and user full_name server-side
+export async function Topbar({ userId, userEmail, tenantId, role }: TopbarProps) {
   const supabase = createClient()
+  const adminDb = createAdminClient()
 
-  const [{ data: tenant }, { data: userProfile }] = await Promise.all([
+  const [{ data: tenant }, { data: userProfile }, { data: notifRows }] = await Promise.all([
     supabase.from('tenants').select('name').eq('id', tenantId).maybeSingle(),
     supabase
       .from('users')
@@ -29,6 +32,13 @@ export async function Topbar({ userEmail, tenantId, role }: TopbarProps) {
       .eq('tenant_id', tenantId)
       .eq('email', userEmail)
       .maybeSingle(),
+    adminDb
+      .from('notifications')
+      .select('id, type, title, body, link, read_at, created_at')
+      .eq('user_id', userId)
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .limit(20),
   ])
 
   const tenantName = tenant?.name ?? 'Workspace'
@@ -42,20 +52,24 @@ export async function Topbar({ userEmail, tenantId, role }: TopbarProps) {
         .slice(0, 2)
     : getInitials(userEmail)
 
+  const initialNotifications = (notifRows ?? []) as NotificationItem[]
+
   return (
-    <header className="flex items-center justify-between h-14 px-6 border-b bg-card shrink-0">
+    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-6">
       {/* Tenant name */}
       <span className="text-sm font-medium text-foreground">{tenantName}</span>
 
-      {/* Right side: role badge + avatar */}
+      {/* Right side: notification bell + role badge + avatar */}
       <div className="flex items-center gap-3">
+        <NotificationBell userId={userId} initialNotifications={initialNotifications} />
+
         {role === 'admin' && (
           <Badge variant="secondary" className="text-xs">
             Admin
           </Badge>
         )}
         <div
-          className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground text-xs font-semibold select-none"
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground select-none"
           title={fullName ?? userEmail}
         >
           {initials}

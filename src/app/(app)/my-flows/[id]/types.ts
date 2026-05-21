@@ -14,6 +14,7 @@ export type StepInstanceRow = {
   status: 'pending' | 'completed' | 'skipped'
   completed_at: string | null
   created_at: string
+  due_at: string | null
   assignee_name: string | null
 }
 

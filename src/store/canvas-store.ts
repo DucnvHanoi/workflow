@@ -60,6 +60,7 @@ export interface NodeData {
   formSchema: FormField[]
   assigneeRule: AssigneeRule
   branchConditions: BranchCondition[]
+  slaHours?: number // optional SLA; runtime computes due_at = now() + slaHours
   [key: string]: unknown // required by React Flow's NodeData constraint
 }
 

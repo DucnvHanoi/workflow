@@ -92,7 +92,8 @@ async function getInstanceDetail(
       form_data,
       status,
       completed_at,
-      created_at
+      created_at,
+      due_at
     `
     )
     .eq('instance_id', instanceId)
@@ -129,9 +130,11 @@ async function getInstanceDetail(
       status: string
       completed_at: string | null
       created_at: string
+      due_at: string | null
     }) => ({
       ...s,
       status: s.status as StepInstanceRow['status'],
+      due_at: s.due_at ?? null,
       assignee_name: s.assigned_to ? (assigneeMap[s.assigned_to] ?? null) : null,
     })
   )
