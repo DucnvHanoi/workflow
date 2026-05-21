@@ -20,6 +20,10 @@ vi.mock('@/lib/email/resend', () => ({
   sendCompletionEmail: vi.fn(),
 }))
 
+vi.mock('@/lib/notifications/create', () => ({
+  createNotification: vi.fn(),
+}))
+
 import {
   saveDraftVersion,
   updateDraftGraph,

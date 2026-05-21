@@ -10,6 +10,7 @@ import type { SerializedGraph } from '@/lib/flows/graph'
 import type { FormField, BranchCondition } from '@/store/canvas-store'
 import { sendAssignmentEmail } from '@/lib/email/resend'
 import { logAuditEvent } from '@/lib/audit/log'
+import { createNotification } from '@/lib/notifications/create'
 
 export type FlowListItem = {
   id: string
@@ -155,6 +156,13 @@ async function assertFlowInTenant(
   if (error) return { ok: false, error: error.message }
   if (!data) return { ok: false, error: 'Flow not found or access denied' }
   return { ok: true }
+}
+
+// ── SLA helper ────────────────────────────────────────────────────────────────
+// Returns an ISO due_at timestamp or null when the node has no SLA configured.
+function computeDueAt(slaHours: number | undefined | null): string | null {
+  if (!slaHours || slaHours <= 0) return null
+  return new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString()
 }
 
 // ── NEW: internal helper to write an event log row ──────────────────────────
@@ -765,6 +773,7 @@ export async function triggerFlow(
       assigned_to: assignedTo,
       form_data: {},
       status: 'pending',
+      due_at: computeDueAt(firstNode.data?.slaHours as number | undefined),
     })
     .select('id')
     .single()
@@ -793,6 +802,17 @@ export async function triggerFlow(
     description: `"${stepLabel}" assigned to ${assigneeName}.`,
     metadata: { stepId: firstNode.id, assignedTo, assigneeRule },
   })
+
+  if (assignedTo) {
+    void createNotification({
+      tenantId,
+      userId: assignedTo,
+      type: 'step_assigned',
+      title: `New task: ${stepLabel}`,
+      body: `You've been assigned a step. Open My Tasks to complete it.`,
+      link: '/tasks',
+    })
+  }
 
   return { instanceId: instance.id, error: null }
 }
@@ -1145,6 +1165,15 @@ async function advanceFlow(
       eventType: 'flow_completed',
       description: 'Flow completed (no further steps).',
     })
+
+    void createNotification({
+      tenantId,
+      userId: triggeredByUserId,
+      type: 'flow_completed',
+      title: 'Flow completed',
+      body: 'A flow you started has completed successfully.',
+      link: `/my-flows/${instanceId}`,
+    })
     return
   }
 
@@ -1283,6 +1312,15 @@ async function advanceFlow(
       eventType: 'flow_completed',
       description: 'Flow completed successfully.',
     })
+
+    void createNotification({
+      tenantId,
+      userId: triggeredByUserId,
+      type: 'flow_completed',
+      title: 'Flow completed',
+      body: 'A flow you started has completed successfully.',
+      link: `/my-flows/${instanceId}`,
+    })
     return
   }
 
@@ -1329,6 +1367,7 @@ async function advanceFlow(
       assigned_to: assignedTo,
       form_data: {},
       status: 'pending',
+      due_at: computeDueAt(nextNode.data?.slaHours as number | undefined),
     })
     .select('id')
     .single()
@@ -1356,6 +1395,17 @@ async function advanceFlow(
     description: `"${nextStepLabel}" assigned to ${assigneeName}.`,
     metadata: { stepId: nextNode.id, assignedTo, assigneeRule },
   })
+
+  if (assignedTo) {
+    void createNotification({
+      tenantId,
+      userId: assignedTo,
+      type: 'step_assigned',
+      title: `New task: ${nextStepLabel}`,
+      body: `You've been assigned a step. Open My Tasks to complete it.`,
+      link: '/tasks',
+    })
+  }
 }
 
 // ── NEW: getFlowTimeline ──────────────────────────────────────────────────────
@@ -1496,6 +1546,7 @@ export type TaskListItem = {
   tenantId: string // needed for storage path construction
   assignedTo: string | null
   createdAt: string
+  dueAt: string | null
   stepLabel: string
   flowName: string
   formSchema: FormField[]
@@ -1523,6 +1574,7 @@ export async function getMyTasks(): Promise<{
       instance_id,
       assigned_to,
       created_at,
+      due_at,
       flow_instances!instance_id (
         id,
         status,
@@ -1579,6 +1631,7 @@ export async function getMyTasks(): Promise<{
       tenantId,
       assignedTo: row.assigned_to,
       createdAt: row.created_at,
+      dueAt: (row as unknown as { due_at: string | null }).due_at ?? null,
       stepLabel,
       flowName: fl.name ?? 'Unknown flow',
       formSchema,
@@ -2325,6 +2378,7 @@ export type StepInstanceRow = {
   status: 'pending' | 'completed' | 'skipped'
   completed_at: string | null
   created_at: string
+  due_at: string | null
   assignee_name: string | null
 }
 
@@ -2417,7 +2471,7 @@ export async function getInstanceDetailForPanel(instanceId: string): Promise<{
   // ── 3. Fetch all step instances ───────────────────────────────────────────
   const { data: stepRows } = await db
     .from('step_instances')
-    .select('id, step_id, assigned_to, form_data, status, completed_at, created_at')
+    .select('id, step_id, assigned_to, form_data, status, completed_at, created_at, due_at')
     .eq('instance_id', instanceId)
     .order('created_at', { ascending: true })
 
@@ -2453,9 +2507,11 @@ export async function getInstanceDetailForPanel(instanceId: string): Promise<{
       status: string
       completed_at: string | null
       created_at: string
+      due_at: string | null
     }) => ({
       ...s,
       status: s.status as StepInstanceRow['status'],
+      due_at: s.due_at ?? null,
       assignee_name: s.assigned_to ? (assigneeMap[s.assigned_to] ?? null) : null,
     })
   )

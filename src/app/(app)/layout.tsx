@@ -14,6 +14,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Sidebar role={claims.role ?? ''} />
       <div className="flex flex-col flex-1 min-w-0">
         <Topbar
+          userId={user.id}
           userEmail={user.email ?? ''}
           tenantId={claims.tenant_id ?? ''}
           role={claims.role ?? ''}

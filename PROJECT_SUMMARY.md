@@ -1,4 +1,4 @@
-WORKFLOW SAAS — COMPLETE PROJECT KNOWLEDGE SUMMARYSolo Developer Build Log & Architecture Baseline Last Updated: Day 42 Completed (Phase 4 ✅ complete — QA, canvas position-save polish, tenant-isolation fix)1. PROJECT STACK & ENVIRONMENTCore TechnologiesFramework: Next.js 14.2.29 (App Router, TypeScript)UI Elements: shadcn/ui 2.3.0 + Tailwind CSS v3Database: Supabase (Postgres) — Region: Singapore (ap-southeast-1)Authentication: Supabase Auth (Email/Password + Google OAuth)Hosting: Vercel (connected to GitHub master branch with auto-deploys on push)Runtime Environment: Node.js v24.15.0Key Packages@supabase/ssr@0.6.1 & @supabase/supabase-js@2.49.4 (Supabase connectivity)@xyflow/react@12.3.6 (React Flow canvas rendering engine)zustand@4.5.7 (Lightweight client state for the React Flow canvas)@tanstack/react-table@8.21.3 (Dynamic tabular rendering)@dnd-kit/core@6.3.1, @dnd-kit/sortable@8.0.0, @dnd-kit/utilities@3.2.2 (Form field sorting)sonner@2.0.7 (Toasts) & lucide-react@1.11.0 (Icons)resend@4.0.0 (Email engine)Environment Variables (.env.local)NEXT*PUBLIC_SUPABASE_URL=your-supabase-url
+WORKFLOW SAAS — COMPLETE PROJECT KNOWLEDGE SUMMARYSolo Developer Build Log & Architecture Baseline Last Updated: Phase 5 Day 2 Completed (Milestone 4 ✅ — In-app notification center; Milestone 2+3 parked pending domain)1. PROJECT STACK & ENVIRONMENTCore TechnologiesFramework: Next.js 14.2.29 (App Router, TypeScript)UI Elements: shadcn/ui 2.3.0 + Tailwind CSS v3Database: Supabase (Postgres) — Region: Singapore (ap-southeast-1)Authentication: Supabase Auth (Email/Password + Google OAuth)Hosting: Vercel (connected to GitHub master branch with auto-deploys on push)Runtime Environment: Node.js v24.15.0Key Packages@supabase/ssr@0.6.1 & @supabase/supabase-js@2.49.4 (Supabase connectivity)@xyflow/react@12.3.6 (React Flow canvas rendering engine)zustand@4.5.7 (Lightweight client state for the React Flow canvas)@tanstack/react-table@8.21.3 (Dynamic tabular rendering)@dnd-kit/core@6.3.1, @dnd-kit/sortable@8.0.0, @dnd-kit/utilities@3.2.2 (Form field sorting)sonner@2.0.7 (Toasts) & lucide-react@1.11.0 (Icons)resend@4.0.0 (Email engine)Environment Variables (.env.local)NEXT*PUBLIC_SUPABASE_URL=your-supabase-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key # Keep secure, never expose to client
 NEXT_PUBLIC_SITE_URL=your-site-url
@@ -92,11 +92,12 @@ NOTE — vitest .env / Resend: actions.ts transitively imports the email module,
 10. PHASE 5 — OPERATIONAL RELIABILITY: SLAs, ESCALATIONS & NOTIFICATIONS (ROADMAP)
     Theme: flows must not stall silently. This phase closes the loop on the bottleneck/aging data the Day 39 dashboard already surfaces — adding deadlines, proactive reminders, automatic escalation, and an in-app notification center. Builds on existing primitives: notification_logs (email dispatch log), flow_event_logs, audit_log + logAuditEvent(), the resolve-assignee edge function (manager resolution), and the dashboard's "oldest pending age" logic.
 
-Milestone 1 — Step due dates / SLA config
+Milestone 1 — Step due dates / SLA config ✅ COMPLETE (Phase 5, Day 1)
 
-- Builder: add an optional "Due within N hours/days" control to StepConfigPanel; persist as slaHours on NodeData (lives in the graph JSONB — no schema change for the config itself).
-- Runtime: when a step_instance is created in advanceFlow, compute due_at = now() + slaHours. Migration: add nullable due_at (timestamptz) to step_instances + index.
-- Surface due_at in the task views (Pending tab) and instance detail.
+- Builder: optional "Due within N hours/days" control in StepConfigPanel for action and branch nodes; persisted as slaHours on NodeData (graph JSONB — no extra DB column for config).
+- Runtime: computeDueAt() in actions.ts sets due_at = now() + slaHours at both step_instance creation points (triggerFlow first step + advanceFlow subsequent steps).
+- Migration 20260521130000_add_sla_to_step_instances.sql: nullable due_at (timestamptz) + partial index on step_instances; audit_log.action CHECK extended with 'step_escalated'.
+- Surface: due date badge in Pending Tasks tab and instance detail step cards (colour-coded: red overdue / amber ≤24h / muted otherwise; hidden once step completes).
 
 Milestone 2 — Reminder & digest emails
 
@@ -109,11 +110,12 @@ Milestone 3 — Overdue escalation
 - When a step is overdue past a threshold, escalate to the assignee's manager (reuse resolve-assignee / users.manager_id). Policy configurable per step (escalate after N hours overdue) or a tenant default.
 - Record as audit_log action 'step_escalated' (migration: extend the action CHECK set) and a flow_event_logs entry. Reuse logAuditEvent().
 
-Milestone 4 — In-app notification center
+Milestone 4 — In-app notification center ✅ COMPLETE (Phase 5, Day 2)
 
-- Migration: notifications table (id, tenant_id, user_id, type, title, body, link, read_at, created_at) + tenant/user RLS via the app_metadata path.
-- Shell nav: a notification bell with unread count; Supabase Realtime subscription for live updates; mark-as-read + a "view all" page.
-- Emit notifications on step_assigned, sla_reminder, escalation, flow_completed.
+- Migration: notifications table + tenant/user RLS + Supabase Realtime publication.
+- Emitters: step_assigned (triggerFlow + advanceFlow) and flow_completed (both paths in advanceFlow) wired via fire-and-forget createNotification() helper.
+- Bell: NotificationBell client component in Topbar — unread count badge, dropdown with last 20, mark-as-read on click, mark-all-read button, Realtime subscription for live updates.
+- Page: /notifications — full list (last 50), mark individual / mark-all-read, type badges.
 
 Milestone 5 — Dashboard SLA surfacing
 
@@ -124,3 +126,33 @@ Cross-cutting notes
 - Timezones: store due_at in UTC; render in the viewer's locale. Decide whether SLA hours are calendar hours or business hours (start with calendar hours).
 - Tenant isolation: every new table/route must follow the app_metadata RLS path and the service-role-write pattern; extend GET /api/test/tenant-isolation to cover notifications (and any new tables).
 - Idempotency: the cron path must be safe to run repeatedly without duplicate emails/escalations.
+
+11. PHASE 5 DAY 1 — SLA CONFIG (COMPLETED)
+    `npm run build` passes clean (21 routes). Test suite: 41 passing, 2 pre-existing category-actions failures unchanged.
+
+Migration 20260521130000_add_sla_to_step_instances.sql: adds nullable due_at (timestamptz) to step_instances with a partial index (WHERE due_at IS NOT NULL) for efficient cron scanning. Extends audit_log.action CHECK to include 'step_escalated' ahead of Milestone 3 (requires DROP + re-ADD constraint in Postgres).
+
+Flow Builder — StepConfigPanel.tsx: "Due within" field added for action AND branch nodes (both are human-assigned and have form fields). Stores slaHours (always in hours) on NodeData in the graph JSONB. Unit selector converts for display via deriveSlaDisplay(): hours divisible by 24 round-trip as days. Clearing the number field removes slaHours from NodeData entirely. triggerSave() called on every change so it persists like label/description edits.
+
+Runtime — actions.ts: computeDueAt(slaHours) helper = now() + slaHours×3600s, returns null when unset. Wired into both step_instance creation sites: triggerFlow (first step after trigger node) and advanceFlow (each subsequent step). Both calls now pass due_at to the DB insert.
+
+Data model: TaskListItem.dueAt added; StepInstanceRow.due_at added in both actions.ts (used by tasks panel) and my-flows/[id]/types.ts (used by full instance detail page). All DB selects and row-mapping functions updated: getMyTasks, getInstanceDetailForPanel, my-flows/[id]/page.tsx.
+
+UI: formatDue() helper added to tasks-client.tsx and instance-detail-client.tsx. Colour rules: diff < 0 → red "Xm/h/d overdue"; diff < 24h → amber "Due in Xh/m"; else → muted "Due DD Mon". PendingTaskCard renders it below the created-at line. Step cards in instance detail show it only while status = 'pending' (hidden once completed_at is set).
+
+12. PHASE 5 DAY 2 — IN-APP NOTIFICATION CENTER (COMPLETED)
+    Milestone 2 (reminder emails) and Milestone 3 (escalation emails) parked — Resend requires a verified domain to send to arbitrary recipients; will revisit once domain is set up. Jumped to Milestone 4 instead (no email dependency).
+
+`npm run build` passes clean (22 routes — /notifications added). Test suite: 41 passing, 2 pre-existing category-actions failures unchanged.
+
+Migration 20260521140000_add_notifications.sql: notifications table with tenant_id, user_id, type (CHECK: step_assigned|flow_completed|sla_reminder|step_escalated), title, body, link, read_at, created_at. Two indexes: (user_id, created_at DESC) for feed queries; partial (user_id WHERE read_at IS NULL) for unread count. RLS SELECT + UPDATE policies for own rows only (auth.uid() + app_metadata tenant check). ALTER PUBLICATION supabase_realtime ADD TABLE notifications enables live push.
+
+src/lib/notifications/create.ts: createNotification() — admin client insert, non-fatal try/catch, fire-and-forget safe. Called with void from actions.ts in three places: step_assigned in triggerFlow, step_assigned in advanceFlow, flow_completed (both advanceFlow paths). Vitest mock added for @/lib/notifications/create to keep the test suite clean.
+
+src/lib/notifications/actions.ts: getNotifications(limit), markNotificationRead(id), markAllNotificationsRead() — all use admin client + getSessionClaims() auth gate + explicit user_id/tenant_id filter for safety.
+
+NotificationBell.tsx (src/components/shell/): client component, receives userId + initialNotifications (fetched server-side in Topbar). Supabase Realtime channel subscribed on INSERT and UPDATE for user_id=eq.{userId}. Unread count badge (red, capped at 9+). DropdownMenu with 20-item scrollable list — unread rows have blue tint + blue dot. Click → markNotificationRead + router.push(link). "Mark all read" button. "View all notifications →" footer link.
+
+Topbar.tsx updated: accepts userId prop; fetches initialNotifications server-side (alongside existing tenant/profile queries); renders NotificationBell between brand and avatar. layout.tsx updated to pass user.id to Topbar.
+
+/notifications page: server page (getNotifications(50)) + NotificationsClient: full list with type badges (📋✅⏰⚠️), individual "Mark read" + "View →" links, "Mark all read" button, empty-state illustration.

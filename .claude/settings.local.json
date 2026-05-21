@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(curl -s -i http://localhost:3001/api/test/tenant-isolation)",
+      "Bash(node *)",
+      "Bash(npx vitest *)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(git push *)",
+      "Bash(echo \"=== warnings: $\\(npm run lint 2>&1)",
+      "Bash(git add *)",
+      "Bash(git reset *)",
+      "Bash(git commit -m ' *)",
+      "Bash(Get-ChildItem *)",
+      "Bash(npx supabase *)",
+      "Bash(npx wait-on *)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":3000\")",
+      "Bash(taskkill /PID 23588 /F)",
+      "Bash(Start-Sleep -Seconds 2)",
+      "PowerShell(Stop-Process *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "PowerShell(Start-Process -NoNewWindow -FilePath \"cmd.exe\" -ArgumentList \"/c\",\"npm run dev\")"
+    ]
+  }
+}

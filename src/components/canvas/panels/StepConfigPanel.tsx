@@ -19,31 +19,60 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
 
 export default function StepConfigPanel({ node }: Props) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData)
-  // FIX: read triggerSave from the store — called after every mutation so
-  // step name and description changes are persisted to the DB, not just
-  // kept in Zustand memory until the user happens to drag a node.
   const triggerSave = useCanvasStore((s) => s.triggerSave)
   const data = node.data as NodeData
 
   const [label, setLabel] = useState(data.label ?? '')
   const [description, setDescription] = useState(data.description ?? '')
+  const [slaValue, setSlaValue] = useState<number | ''>(() => deriveSlaDisplay(data.slaHours).value)
+  const [slaUnit, setSlaUnit] = useState<'hours' | 'days'>(
+    () => deriveSlaDisplay(data.slaHours).unit
+  )
 
   // Sync local state when a different node is selected
   useEffect(() => {
     setLabel(data.label ?? '')
     setDescription(data.description ?? '')
-  }, [node.id, data.label, data.description])
+    const { value, unit } = deriveSlaDisplay(data.slaHours)
+    setSlaValue(value)
+    setSlaUnit(unit)
+  }, [node.id, data.label, data.description, data.slaHours])
 
   const handleLabelChange = (value: string) => {
     setLabel(value)
     updateNodeData(node.id, { label: value })
-    triggerSave() // FIX: persist after every keystroke (debounced 300ms in store)
+    triggerSave()
   }
 
   const handleDescriptionChange = (value: string) => {
     setDescription(value)
     updateNodeData(node.id, { description: value })
-    triggerSave() // FIX: persist after every keystroke (debounced 300ms in store)
+    triggerSave()
+  }
+
+  const handleSlaValueChange = (raw: string) => {
+    if (raw === '') {
+      setSlaValue('')
+      updateNodeData(node.id, { slaHours: undefined })
+    } else {
+      const num = parseInt(raw, 10)
+      if (!isNaN(num) && num > 0) {
+        setSlaValue(num)
+        updateNodeData(node.id, { slaHours: num * (slaUnit === 'days' ? 24 : 1) })
+      } else {
+        setSlaValue('')
+        updateNodeData(node.id, { slaHours: undefined })
+      }
+    }
+    triggerSave()
+  }
+
+  const handleSlaUnitChange = (unit: 'hours' | 'days') => {
+    setSlaUnit(unit)
+    if (slaValue !== '') {
+      updateNodeData(node.id, { slaHours: (slaValue as number) * (unit === 'days' ? 24 : 1) })
+      triggerSave()
+    }
   }
 
   const typeInfo = TYPE_LABELS[node.type ?? ''] ?? {
@@ -88,6 +117,55 @@ export default function StepConfigPanel({ node }: Props) {
           className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         />
       </div>
+
+      {/* SLA — action and branch nodes (both have an assignee who must complete a form) */}
+      {(node.type === 'action' || node.type === 'branch') && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Due within
+            <span className="ml-1 font-normal normal-case text-muted-foreground/60">
+              (optional)
+            </span>
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              min={1}
+              value={slaValue}
+              onChange={(e) => handleSlaValueChange(e.target.value)}
+              placeholder="e.g. 48"
+              className="w-24 rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            />
+            <select
+              value={slaUnit}
+              onChange={(e) => handleSlaUnitChange(e.target.value as 'hours' | 'days')}
+              className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <option value="hours">hours</option>
+              <option value="days">days</option>
+            </select>
+          </div>
+          {slaValue !== '' && (
+            <p className="text-xs text-muted-foreground">
+              Assignee must complete within{' '}
+              <span className="font-medium">
+                {slaValue} {slaUnit}
+              </span>{' '}
+              of assignment.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
+}
+
+// Derive display value + unit from the stored slaHours number
+function deriveSlaDisplay(slaHours: number | undefined): {
+  value: number | ''
+  unit: 'hours' | 'days'
+} {
+  if (!slaHours || slaHours <= 0) return { value: '', unit: 'hours' }
+  if (slaHours % 24 === 0) return { value: slaHours / 24, unit: 'days' }
+  return { value: slaHours, unit: 'hours' }
 }
