@@ -1,4 +1,4 @@
-WORKFLOW SAAS — COMPLETE PROJECT KNOWLEDGE SUMMARYSolo Developer Build Log & Architecture Baseline Last Updated: Phase 5 Day 2 Completed (Milestone 4 ✅ — In-app notification center; Milestone 2+3 parked pending domain)1. PROJECT STACK & ENVIRONMENTCore TechnologiesFramework: Next.js 14.2.29 (App Router, TypeScript)UI Elements: shadcn/ui 2.3.0 + Tailwind CSS v3Database: Supabase (Postgres) — Region: Singapore (ap-southeast-1)Authentication: Supabase Auth (Email/Password + Google OAuth)Hosting: Vercel (connected to GitHub master branch with auto-deploys on push)Runtime Environment: Node.js v24.15.0Key Packages@supabase/ssr@0.6.1 & @supabase/supabase-js@2.49.4 (Supabase connectivity)@xyflow/react@12.3.6 (React Flow canvas rendering engine)zustand@4.5.7 (Lightweight client state for the React Flow canvas)@tanstack/react-table@8.21.3 (Dynamic tabular rendering)@dnd-kit/core@6.3.1, @dnd-kit/sortable@8.0.0, @dnd-kit/utilities@3.2.2 (Form field sorting)sonner@2.0.7 (Toasts) & lucide-react@1.11.0 (Icons)resend@4.0.0 (Email engine)Environment Variables (.env.local)NEXT*PUBLIC_SUPABASE_URL=your-supabase-url
+WORKFLOW SAAS — COMPLETE PROJECT KNOWLEDGE SUMMARYSolo Developer Build Log & Architecture Baseline Last Updated: Phase 6 Day 1 Completed (M1: User deactivation + M2: Bulk task reassignment)1. PROJECT STACK & ENVIRONMENTCore TechnologiesFramework: Next.js 14.2.29 (App Router, TypeScript)UI Elements: shadcn/ui 2.3.0 + Tailwind CSS v3Database: Supabase (Postgres) — Region: Singapore (ap-southeast-1)Authentication: Supabase Auth (Email/Password + Google OAuth)Hosting: Vercel (connected to GitHub master branch with auto-deploys on push)Runtime Environment: Node.js v24.15.0Key Packages@supabase/ssr@0.6.1 & @supabase/supabase-js@2.49.4 (Supabase connectivity)@xyflow/react@12.3.6 (React Flow canvas rendering engine)zustand@4.5.7 (Lightweight client state for the React Flow canvas)@tanstack/react-table@8.21.3 (Dynamic tabular rendering)@dnd-kit/core@6.3.1, @dnd-kit/sortable@8.0.0, @dnd-kit/utilities@3.2.2 (Form field sorting)sonner@2.0.7 (Toasts) & lucide-react@1.11.0 (Icons)resend@4.0.0 (Email engine)Environment Variables (.env.local)NEXT*PUBLIC_SUPABASE_URL=your-supabase-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key # Keep secure, never expose to client
 NEXT_PUBLIC_SITE_URL=your-site-url
@@ -117,9 +117,9 @@ Milestone 4 — In-app notification center ✅ COMPLETE (Phase 5, Day 2)
 - Bell: NotificationBell client component in Topbar — unread count badge, dropdown with last 20, mark-as-read on click, mark-all-read button, Realtime subscription for live updates.
 - Page: /notifications — full list (last 50), mark individual / mark-all-read, type badges.
 
-Milestone 5 — Dashboard SLA surfacing
+Milestone 5 — Dashboard SLA surfacing ✅ COMPLETE (Phase 5, Day 3)
 
-- Add "Due soon" / "SLA breached" columns to the dashboard stat cards + bottleneck table, color-coded like the existing aging alerts (amber/red thresholds).
+- "SLA Breached" and "Due Soon" stat cards added; "Overdue" and "Due Soon" columns added to the bottleneck table. Color-coded red/amber matching existing aging alerts.
 
 Cross-cutting notes
 
@@ -156,3 +156,63 @@ NotificationBell.tsx (src/components/shell/): client component, receives userId 
 Topbar.tsx updated: accepts userId prop; fetches initialNotifications server-side (alongside existing tenant/profile queries); renders NotificationBell between brand and avatar. layout.tsx updated to pass user.id to Topbar.
 
 /notifications page: server page (getNotifications(50)) + NotificationsClient: full list with type badges (📋✅⏰⚠️), individual "Mark read" + "View →" links, "Mark all read" button, empty-state illustration.
+
+13. PHASE 5 DAY 3 — DASHBOARD SLA SURFACING & ISOLATION TEST PATCH (COMPLETED)
+    Milestone 5 complete. `npm run build` passes clean (22 routes). Test suite unchanged.
+
+Milestone 5 — Dashboard SLA surfacing (dashboard/page.tsx):
+
+- Two new stat cards added: "SLA Breached" (red, AlertCircle icon) and "Due Soon" (amber, Clock icon). Stat card grid changed from xl:grid-cols-4 to xl:grid-cols-3 to accommodate 6 cards cleanly.
+- Counters totalOverdue and totalDueSoon declared alongside activePending/cancelledTotal (before the statCards array) and populated during the step_instances aggregation loop.
+- due_at added to the step_instances select query and RawPendingStep type.
+- Aggregation loop now computes isOverdue (due_at < now) and isDueSoon (0 < due_at - now < 24h) per step, incrementing both the tenant-wide counters and per-user overdueCount/dueSoonCount.
+- PendingUserRow type extended with overdueCount and dueSoonCount.
+- Bottleneck table ("Pending at Who") gets two new columns — "Overdue" (red when > 0) and "Due Soon" (amber when > 0); zero values render as "—" to reduce visual noise.
+
+Tenant isolation test patch (api/test/tenant-isolation/route.ts):
+
+- notifications added to directTenantTables (alongside users, departments, flows, audit_log). RLS is compound (auth.uid() = user_id AND tenant_id check), so querying tenant_id = TENANT_A_ID as Tenant B will return 0 rows. The existing "own-data not exercised" note now covers both audit_log and notifications when Tenant B has no rows.
+
+14. PHASE 6 DAY 1 — USER DEACTIVATION & BULK TASK REASSIGNMENT (COMPLETED)
+    Milestones 1 & 2 of Phase 6. `npm run build` passes clean (22 routes). Test suite unchanged.
+
+Migration 20260521150000_add_user_deactivation.sql: ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE to users + partial index (tenant_id, is_active). Extends audit_log.action CHECK to include 'user_deactivated', 'user_reactivated', 'tasks_bulk_reassigned' (DROP + re-ADD pattern).
+
+AuditAction type (src/lib/audit/log.ts): Extended with 'step_escalated' (missed from Phase 5), 'user_deactivated', 'user_reactivated', 'tasks_bulk_reassigned'.
+
+Server actions (src/app/(app)/users/actions.ts):
+
+- deactivateUser(targetUserId): bans via auth.admin.updateUserById({ ban_duration: '876000h' }) + sets is_active=false + logs audit. Blocks self-deactivation.
+- reactivateUser(targetUserId): unban via ban_duration='none' + sets is_active=true + logs audit.
+
+Server action (src/lib/flows/actions.ts):
+
+- bulkReassignTasks(fromUserId, toUserId): single UPDATE step_instances SET assigned_to=toUserId WHERE assigned_to=fromUserId AND status='pending'. Verifies toUser is active. Fires createNotification() to new assignee. Logs 'tasks_bulk_reassigned' audit entry with count. Revalidates /users, /tasks, /dashboard.
+- getTenantUsers(): now filters .eq('is_active', true) so inactive users never appear as reassignment targets.
+
+UI changes:
+
+- UserRow type (users-table.tsx): is_active field added. Deactivated rows rendered at opacity-60 with "Inactive" badge. Avatar bg switches to muted for deactivated users.
+- UserActions (user-actions.tsx): "Deactivate User" menu item (active users, not self) / "Reactivate User" (inactive users). Delegates to DeactivateUserDialog.
+- DeactivateUserDialog (new): confirm dialog handles both deactivate and reactivate in one component, toggling text/style based on user.is_active.
+- BulkReassignDialog (new): user picker (active users only, excludes self) + "Reassign N tasks" CTA. Calls bulkReassignTasks().
+- UserProfileActions (new client component): shown on /users/[id]. Shows "Reassign N pending tasks" button (when count > 0) and "Deactivate"/"Reactivate" button (not shown for self).
+- users/[id]/page.tsx: now fetches is_active, pending task count, and active users list. Renders amber "Inactive" banner and UserProfileActions.
+- users/page.tsx: is_active included in query. allUsers prop filtered to active-only (for manager dropdown).
+
+Resolve-assignee edge function (supabase/functions/resolve-assignee/index.ts): .eq('is_active', true) added to ALL user lookups: department head walk, resolveRequester, resolveFixed, resolveManagerOfRequestor (manager query), resolveSkipLevel (both manager and skip-level queries), resolveRoleInDept. Inactive users are treated as missing — rule fails with a descriptive error rather than routing to a banned account.
+
+KNOWN GOTCHA — ban_duration: '876000h' (~100 years) is used for effective permanent bans. 'none' lifts the ban. This uses Supabase's Go duration string format. Do not use 'indefinite' — it is not a valid value.
+
+15. PHASE 6 DAY 1 — QA & BUG FIXES (COMPLETED)
+    Manual QA of Phase 6 Day 1 features revealed three bugs; all fixed. `npm run lint` passes clean.
+
+Bug 1 — /users blank list after migration: The migration (20260521150000_add_user_deactivation.sql) had not been applied to the database. users/page.tsx selects is_active; PostgREST returned an error (column not found), which was silently swallowed (console.error + fallback to []). Fix: run the migration. Root cause documented.
+
+Bug 2 — /users/[id] profile page redirecting silently to /users: getUserWithChain used departments(name) without the explicit FK hint required by the ambiguous users↔departments dual-FK relationship. PostgREST returned an ambiguous relationship error, data came back null, and the page hit redirect('/users'). The user experienced this as "nothing happens when clicking a user." Fix: changed to departments!department_id ( name ) matching the pattern used in users/page.tsx.
+
+Bug 3 — Assignee resolution failure showed "Unassigned" with no explanation: When resolve-assignee returns { assigned_to_user_id: null, error: "..." } (e.g. fixed assignee is deactivated), triggerFlow and advanceFlow only checked assigned_to_user_id and silently discarded result.error. The step was created with assigned_to = null and the event log said "assigned to Unassigned." Fix: both call sites now capture assigneeError; if set, writeEventLog is called with eventType: 'flow_error' and description: '"Step" could not be assigned: <edge function error message>'. Metadata also records assigneeError for debugging.
+
+Resolve-assignee edge function redeployed to Supabase (npx supabase functions deploy) to activate the is_active filters added in Day 1 code.
+
+KNOWN TEST SCENARIO — Bulk Reassign button (Test 3): The "Reassign N pending tasks" button on /users/[id] only renders when pendingCount > 0. To test: trigger a flow that assigns a step to User A first, then deactivate User A, then visit their profile. The button appears because the pending step_instance remains assigned to them after deactivation.

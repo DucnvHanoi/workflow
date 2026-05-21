@@ -146,6 +146,101 @@ export async function updateUserProfile(
 
 // ─── NEW: Update department ───────────────────────────────────────────────────
 
+// ─── NEW: Deactivate user ─────────────────────────────────────────────────────
+
+export async function deactivateUser(targetUserId: string) {
+  const { user, claims } = await getSessionClaims()
+  if (!user || claims.role !== 'admin') throw new Error('Unauthorized')
+  if (user.id === targetUserId) throw new Error('You cannot deactivate yourself')
+
+  const adminClient = createAdminClient()
+
+  const { data: target } = await adminClient
+    .from('users')
+    .select('full_name, email, is_active')
+    .eq('id', targetUserId)
+    .eq('tenant_id', claims.tenant_id)
+    .maybeSingle()
+
+  if (!target) throw new Error('User not found')
+  if (target.is_active === false) throw new Error('User is already deactivated')
+
+  // Ban in Supabase Auth (~100 year duration = effectively permanent)
+  const { error: banError } = await adminClient.auth.admin.updateUserById(targetUserId, {
+    ban_duration: '876000h',
+  })
+  if (banError) throw new Error('Failed to ban user: ' + banError.message)
+
+  const { error } = await adminClient
+    .from('users')
+    .update({ is_active: false })
+    .eq('id', targetUserId)
+    .eq('tenant_id', claims.tenant_id)
+  if (error) throw new Error('Failed to deactivate user')
+
+  const targetName = target.full_name ?? target.email
+  await logAuditEvent(adminClient, {
+    tenantId: claims.tenant_id!,
+    actorId: user.id,
+    action: 'user_deactivated',
+    targetType: 'user',
+    targetId: targetUserId,
+    targetLabel: targetName,
+    description: `Deactivated user ${targetName}`,
+  })
+
+  revalidatePath('/users')
+  revalidatePath(`/users/${targetUserId}`)
+}
+
+// ─── NEW: Reactivate user ─────────────────────────────────────────────────────
+
+export async function reactivateUser(targetUserId: string) {
+  const { user, claims } = await getSessionClaims()
+  if (!user || claims.role !== 'admin') throw new Error('Unauthorized')
+
+  const adminClient = createAdminClient()
+
+  const { data: target } = await adminClient
+    .from('users')
+    .select('full_name, email, is_active')
+    .eq('id', targetUserId)
+    .eq('tenant_id', claims.tenant_id)
+    .maybeSingle()
+
+  if (!target) throw new Error('User not found')
+  if (target.is_active === true) throw new Error('User is already active')
+
+  // Lift the Supabase Auth ban
+  const { error: unbanError } = await adminClient.auth.admin.updateUserById(targetUserId, {
+    ban_duration: 'none',
+  })
+  if (unbanError) throw new Error('Failed to unban user: ' + unbanError.message)
+
+  const { error } = await adminClient
+    .from('users')
+    .update({ is_active: true })
+    .eq('id', targetUserId)
+    .eq('tenant_id', claims.tenant_id)
+  if (error) throw new Error('Failed to reactivate user')
+
+  const targetName = target.full_name ?? target.email
+  await logAuditEvent(adminClient, {
+    tenantId: claims.tenant_id!,
+    actorId: user.id,
+    action: 'user_reactivated',
+    targetType: 'user',
+    targetId: targetUserId,
+    targetLabel: targetName,
+    description: `Reactivated user ${targetName}`,
+  })
+
+  revalidatePath('/users')
+  revalidatePath(`/users/${targetUserId}`)
+}
+
+// ─── NEW: Update department ───────────────────────────────────────────────────
+
 export async function updateUserDepartment(targetUserId: string, departmentId: string | null) {
   const { user, claims } = await getSessionClaims()
   if (!user || claims.role !== 'admin') throw new Error('Unauthorized')

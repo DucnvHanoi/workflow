@@ -141,7 +141,7 @@ export async function GET() {
 
   // ── Tables with a direct tenant_id column ──────────────────────────────────
   // audit_log included: ACE Corp owns audit rows that must stay hidden from B.
-  const directTenantTables = ['users', 'departments', 'flows', 'audit_log']
+  const directTenantTables = ['users', 'departments', 'flows', 'audit_log', 'notifications']
 
   for (const table of directTenantTables) {
     try {
@@ -176,10 +176,10 @@ export async function GET() {
         tenantBRowsVisible: tenantBCount,
         ownDataAccessible: tenantBCount > 0,
         isolated: tenantACount === 0,
-        // Sun Corp has no audit rows of its own — own-data access is untestable here, not a failure.
+        // Sun Corp may have no rows in audit_log/notifications — not a failure.
         note:
-          table === 'audit_log' && tenantBCount === 0
-            ? 'Tenant B owns no audit_log rows; own-data access not exercised.'
+          (table === 'audit_log' || table === 'notifications') && tenantBCount === 0
+            ? `Tenant B owns no ${table} rows; own-data access not exercised.`
             : undefined,
       })
     } catch (e) {
