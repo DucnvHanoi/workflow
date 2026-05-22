@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { getNavItems } from './nav-items'
-import { SignOutButton } from './sign-out-button'
 import { cn } from '@/lib/utils'
 import { Workflow } from 'lucide-react'
 
@@ -49,11 +48,6 @@ export function Sidebar({ role }: SidebarProps) {
           )
         })}
       </nav>
-
-      {/* Sign out at bottom */}
-      <div className="px-2 py-3 border-t shrink-0">
-        <SignOutButton />
-      </div>
     </aside>
   )
 }

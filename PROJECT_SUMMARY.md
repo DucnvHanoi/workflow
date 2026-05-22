@@ -238,3 +238,19 @@ KNOWN GOTCHA — Array.from vs Set spread: cron route uses Array.from(new Set(..
 
 M5 — User self-service profile page:
 New route /settings (24th route) accessible to all authenticated roles — not in ADMIN_ONLY_ROUTES so middleware lets any logged-in user through. Server page src/app/(app)/settings/page.tsx fetches own users row (full_name, email) via read-only createClient(). Client form settings-form.tsx: email field shown read-only (no self-serve email change), full_name editable, save button disabled until value differs from initial. Server action updateOwnFullName() in src/app/(app)/settings/actions.ts: getSessionClaims() auth gate (no admin check), trims + validates name length, updates own row only via adminClient with .eq('id', user.id) + .eq('tenant_id', claims.tenant_id) double-guard. Avatar in Topbar replaced: static div → AvatarDropdown client component (src/components/shell/AvatarDropdown.tsx) using shadcn DropdownMenu; shows display name + email in header, Settings link (router.push('/settings')), Sign out (reuses createBrowserClient signOut pattern from SignOutButton). SignOutButton standalone component is still available but no longer used by Topbar.
+
+18. PHASE 6 POST-DAY-2 — INVITE EMAIL QA & FORM FIX (COMPLETED)
+
+Verified custom domain email delivery (noreply@bizflow.id.vn):
+.env.local updated to RESEND_FROM_EMAIL=noreply@bizflow.id.vn (verified domain on Resend). No code change was required — resend.ts already reads const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev' at module load. The env-var swap was the only needed change. End-to-end verification via scripts/verify-invite.mjs confirmed Resend accepted the message with status=sent and a real resend_id, logged correctly to notification_logs with email_type='invite'.
+
+Bug fix — InviteForm always showed success toast:
+src/components/auth/invite-form.tsx was wrapping inviteUser() in a try/catch. Since Next.js server actions return discriminated union results ({ success: true } | { success: false, error: string }) rather than throwing, the catch block never fired — every call appeared to succeed even when the action returned { success: false }. Fixed by removing the try/catch and checking result.success directly, calling toast.error(result.error) on failure. Duplicate-invite attempts now correctly show the "A user with this email already exists." error toast instead of a false success.
+
+Code hygiene — resend.ts comment removal:
+Removed a stale multi-line comment on the FROM_EMAIL line that referenced onboarding@resend.dev as a production fallback; the single const line is self-documenting.
+
+PENDING — Production environment variables to add in Vercel:
+
+- RESEND_FROM_EMAIL=noreply@bizflow.id.vn (invite + notification emails use verified domain)
+- CRON_SECRET=<secret from .env.local> (required for GET /api/cron/sla to accept Vercel's cron trigger)

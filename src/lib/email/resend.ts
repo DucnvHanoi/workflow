@@ -39,10 +39,6 @@ import {
 // RESEND_API_KEY must be set in .env.local and in Vercel environment variables.
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-// The "from" address.
-// During dev/testing: use "onboarding@resend.dev" (Resend's shared sender —
-//   emails go to your own verified address only, no custom domain needed).
-// In production: use "noreply@yourdomain.com" after domain is verified in Resend.
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
 
 // ---------------------------------------------------------------------------
