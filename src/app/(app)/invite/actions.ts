@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { sendInviteEmail } from '@/lib/email/resend'
 
 type InviteResult = { success: true; email: string } | { success: false; error: string }
 
@@ -21,8 +22,13 @@ export async function inviteUser(email: string, role: 'admin' | 'user'): Promise
     return { success: false, error: 'A user with this email already exists.' }
   }
 
-  // Use admin client to generate invite link
   const adminClient = createAdminClient()
+
+  // Fetch inviter name + tenant name for the email
+  const [{ data: inviter }, { data: tenant }] = await Promise.all([
+    adminClient.from('users').select('full_name, email').eq('id', user.id).single(),
+    adminClient.from('tenants').select('name').eq('id', claims.tenant_id).single(),
+  ])
 
   const { data: inviteData, error: inviteError } = await adminClient.auth.admin.generateLink({
     type: 'invite',
@@ -52,6 +58,15 @@ export async function inviteUser(email: string, role: 'admin' | 'user'): Promise
       error: 'Failed to create user record: ' + insertError.message,
     }
   }
+
+  // Send invite email — fire-and-forget, never blocks the response
+  void sendInviteEmail({
+    tenantId: claims.tenant_id,
+    inviteeEmail: email,
+    inviterName: inviter?.full_name ?? inviter?.email ?? 'Your admin',
+    tenantName: tenant?.name ?? 'your team',
+    actionLink: inviteData.properties.action_link,
+  })
 
   return { success: true, email }
 }

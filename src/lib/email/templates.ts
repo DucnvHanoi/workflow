@@ -150,6 +150,52 @@ export interface CompletionEmailData {
   steps: CompletionEmailStep[]
 }
 
+// ---------------------------------------------------------------------------
+// Template 3 — User Invite
+// ---------------------------------------------------------------------------
+
+export interface InviteEmailData {
+  inviteeEmail: string
+  inviterName: string // admin who sent the invite
+  tenantName: string
+  actionLink: string // magic link from generateLink()
+}
+
+export function buildInviteEmail(data: InviteEmailData): {
+  subject: string
+  html: string
+} {
+  const body = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      You have been invited
+    </h2>
+    <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
+      Hi, <strong>${escHtml(data.inviterName)}</strong> has invited you to join
+      <strong>${escHtml(data.tenantName)}</strong> on Workflow.
+    </p>
+
+    <p style="margin:0 0 8px;font-size:14px;color:#52525b;line-height:1.6;">
+      Click the button below to set your password and activate your account.
+      This link expires in <strong>24 hours</strong>.
+    </p>
+
+    ${ctaButton('Accept invitation', data.actionLink)}
+
+    <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">
+      If you weren't expecting this invitation, you can safely ignore this email.
+    </p>
+  `
+
+  return {
+    subject: `You've been invited to join ${data.tenantName} on Workflow`,
+    html: shell(`Invitation to join ${data.tenantName}`, body),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Template 4 — Flow Completion
+// ---------------------------------------------------------------------------
+
 export function buildCompletionEmail(data: CompletionEmailData): {
   subject: string
   html: string
@@ -208,5 +254,163 @@ export function buildCompletionEmail(data: CompletionEmailData): {
   return {
     subject: `Completed: ${data.flowName}`,
     html: shell(`Flow completed: ${data.flowName}`, body),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Template 5 — SLA Daily Digest
+// ---------------------------------------------------------------------------
+
+export interface SlaDigestStep {
+  flowName: string
+  stepName: string
+  dueAt: Date
+}
+
+export interface SlaDigestEmailData {
+  recipientName: string
+  overdueSteps: SlaDigestStep[]
+  dueSoonSteps: SlaDigestStep[]
+}
+
+function formatDueDate(d: Date): string {
+  return (
+    d.toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'UTC',
+    }) + ' UTC'
+  )
+}
+
+function stepRow(s: SlaDigestStep, color: string): string {
+  return `<tr>
+    <td style="padding:8px 12px;font-size:13px;color:#18181b;font-weight:500;border-bottom:1px solid #f4f4f5;">${escHtml(s.flowName)}</td>
+    <td style="padding:8px 12px;font-size:13px;color:#52525b;border-bottom:1px solid #f4f4f5;">${escHtml(s.stepName)}</td>
+    <td style="padding:8px 12px;font-size:12px;color:${color};font-weight:600;text-align:right;border-bottom:1px solid #f4f4f5;">${escHtml(formatDueDate(s.dueAt))}</td>
+  </tr>`
+}
+
+export function buildSlaDigestEmail(data: SlaDigestEmailData): {
+  subject: string
+  html: string
+} {
+  const tasksUrl = `${BASE_URL}/tasks`
+
+  const tableHeader = `
+    <table cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #e4e4e7;border-radius:6px;overflow:hidden;margin-top:8px;">
+      <thead>
+        <tr style="background-color:#f4f4f5;">
+          <th style="padding:8px 12px;font-size:12px;color:#71717a;font-weight:600;text-align:left;">Flow</th>
+          <th style="padding:8px 12px;font-size:12px;color:#71717a;font-weight:600;text-align:left;">Step</th>
+          <th style="padding:8px 12px;font-size:12px;color:#71717a;font-weight:600;text-align:right;">Due</th>
+        </tr>
+      </thead>
+      <tbody>`
+
+  const overdueSection =
+    data.overdueSteps.length > 0
+      ? `
+    <p style="margin:20px 0 4px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:0.5px;">
+      Overdue (${data.overdueSteps.length})
+    </p>
+    ${tableHeader}
+      ${data.overdueSteps.map((s) => stepRow(s, '#dc2626')).join('')}
+    </tbody></table>`
+      : ''
+
+  const dueSoonSection =
+    data.dueSoonSteps.length > 0
+      ? `
+    <p style="margin:20px 0 4px;font-size:13px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:0.5px;">
+      Due within 24 hours (${data.dueSoonSteps.length})
+    </p>
+    ${tableHeader}
+      ${data.dueSoonSteps.map((s) => stepRow(s, '#d97706')).join('')}
+    </tbody></table>`
+      : ''
+
+  const totalCount = data.overdueSteps.length + data.dueSoonSteps.length
+
+  const body = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      Your daily task summary
+    </h2>
+    <p style="margin:0 0 4px;font-size:15px;color:#52525b;line-height:1.6;">
+      Hi ${escHtml(data.recipientName)}, you have
+      <strong>${totalCount} task${totalCount === 1 ? '' : 's'}</strong>
+      that need${totalCount === 1 ? 's' : ''} your attention.
+    </p>
+
+    ${overdueSection}
+    ${dueSoonSection}
+
+    ${ctaButton('Open Tasks', tasksUrl)}
+  `
+
+  return {
+    subject: `Task reminder: ${totalCount} task${totalCount === 1 ? '' : 's'} need${totalCount === 1 ? 's' : ''} your attention`,
+    html: shell('Daily task summary', body),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Template 6 — Escalation (to manager)
+// ---------------------------------------------------------------------------
+
+export interface EscalationEmailData {
+  managerName: string
+  assigneeName: string
+  flowName: string
+  stepName: string
+  hoursOverdue: number
+}
+
+export function buildEscalationEmail(data: EscalationEmailData): {
+  subject: string
+  html: string
+} {
+  const tasksUrl = `${BASE_URL}/tasks`
+  const overdueLabel =
+    data.hoursOverdue >= 48
+      ? `${Math.round(data.hoursOverdue / 24)} days`
+      : `${data.hoursOverdue} hours`
+
+  const body = `
+    <div style="display:inline-block;background-color:#fef2f2;border:1px solid #fecaca;border-radius:20px;padding:4px 12px;margin-bottom:16px;">
+      <span style="font-size:13px;color:#dc2626;font-weight:600;">Escalation alert</span>
+    </div>
+
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      A task is overdue
+    </h2>
+    <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
+      Hi ${escHtml(data.managerName)}, a task assigned to
+      <strong>${escHtml(data.assigneeName)}</strong> is overdue by
+      <strong>${escHtml(overdueLabel)}</strong> and may need your attention.
+    </p>
+
+    <table cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #e4e4e7;border-radius:6px;padding:16px;background-color:#fafafa;">
+      <tbody>
+        ${detailRow('Assignee', data.assigneeName)}
+        ${detailRow('Flow', data.flowName)}
+        ${detailRow('Step', data.stepName)}
+        ${detailRow('Overdue by', overdueLabel)}
+      </tbody>
+    </table>
+
+    <p style="margin:16px 0 0;font-size:14px;color:#71717a;">
+      You may want to follow up with ${escHtml(data.assigneeName)} or reassign this task.
+    </p>
+
+    ${ctaButton('View Tasks', tasksUrl)}
+  `
+
+  return {
+    subject: `Escalation: "${data.stepName}" is overdue by ${overdueLabel}`,
+    html: shell(`Escalation: ${data.stepName}`, body),
   }
 }

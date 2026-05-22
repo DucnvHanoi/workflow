@@ -777,6 +777,7 @@ export async function triggerFlow(
       form_data: {},
       status: 'pending',
       due_at: computeDueAt(firstNode.data?.slaHours as number | undefined),
+      escalate_after_hours: (firstNode.data?.escalateAfterHours as number | undefined) ?? null,
     })
     .select('id')
     .single()
@@ -1375,6 +1376,7 @@ async function advanceFlow(
       form_data: {},
       status: 'pending',
       due_at: computeDueAt(nextNode.data?.slaHours as number | undefined),
+      escalate_after_hours: (nextNode.data?.escalateAfterHours as number | undefined) ?? null,
     })
     .select('id')
     .single()

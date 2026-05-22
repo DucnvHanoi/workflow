@@ -217,16 +217,24 @@ Resolve-assignee edge function redeployed to Supabase (npx supabase functions de
 
 KNOWN TEST SCENARIO — Bulk Reassign button (Test 3): The "Reassign N pending tasks" button on /users/[id] only renders when pendingCount > 0. To test: trigger a flow that assigns a step to User A first, then deactivate User A, then visit their profile. The button appears because the pending step_instance remains assigned to them after deactivation.
 
-16. PHASE 6 ROADMAP (REMAINING)
+16. PHASE 6 — COMPLETE ✅
 
 M1 — User deactivation ✅ COMPLETE (Day 1)
 M2 — Bulk task reassignment ✅ COMPLETE (Day 1)
+M3 — Invite email delivery ✅ COMPLETE (Day 2)
+M4 — SLA digest emails + escalation ✅ COMPLETE (Day 2)
+M5 — User self-service profile page ✅ COMPLETE (Day 2)
 
-M3 — Fix invite email delivery (NEXT):
-The /invite page and inviteUser() action exist and correctly call auth.admin.generateLink({ type: 'invite' }) + pre-insert the public.users row. However, generateLink does NOT send an email — it only returns the magic link in inviteData.properties.action_link. The invited user currently receives nothing. Fix: pass action_link to Resend (using the existing RESEND_API_KEY / RESEND_FROM_EMAIL env vars) so the invite email is actually delivered.
+17. PHASE 6 DAY 2 — INVITE EMAIL, SLA CRON & SETTINGS (COMPLETED)
+    `npm run build` passes clean (24 routes). Test suite: 41 passing, 2 pre-existing category-actions failures unchanged.
 
-M4 — SLA reminder & digest emails + overdue escalation (deferred from Phase 5 M2/M3):
-Parked because Resend requires a verified domain to send to arbitrary recipients. Route: GET /api/cron/sla (Vercel Cron, secured by CRON_SECRET header). Scans pending step_instances for T-1d reminders and overdue notices. De-dupe via notification_logs (track last-sent). Escalation: overdue past threshold → email assignee's manager, log audit 'step_escalated'. Revisit once domain verified.
+M3 — Invite email delivery:
+inviteUser() in src/app/(app)/invite/actions.ts now calls sendInviteEmail() (fire-and-forget) after the public.users row is pre-inserted. The Supabase magic link from inviteData.properties.action_link is passed directly to Resend. New buildInviteEmail() template in templates.ts: branded shell, "Accept invitation" CTA button, 24h expiry note. sendInviteEmail() in resend.ts logs to notification_logs with email_type='invite' (instanceId=null — nullable FK, no constraint violation). Migration 20260522100000 extends notification_logs.email_type CHECK to include 'invite', 'sla_reminder', 'sla_overdue', 'sla_escalation'. inviterName and tenantName are resolved via two parallel adminClient queries so the email body is personalised.
 
-M5 — User self-service profile page (/settings or /profile):
-Regular users currently have no way to update their own name or notification preferences. Admins can edit any user via /users. Build a lightweight /settings page (accessible to all roles) for self-editing full_name and email (mirrors updateUserProfile but scoped to own account).
+M4 — SLA daily digest + escalation emails:
+Migration 20260522110000 adds escalate_after_hours (nullable integer) to step_instances with a partial index on (due_at, escalate_after_hours). NodeData gains escalateAfterHours?: number (stored in graph JSONB). StepConfigPanel shows an "Escalate after N hours/days overdue" field only when an SLA is already configured — the field is hidden otherwise to keep the UI clean. Both step_instance creation sites in actions.ts (triggerFlow first step + advanceFlow subsequent steps) now copy escalate_after_hours alongside due_at. Two new email templates: buildSlaDigestEmail() (per-assignee table of overdue + due-soon tasks) and buildEscalationEmail() (to manager, with overdue duration). Cron route GET /api/cron/sla (src/app/api/cron/sla/route.ts): secured by Authorization: Bearer {CRON_SECRET} header check; fetches all pending step_instances with due_at set; resolves flow names + step labels by walking instance→flow_version→graph JSONB; groups by assignee; sends one digest per assignee per day (de-duped via notification_logs sla_reminder rows for today); sends one escalation per step_instance once only (de-duped via notification_logs sla_escalation + step_instance_id). vercel.json created with schedule "0 1 \* \* \*" (1am UTC = 8am ICT). Env var CRON_SECRET must be set in .env.local and Vercel dashboard.
+
+KNOWN GOTCHA — Array.from vs Set spread: cron route uses Array.from(new Set(...)) throughout. Never use [...new Set()] — tsconfig target defaults to ES3 and Set/Map spread fails at build time (downlevelIteration error). This is the same trap documented in Day 41.
+
+M5 — User self-service profile page:
+New route /settings (24th route) accessible to all authenticated roles — not in ADMIN_ONLY_ROUTES so middleware lets any logged-in user through. Server page src/app/(app)/settings/page.tsx fetches own users row (full_name, email) via read-only createClient(). Client form settings-form.tsx: email field shown read-only (no self-serve email change), full_name editable, save button disabled until value differs from initial. Server action updateOwnFullName() in src/app/(app)/settings/actions.ts: getSessionClaims() auth gate (no admin check), trims + validates name length, updates own row only via adminClient with .eq('id', user.id) + .eq('tenant_id', claims.tenant_id) double-guard. Avatar in Topbar replaced: static div → AvatarDropdown client component (src/components/shell/AvatarDropdown.tsx) using shadcn DropdownMenu; shows display name + email in header, Settings link (router.push('/settings')), Sign out (reuses createBrowserClient signOut pattern from SignOutButton). SignOutButton standalone component is still available but no longer used by Topbar.

@@ -61,6 +61,7 @@ export interface NodeData {
   assigneeRule: AssigneeRule
   branchConditions: BranchCondition[]
   slaHours?: number // optional SLA; runtime computes due_at = now() + slaHours
+  escalateAfterHours?: number // optional; escalate to manager this many hours after due_at
   [key: string]: unknown // required by React Flow's NodeData constraint
 }
 
