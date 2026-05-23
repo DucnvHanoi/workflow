@@ -17,7 +17,7 @@ export default async function DirectoryPage() {
       .order('full_name', { ascending: true, nullsFirst: false }),
     db
       .from('departments')
-      .select('id, name')
+      .select('id, name, parent_id')
       .eq('tenant_id', claims.tenant_id!)
       .order('name', { ascending: true }),
   ])
@@ -33,7 +33,11 @@ export default async function DirectoryPage() {
     department: u.department_id ? (deptMap.get(u.department_id) ?? null) : null,
   }))
 
-  const departments: Department[] = (depts ?? []).map((d) => ({ id: d.id, name: d.name }))
+  const departments: Department[] = (depts ?? []).map((d) => ({
+    id: d.id,
+    name: d.name,
+    parent_id: d.parent_id ?? null,
+  }))
 
   return (
     <div>

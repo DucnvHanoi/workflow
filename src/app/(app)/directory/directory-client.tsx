@@ -24,6 +24,7 @@ export type DirectoryUser = {
 export type Department = {
   id: string
   name: string
+  parent_id: string | null
 }
 
 interface Props {
@@ -54,14 +55,78 @@ function avatarColor(id: string): string {
   return AVATAR_COLORS[h % AVATAR_COLORS.length]
 }
 
+/** BFS to collect deptId + all descendant dept IDs */
+function buildDescendantSet(deptId: string, childrenMap: Map<string, string[]>): Set<string> {
+  const result = new Set<string>([deptId])
+  const queue = [deptId]
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    ;(childrenMap.get(current) ?? []).forEach((childId) => {
+      if (!result.has(childId)) {
+        result.add(childId)
+        queue.push(childId)
+      }
+    })
+  }
+  return result
+}
+
+/** Depth-first traversal to produce a tree-ordered list with depth for indentation */
+function getSortedDepts(departments: Department[]): { dept: Department; depth: number }[] {
+  const childrenMap = new Map<string | null, Department[]>()
+  departments.forEach((d) => {
+    const key = d.parent_id ?? null
+    const arr = childrenMap.get(key) ?? []
+    arr.push(d)
+    childrenMap.set(key, arr)
+  })
+
+  const result: { dept: Department; depth: number }[] = []
+
+  function traverse(parentId: string | null, depth: number) {
+    const children = (childrenMap.get(parentId) ?? [])
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+    children.forEach((dept) => {
+      result.push({ dept, depth })
+      traverse(dept.id, depth + 1)
+    })
+  }
+
+  traverse(null, 0)
+  return result
+}
+
 export function DirectoryClient({ users, departments }: Props) {
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('all')
 
+  // Build children map once whenever departments change
+  const deptChildrenMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    departments.forEach((d) => {
+      if (d.parent_id) {
+        const arr = map.get(d.parent_id) ?? []
+        arr.push(d.id)
+        map.set(d.parent_id, arr)
+      }
+    })
+    return map
+  }, [departments])
+
+  const sortedDepts = useMemo(() => getSortedDepts(departments), [departments])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
+
+    // Expand selected dept to include all descendant depts
+    const deptFilterSet =
+      deptFilter !== 'all' ? buildDescendantSet(deptFilter, deptChildrenMap) : null
+
     return users.filter((u) => {
-      if (deptFilter !== 'all' && u.department_id !== deptFilter) return false
+      if (deptFilterSet !== null) {
+        if (!u.department_id || !deptFilterSet.has(u.department_id)) return false
+      }
       if (!q) return true
       return (
         u.email.toLowerCase().includes(q) ||
@@ -69,7 +134,7 @@ export function DirectoryClient({ users, departments }: Props) {
         (u.department?.toLowerCase().includes(q) ?? false)
       )
     })
-  }, [users, search, deptFilter])
+  }, [users, search, deptFilter, deptChildrenMap])
 
   return (
     <div className="space-y-6">
@@ -90,9 +155,9 @@ export function DirectoryClient({ users, departments }: Props) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All departments</SelectItem>
-            {departments.map((d) => (
-              <SelectItem key={d.id} value={d.id}>
-                {d.name}
+            {sortedDepts.map(({ dept, depth }) => (
+              <SelectItem key={dept.id} value={dept.id}>
+                {depth > 0 ? '—'.repeat(depth) + ' ' + dept.name : dept.name}
               </SelectItem>
             ))}
           </SelectContent>
