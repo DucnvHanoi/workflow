@@ -1,5 +1,6 @@
 'use client'
 
+import { Fragment } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { getNavItems } from './nav-items'
@@ -26,26 +27,33 @@ export function Sidebar({ role }: SidebarProps) {
 
       {/* Nav links */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
-        {navItems.map((item) => {
+        {navItems.map((item, idx) => {
+          const showGroup = item.group && item.group !== navItems[idx - 1]?.group
           const isActive = item.exact
             ? pathname === item.href
             : pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href + '/'))
           const Icon = item.icon
 
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
-                isActive
-                  ? 'bg-primary text-primary-foreground font-medium'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+            <Fragment key={item.href + (item.exact ? '|exact' : '')}>
+              {showGroup && (
+                <p className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 select-none">
+                  {item.group}
+                </p>
               )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {item.label}
-            </Link>
+              <Link
+                href={item.href}
+                className={cn(
+                  'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
+                  isActive
+                    ? 'bg-primary text-primary-foreground font-medium'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {item.label}
+              </Link>
+            </Fragment>
           )
         })}
       </nav>

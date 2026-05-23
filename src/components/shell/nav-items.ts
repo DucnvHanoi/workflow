@@ -25,10 +25,12 @@ export interface NavItem {
   hideFromAdmin?: boolean
   /** Match only the exact href, not children, for active-link detection */
   exact?: boolean
+  /** Visual group label rendered above the first item in each group */
+  group?: string
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  // Normal user items (visible to all roles)
+  // Visible to all roles
   { label: 'My Tasks', href: '/tasks', icon: CheckSquare, adminOnly: false },
   {
     label: 'Start a Flow',
@@ -37,18 +39,32 @@ export const NAV_ITEMS: NavItem[] = [
     adminOnly: false,
     hideFromAdmin: true,
   },
-  { label: 'Directory', href: '/directory', icon: BookUser, adminOnly: false },
-  { label: 'Org Chart', href: '/org-chart', icon: Network, adminOnly: false },
-  // Admin-only items
+  // Admin-only workflow items
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, adminOnly: true },
   { label: 'Flow Builder', href: '/flows', icon: GitBranch, adminOnly: true },
   { label: 'Instances', href: '/admin/instances', icon: List, adminOnly: true },
   { label: 'Audit Trail', href: '/admin/audit', icon: ScrollText, adminOnly: true },
-  { label: 'Users', href: '/users', icon: Users, adminOnly: true },
   { label: 'Departments', href: '/departments', icon: Building2, adminOnly: true },
-  { label: 'Invite', href: '/invite', icon: UserPlus, adminOnly: true, exact: true },
-  { label: 'Bulk Import', href: '/invite/import', icon: Upload, adminOnly: true },
-  { label: 'Pending Invites', href: '/invite/pending', icon: Clock, adminOnly: true },
+  // Users group — admin sees management items, all users see Directory + Org Chart
+  { label: 'Users', href: '/users', icon: Users, adminOnly: true, group: 'Users' },
+  {
+    label: 'Invite',
+    href: '/invite',
+    icon: UserPlus,
+    adminOnly: true,
+    exact: true,
+    group: 'Users',
+  },
+  {
+    label: 'Pending Invites',
+    href: '/invite/pending',
+    icon: Clock,
+    adminOnly: true,
+    group: 'Users',
+  },
+  { label: 'Bulk Import', href: '/invite/import', icon: Upload, adminOnly: true, group: 'Users' },
+  { label: 'Directory', href: '/directory', icon: BookUser, adminOnly: false, group: 'Users' },
+  { label: 'Org Chart', href: '/org-chart', icon: Network, adminOnly: false, group: 'Users' },
 ]
 
 export function getNavItems(role: string): NavItem[] {
