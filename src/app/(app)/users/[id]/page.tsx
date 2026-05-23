@@ -72,18 +72,42 @@ export default async function UserProfilePage({ params }: PageProps) {
     .eq('assigned_to', params.id)
     .eq('status', 'pending')
 
-  // Active users in this tenant for the reassign picker
-  const { data: activeUserRows } = await db
-    .from('users')
-    .select('id, full_name, email')
-    .eq('tenant_id', claims.tenant_id)
-    .eq('is_active', true)
-    .order('full_name', { ascending: true, nullsFirst: false })
+  // Active users, direct reports, and dept head roles — all in parallel
+  const [{ data: activeUserRows }, { data: directReportRows }, { data: deptHeadRows }] =
+    await Promise.all([
+      db
+        .from('users')
+        .select('id, full_name, email')
+        .eq('tenant_id', claims.tenant_id)
+        .eq('is_active', true)
+        .order('full_name', { ascending: true, nullsFirst: false }),
+      db
+        .from('users')
+        .select('id, full_name, email')
+        .eq('manager_id', params.id)
+        .eq('tenant_id', claims.tenant_id),
+      db
+        .from('departments')
+        .select('id, name')
+        .eq('head_user_id', params.id)
+        .eq('tenant_id', claims.tenant_id),
+    ])
 
   const activeUsers = (activeUserRows ?? []).map((u) => ({
     id: u.id as string,
     full_name: (u.full_name ?? null) as string | null,
     email: u.email as string,
+  }))
+
+  const directReports = (directReportRows ?? []).map((u) => ({
+    id: u.id as string,
+    full_name: (u.full_name ?? null) as string | null,
+    email: u.email as string,
+  }))
+
+  const deptHeadOf = (deptHeadRows ?? []).map((d) => ({
+    id: d.id as string,
+    name: d.name as string,
   }))
 
   // Build org chain array for display: [user, manager, skip-level]
@@ -160,6 +184,8 @@ export default async function UserProfilePage({ params }: PageProps) {
         }}
         pendingCount={pendingCount ?? 0}
         activeUsers={activeUsers}
+        directReports={directReports}
+        deptHeadOf={deptHeadOf}
         isSelf={isSelf}
       />
 

@@ -241,6 +241,44 @@ export async function reactivateUser(targetUserId: string) {
 
 // ─── NEW: Update department ───────────────────────────────────────────────────
 
+// ─── Offboarding helpers ──────────────────────────────────────────────────────
+
+export async function clearManagerRelationships(targetUserId: string): Promise<void> {
+  const { user, claims } = await getSessionClaims()
+  if (!user || claims.role !== 'admin') throw new Error('Unauthorized')
+
+  const adminClient = createAdminClient()
+  const { error } = await adminClient
+    .from('users')
+    .update({ manager_id: null })
+    .eq('manager_id', targetUserId)
+    .eq('tenant_id', claims.tenant_id)
+
+  if (error) throw new Error('Failed to clear manager relationships')
+
+  revalidatePath('/users')
+  revalidatePath(`/users/${targetUserId}`)
+  revalidatePath('/org-chart')
+}
+
+export async function removeDeptHeadRoles(targetUserId: string): Promise<void> {
+  const { user, claims } = await getSessionClaims()
+  if (!user || claims.role !== 'admin') throw new Error('Unauthorized')
+
+  const adminClient = createAdminClient()
+  const { error } = await adminClient
+    .from('departments')
+    .update({ head_user_id: null })
+    .eq('head_user_id', targetUserId)
+    .eq('tenant_id', claims.tenant_id)
+
+  if (error) throw new Error('Failed to remove dept head roles')
+
+  revalidatePath('/departments')
+  revalidatePath('/org-chart')
+  revalidatePath('/users')
+}
+
 export async function updateUserDepartment(targetUserId: string, departmentId: string | null) {
   const { user, claims } = await getSessionClaims()
   if (!user || claims.role !== 'admin') throw new Error('Unauthorized')
