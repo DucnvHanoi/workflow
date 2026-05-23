@@ -254,3 +254,40 @@ PENDING — Production environment variables to add in Vercel:
 
 - RESEND_FROM_EMAIL=noreply@bizflow.id.vn (invite + notification emails use verified domain)
 - CRON_SECRET=<secret from .env.local> (required for GET /api/cron/sla to accept Vercel's cron trigger)
+
+19. PHASE 7 — ENHANCED USER MANAGEMENT (ROADMAP)
+    Theme: deeper user lifecycle management — securing access with MFA, streamlining onboarding via bulk import, and visualising team structure with an org chart.
+
+M1 — MFA / OTP Authentication ✅ COMPLETE (Day 1)
+M2 — Bulk CSV User Import 🔜 PLANNED (Day 2)
+M3 — Invitation Pending Management ✅ COMPLETE (Day 1)
+M4 — Org Chart 🔜 PLANNED (Day 3)
+M5 — User Directory 🔜 PLANNED (Day 3)
+M6 — Enhanced User Profiles (avatar, job title, phone) 🔜 PLANNED (Day 4)
+M7 — Department Management UI 🔜 PLANNED (Day 2)
+M8 — Guided Offboarding Wizard 🔜 PLANNED (Day 4)
+
+20. PHASE 7 DAY 1 — MFA & INVITATION PENDING MANAGEMENT (COMPLETED)
+    `npm run build` passes clean (26 routes — /auth/mfa and /invite/pending added). Test suite unchanged.
+
+M1 — MFA / OTP Authentication:
+
+- MfaCard.tsx (src/components/settings/MfaCard.tsx): client component on the /settings page. On mount calls supabase.auth.mfa.listFactors() to detect enrolled TOTP. Three states: unenrolled → qr (enroll + show QR + manual secret) → enrolled. Cleans up lingering unverified factors before re-enrolling. Verify calls supabase.auth.mfa.challengeAndVerify(); unenroll calls supabase.auth.mfa.unenroll(). No DB schema change required — Supabase stores TOTP factors internally.
+- /settings page updated: split into "Profile" and "Security" sections; MfaCard renders in Security.
+- login-form.tsx: after successful signInWithPassword, checks getAuthenticatorAssuranceLevel(). If nextLevel === 'aal2' and currentLevel !== 'aal2', redirects to /auth/mfa instead of /tasks.
+- /auth/mfa page (src/app/auth/mfa/page.tsx): client page. On mount checks AAL (redirects to /tasks if already aal2 or MFA not enrolled). Creates a TOTP challenge, shows 6-digit input, calls verify(). On success redirects to /tasks.
+- middleware.ts: /auth/mfa added to PUBLIC_ROUTES so the AAL1 session (post-password, pre-MFA) can load the challenge page.
+
+KNOWN GOTCHA — Google OAuth + MFA: signInWithOAuth bypasses the login-form AAL check. If a user enrolled TOTP via email/password and then signs in with Google, the /auth/callback redirect goes straight to /tasks. Supabase returns aal1 for OAuth flows regardless of enrolled TOTP factors. Full enforcement would require an AAL check in /auth/callback — deferred to a future session.
+
+M3 — Invitation Pending Management:
+
+- Migration 20260523100000_add_pending_invitations.sql: pending_invitations table (tenant_id, email, invited_by FK→users, user_id FK→users ON DELETE SET NULL, invited_at, resend_count, last_resent_at, revoked_at, status CHECK pending|accepted|revoked). Admin-only SELECT RLS via app_metadata path. Partial index on (tenant_id, status, invited_at DESC).
+- inviteUser() extended: after inserting public.users, inserts a pending_invitations row (non-fatal if insert fails).
+- getPendingInvitations(): admin-only; joins inviter and invitee via users!invited_by and users!user_id; computes is_accepted from invitee.full_name IS NOT NULL (set during /account-setup).
+- resendInvitation(id): regenerates magic link via generateLink, re-sends email, increments resend_count + updates last_resent_at.
+- revokeInvitation(id): marks revoked first (captures user_id before ON DELETE SET NULL), then deletes public.users + auth.users via admin API.
+- /invite/pending page: server page + PendingInvitationsClient. Table shows email, Pending/Accepted badge, invited-by name, last-sent date, resend count, Resend/Revoke action buttons (only for pending rows). Revoke requires a confirm() dialog.
+- nav-items.ts: "Invite" gains exact: true flag (active only on /invite, not /invite/pending). "Pending Invites" added as a separate nav item. sidebar.tsx active-link logic respects the exact flag.
+
+DELETION ORDER for revokeInvitation — status set to 'revoked' first (before the DB cascade nullifies user_id), then public.users deleted, then auth.admin.deleteUser(). This ordering is intentional: it ensures user_id is captured before ON DELETE SET NULL fires and that the auth.users deletion doesn't fail due to public.users FK reference.

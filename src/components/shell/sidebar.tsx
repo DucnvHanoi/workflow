@@ -27,8 +27,9 @@ export function Sidebar({ role }: SidebarProps) {
       {/* Nav links */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
         {navItems.map((item) => {
-          const isActive =
-            pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
+          const isActive = item.exact
+            ? pathname === item.href
+            : pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href + '/'))
           const Icon = item.icon
 
           return (
