@@ -6,6 +6,7 @@ import { OrgChartClient, type OrgUser, type OrgDepartment } from './org-chart-cl
 export default async function OrgChartPage() {
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
+  const isAdmin = claims.role === 'admin'
 
   const db = createAdminClient()
 
@@ -43,12 +44,12 @@ export default async function OrgChartPage() {
       <div className="mb-4 shrink-0">
         <h1 className="text-xl font-semibold tracking-tight">Org Chart</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          {orgUsers.length} member{orgUsers.length !== 1 ? 's' : ''} — hierarchy based on department
-          heads and manager assignments
+          {orgUsers.length} member{orgUsers.length !== 1 ? 's' : ''}
+          {isAdmin ? ' — drag node handles to connect · select edge + Delete to remove' : ''}
         </p>
       </div>
       <div className="flex-1 rounded-lg border overflow-hidden">
-        <OrgChartClient users={orgUsers} departments={orgDepts} />
+        <OrgChartClient users={orgUsers} departments={orgDepts} isAdmin={isAdmin} />
       </div>
     </div>
   )

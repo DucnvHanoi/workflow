@@ -1,18 +1,24 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useCallback, useMemo, useEffect } from 'react'
 import {
   ReactFlow,
   Background,
   Controls,
   Handle,
+  Panel,
   Position,
   MarkerType,
+  useNodesState,
+  useEdgesState,
   type NodeProps,
   type Node,
   type Edge,
+  type Connection,
 } from '@xyflow/react'
 import { Badge } from '@/components/ui/badge'
+import { toast } from 'sonner'
+import { updateUserManager } from './actions'
 
 export type OrgUser = {
   id: string
@@ -37,6 +43,7 @@ type OrgNodeData = Record<string, unknown> & {
   department: string | null
   initials: string
   isDeptHead: boolean
+  isAdmin: boolean
 }
 
 // ─── layout ──────────────────────────────────────────────────────────────────
@@ -68,14 +75,98 @@ function computeLayout(
   }
 
   roots.forEach((root, i) => {
-    if (i > 0) nextLeafSlot++ // extra gap between separate trees
+    if (i > 0) nextLeafSlot++
     place(root, 0)
   })
 
   return positions
 }
 
-// ─── custom node (must be defined outside the parent component) ───────────────
+function computeGraph(users: OrgUser[], departments: OrgDepartment[], isAdmin: boolean) {
+  const idSet = new Set(users.map((u) => u.id))
+
+  const deptById = new Map(departments.map((d) => [d.id, d]))
+
+  const headOfDept = new Map<string, string>()
+  for (const d of departments) {
+    if (d.head_user_id && idSet.has(d.head_user_id)) {
+      headOfDept.set(d.head_user_id, d.id)
+    }
+  }
+  const isDeptHeadSet = new Set(headOfDept.keys())
+
+  const parentMap = new Map<string, string | null>()
+
+  for (const u of users) {
+    if (isDeptHeadSet.has(u.id)) {
+      const deptId = headOfDept.get(u.id)!
+      const dept = deptById.get(deptId)
+      if (dept?.parent_id) {
+        const parentDept = deptById.get(dept.parent_id)
+        if (parentDept?.head_user_id && idSet.has(parentDept.head_user_id)) {
+          parentMap.set(u.id, parentDept.head_user_id)
+        } else {
+          parentMap.set(u.id, null)
+        }
+      } else {
+        parentMap.set(u.id, null)
+      }
+    } else {
+      if (u.manager_id && idSet.has(u.manager_id)) {
+        parentMap.set(u.id, u.manager_id)
+      } else if (u.department_id) {
+        const dept = deptById.get(u.department_id)
+        if (dept?.head_user_id && dept.head_user_id !== u.id && idSet.has(dept.head_user_id)) {
+          parentMap.set(u.id, dept.head_user_id)
+        } else {
+          parentMap.set(u.id, null)
+        }
+      } else {
+        parentMap.set(u.id, null)
+      }
+    }
+  }
+
+  const childrenMap = new Map<string, string[]>()
+  parentMap.forEach((parentId, userId) => {
+    if (parentId !== null) {
+      const arr = childrenMap.get(parentId) ?? []
+      arr.push(userId)
+      childrenMap.set(parentId, arr)
+    }
+  })
+
+  const roots = users.filter((u) => parentMap.get(u.id) === null).map((u) => u.id)
+  const positions = computeLayout(roots, childrenMap)
+
+  const nodes: Node[] = users.map((u) => ({
+    id: u.id,
+    type: 'org',
+    position: positions.get(u.id) ?? { x: 0, y: 0 },
+    data: {
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      department: u.department,
+      initials: getInitials(u.name, u.email),
+      isDeptHead: isDeptHeadSet.has(u.id),
+      isAdmin,
+    } satisfies OrgNodeData,
+  }))
+
+  const edges: Edge[] = []
+  parentMap.forEach((parentId, userId) => {
+    if (parentId !== null) {
+      edges.push(makeEdge(parentId, userId))
+    }
+  })
+
+  return { nodes, edges }
+}
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+const EDGE_COLOR = '#64748b'
 
 function getInitials(name: string | null, email: string): string {
   if (name) {
@@ -85,14 +176,41 @@ function getInitials(name: string | null, email: string): string {
   return email[0].toUpperCase()
 }
 
-const EDGE_COLOR = '#64748b' // slate-500 — visible on both light and dark
+function makeEdge(source: string, target: string): Edge {
+  return {
+    id: `e-${source}-${target}`,
+    source,
+    target,
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: EDGE_COLOR },
+    style: { stroke: EDGE_COLOR, strokeWidth: 1.5 },
+  }
+}
+
+/** Returns true if drawing source→target would create a cycle. */
+function wouldCreateCycle(source: string, target: string, edges: Edge[]): boolean {
+  const visited = new Set<string>()
+  let cur = source
+  while (true) {
+    if (cur === target) return true
+    if (visited.has(cur)) break
+    visited.add(cur)
+    const up = edges.find((e) => e.target === cur)
+    if (!up) break
+    cur = up.source
+  }
+  return false
+}
+
+// ─── custom node (must be defined outside parent component) ──────────────────
 
 function OrgNode({ data }: NodeProps) {
   const d = data as OrgNodeData
+  const handleStyle = d.isAdmin ? undefined : { visibility: 'hidden' as const }
+
   return (
     <div className="w-48 rounded-xl border bg-card shadow-sm px-3 py-2.5 text-left select-none">
-      {/* Handles are required for edges to connect; hidden since chart is read-only */}
-      <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
+      <Handle type="target" position={Position.Top} style={handleStyle} />
       <div className="flex items-center gap-2.5">
         <div
           className={`flex items-center justify-center w-9 h-9 rounded-full font-semibold text-sm shrink-0 ${
@@ -131,7 +249,7 @@ function OrgNode({ data }: NodeProps) {
           </Badge>
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
+      <Handle type="source" position={Position.Bottom} style={handleStyle} />
     </div>
   )
 }
@@ -143,107 +261,74 @@ const nodeTypes = { org: OrgNode }
 interface Props {
   users: OrgUser[]
   departments: OrgDepartment[]
+  isAdmin: boolean
 }
 
-export function OrgChartClient({ users, departments }: Props) {
-  const { nodes, edges } = useMemo(() => {
-    const idSet = new Set(users.map((u) => u.id))
-
-    // Department lookups
-    const deptById = new Map(departments.map((d) => [d.id, d]))
-
-    // Map: userId → deptId they are head of
-    const headOfDept = new Map<string, string>()
-    for (const d of departments) {
-      if (d.head_user_id && idSet.has(d.head_user_id)) {
-        headOfDept.set(d.head_user_id, d.id)
-      }
-    }
-    const isDeptHeadSet = new Set(headOfDept.keys())
-
-    // Determine parent for each user
-    const parentMap = new Map<string, string | null>()
-
-    for (const u of users) {
-      if (isDeptHeadSet.has(u.id)) {
-        // Dept head: place by department hierarchy
-        const deptId = headOfDept.get(u.id)!
-        const dept = deptById.get(deptId)
-        if (dept?.parent_id) {
-          const parentDept = deptById.get(dept.parent_id)
-          if (parentDept?.head_user_id && idSet.has(parentDept.head_user_id)) {
-            parentMap.set(u.id, parentDept.head_user_id)
-          } else {
-            parentMap.set(u.id, null) // parent dept has no head → become root
-          }
-        } else {
-          parentMap.set(u.id, null) // top-level dept → root
-        }
-      } else {
-        // Regular member: manager_id → dept head fallback → root
-        if (u.manager_id && idSet.has(u.manager_id)) {
-          parentMap.set(u.id, u.manager_id)
-        } else if (u.department_id) {
-          const dept = deptById.get(u.department_id)
-          if (dept?.head_user_id && dept.head_user_id !== u.id && idSet.has(dept.head_user_id)) {
-            parentMap.set(u.id, dept.head_user_id)
-          } else {
-            parentMap.set(u.id, null)
-          }
-        } else {
-          parentMap.set(u.id, null)
-        }
-      }
-    }
-
-    // Build children map from parent assignments
-    const childrenMap = new Map<string, string[]>()
-    parentMap.forEach((parentId, userId) => {
-      if (parentId !== null) {
-        const arr = childrenMap.get(parentId) ?? []
-        arr.push(userId)
-        childrenMap.set(parentId, arr)
-      }
-    })
-
-    const roots = users.filter((u) => parentMap.get(u.id) === null).map((u) => u.id)
-    const positions = computeLayout(roots, childrenMap)
-
-    const nodes: Node[] = users.map((u) => ({
-      id: u.id,
-      type: 'org',
-      position: positions.get(u.id) ?? { x: 0, y: 0 },
-      data: {
-        name: u.name,
-        email: u.email,
-        role: u.role,
-        department: u.department,
-        initials: getInitials(u.name, u.email),
-        isDeptHead: isDeptHeadSet.has(u.id),
-      } satisfies OrgNodeData,
-    }))
-
-    const edges: Edge[] = []
-    parentMap.forEach((parentId, userId) => {
-      if (parentId !== null) {
-        edges.push({
-          id: `e-${parentId}-${userId}`,
-          source: parentId,
-          target: userId,
-          type: 'smoothstep',
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 12,
-            height: 12,
-            color: EDGE_COLOR,
-          },
-          style: { stroke: EDGE_COLOR, strokeWidth: 1.5 },
-        })
-      }
-    })
-
-    return { nodes, edges }
+export function OrgChartClient({ users, departments, isAdmin }: Props) {
+  // Recompute layout whenever manager relationships or dept heads change
+  const graphKey = useMemo(() => {
+    const u = users.map((u) => `${u.id}:${u.manager_id ?? ''}`).join('|')
+    const d = departments.map((d) => `${d.id}:${d.head_user_id ?? ''}`).join('|')
+    return u + '||' + d
   }, [users, departments])
+
+  const computedGraph = useMemo(
+    () => computeGraph(users, departments, isAdmin),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [graphKey, isAdmin]
+  )
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(computedGraph.nodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(computedGraph.edges)
+
+  // Sync when server data changes (e.g. after another browser tab makes a change)
+  useEffect(() => {
+    setNodes(computedGraph.nodes)
+    setEdges(computedGraph.edges)
+  }, [computedGraph, setNodes, setEdges])
+
+  const onConnect = useCallback(
+    async (connection: Connection) => {
+      const { source, target } = connection
+      if (!source || !target || source === target) return
+
+      if (wouldCreateCycle(source, target, edges)) {
+        toast.error('Cannot connect: this would create a circular reporting chain.')
+        return
+      }
+
+      // A person can only have one manager — remove any existing manager edge for target
+      const prevEdge = edges.find((e) => e.target === target)
+      const filtered = edges.filter((e) => e.target !== target)
+      const newEdge = makeEdge(source, target)
+
+      setEdges([...filtered, newEdge])
+
+      const result = await updateUserManager(target, source)
+      if (result.error) {
+        toast.error(result.error)
+        setEdges(prevEdge ? [...filtered, prevEdge] : filtered)
+      } else {
+        toast.success('Manager updated.')
+      }
+    },
+    [edges, setEdges]
+  )
+
+  const onEdgesDelete = useCallback(
+    async (deletedEdges: Edge[]) => {
+      for (const edge of deletedEdges) {
+        const result = await updateUserManager(edge.target, null)
+        if (result.error) {
+          toast.error(result.error)
+          setEdges((prev) => [...prev, edge])
+        } else {
+          toast.success('Manager removed.')
+        }
+      }
+    },
+    [setEdges]
+  )
 
   if (users.length === 0) {
     return (
@@ -258,15 +343,27 @@ export function OrgChartClient({ users, departments }: Props) {
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onConnect={isAdmin ? onConnect : undefined}
+      onEdgesDelete={isAdmin ? onEdgesDelete : undefined}
       fitView
       fitViewOptions={{ padding: 0.15 }}
-      nodesDraggable={false}
-      nodesConnectable={false}
-      elementsSelectable={false}
+      nodesDraggable={isAdmin}
+      nodesConnectable={isAdmin}
+      elementsSelectable={isAdmin}
+      deleteKeyCode={isAdmin ? ['Delete', 'Backspace'] : null}
       panOnScroll
     >
       <Background />
       <Controls showInteractive={false} />
+      {isAdmin && (
+        <Panel position="top-right">
+          <p className="rounded-md border bg-card px-2.5 py-1.5 text-xs text-muted-foreground shadow-sm">
+            Drag handle → node to set manager · Select edge + Delete to remove
+          </p>
+        </Panel>
+      )}
     </ReactFlow>
   )
 }
