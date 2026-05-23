@@ -19,6 +19,7 @@ export type DirectoryUser = {
   role: string
   department: string | null
   department_id: string | null
+  avatar_url: string | null
 }
 
 export type Department = {
@@ -182,9 +183,18 @@ export function DirectoryClient({ users, departments }: Props) {
               className="flex items-start gap-3 rounded-xl border bg-card p-4 hover:shadow-sm transition-shadow"
             >
               <div
-                className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold text-sm shrink-0 ${avatarColor(u.id)}`}
+                className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold text-sm shrink-0 overflow-hidden ${u.avatar_url ? '' : avatarColor(u.id)}`}
               >
-                {getInitials(u.name, u.email)}
+                {u.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={u.avatar_url}
+                    alt={u.name ?? u.email}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  getInitials(u.name, u.email)
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium truncate leading-tight">{u.name ?? u.email}</p>

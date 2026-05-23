@@ -13,7 +13,7 @@ export default async function OrgChartPage() {
   const [{ data: users }, { data: departments }] = await Promise.all([
     db
       .from('users')
-      .select('id, full_name, email, role, manager_id, department_id')
+      .select('id, full_name, email, role, manager_id, department_id, avatar_url')
       .eq('tenant_id', claims.tenant_id!),
     db
       .from('departments')
@@ -31,6 +31,7 @@ export default async function OrgChartPage() {
     manager_id: u.manager_id ?? null,
     department_id: u.department_id ?? null,
     department: u.department_id ? (deptMap.get(u.department_id) ?? null) : null,
+    avatar_url: u.avatar_url ?? null,
   }))
 
   const orgDepts: OrgDepartment[] = (departments ?? []).map((d) => ({

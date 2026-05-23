@@ -12,7 +12,7 @@ export default async function DirectoryPage() {
   const [{ data: users }, { data: depts }] = await Promise.all([
     db
       .from('users')
-      .select('id, full_name, email, role, department_id')
+      .select('id, full_name, email, role, department_id, avatar_url')
       .eq('tenant_id', claims.tenant_id!)
       .order('full_name', { ascending: true, nullsFirst: false }),
     db
@@ -31,6 +31,7 @@ export default async function DirectoryPage() {
     role: u.role,
     department_id: u.department_id ?? null,
     department: u.department_id ? (deptMap.get(u.department_id) ?? null) : null,
+    avatar_url: u.avatar_url ?? null,
   }))
 
   const departments: Department[] = (depts ?? []).map((d) => ({

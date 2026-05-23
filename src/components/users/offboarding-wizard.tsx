@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { CheckCircle2, Loader2, Users, Building2, ClipboardList, ShieldOff } from 'lucide-react'
@@ -37,6 +37,15 @@ interface Props {
 
 type StepKey = 'overview' | 'tasks' | 'reports' | 'depthead' | 'deactivate' | 'done'
 
+function buildSteps(pendingCount: number, reportsLen: number, deptHeadLen: number): StepKey[] {
+  const s: StepKey[] = ['overview']
+  if (pendingCount > 0) s.push('tasks')
+  if (reportsLen > 0) s.push('reports')
+  if (deptHeadLen > 0) s.push('depthead')
+  s.push('deactivate')
+  return s
+}
+
 export function OffboardingWizard({
   user,
   pendingCount,
@@ -51,15 +60,22 @@ export function OffboardingWizard({
   const [reassignTo, setReassignTo] = useState('')
   const [currentStepIdx, setCurrentStepIdx] = useState(0)
 
+  // Snapshot the step list when the dialog opens so mid-flow revalidatePath calls
+  // (which update pendingCount/directReports props) can't shrink the array and
+  // strand currentStepIdx at an out-of-bounds index.
+  const [steps, setSteps] = useState<StepKey[]>(() =>
+    buildSteps(pendingCount, directReports.length, deptHeadOf.length)
+  )
+  useEffect(() => {
+    if (open) {
+      setSteps(buildSteps(pendingCount, directReports.length, deptHeadOf.length))
+      setCurrentStepIdx(0)
+      setReassignTo('')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
   const name = user.full_name ?? user.email
-
-  // Build dynamic step list
-  const steps: StepKey[] = ['overview']
-  if (pendingCount > 0) steps.push('tasks')
-  if (directReports.length > 0) steps.push('reports')
-  if (deptHeadOf.length > 0) steps.push('depthead')
-  steps.push('deactivate')
-
   const currentStep = steps[currentStepIdx] ?? 'done'
   const isLastStep = currentStepIdx === steps.length - 1
   const candidates = activeUsers.filter((u) => u.id !== user.id)
@@ -70,8 +86,6 @@ export function OffboardingWizard({
   }
 
   function handleClose() {
-    setCurrentStepIdx(0)
-    setReassignTo('')
     onOpenChange(false)
     router.refresh()
   }

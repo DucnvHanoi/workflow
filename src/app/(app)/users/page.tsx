@@ -22,7 +22,7 @@ export default async function UsersPage() {
     .from('users')
     .select(
       `
-      id, email, full_name, role, is_active, created_at, manager_id, department_id,
+      id, email, full_name, role, is_active, created_at, manager_id, department_id, avatar_url,
       departments!department_id ( id, name )
     `
     )
@@ -90,6 +90,7 @@ export default async function UsersPage() {
       departments: dept ? { id: dept.id as string, name: dept.name as string } : null,
       manager: u.manager_id ? (managerMap[u.manager_id] ?? null) : null,
       headOf: headOfMap[u.id as string] ?? null,
+      avatar_url: (u.avatar_url ?? null) as string | null,
     }
   }) satisfies UserRow[]
 

@@ -35,6 +35,7 @@ export type UserRow = {
   departments: { id: string; name: string } | null
   manager: { id: string; full_name: string | null; email: string } | null
   headOf: string | null // department name this user heads; null if not a head
+  avatar_url: string | null
 }
 
 type UsersTableProps = {
@@ -79,9 +80,14 @@ export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: Us
           return (
             <a href={`/users/${user.id}`} className="flex items-center gap-3 hover:underline">
               <div
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${user.is_active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold overflow-hidden ${user.is_active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}
               >
-                {initials}
+                {user.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={user.avatar_url} alt={name} className="w-full h-full object-cover" />
+                ) : (
+                  initials
+                )}
               </div>
               <div>
                 <div className="flex items-center gap-2">

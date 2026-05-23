@@ -291,3 +291,47 @@ M3 — Invitation Pending Management:
 - nav-items.ts: "Invite" gains exact: true flag (active only on /invite, not /invite/pending). "Pending Invites" added as a separate nav item. sidebar.tsx active-link logic respects the exact flag.
 
 DELETION ORDER for revokeInvitation — status set to 'revoked' first (before the DB cascade nullifies user_id), then public.users deleted, then auth.admin.deleteUser(). This ordering is intentional: it ensures user_id is captured before ON DELETE SET NULL fires and that the auth.users deletion doesn't fail due to public.users FK reference.
+
+21. PHASE 7 DAY 2+ — ORG CHART, DIRECTORY, AVATAR PROPAGATION & OFFBOARDING BUG FIX (COMPLETED)
+
+M4 — Org Chart (/org-chart): ✅ COMPLETE
+
+- ReactFlow-based interactive org chart; read-only for members, editable for admins.
+- computeGraph() builds parentMap by combining users.manager_id with dept head relationships from departments.head_user_id. Dept heads' parent is the head of their dept's parent department.
+- computeLayout() tree layout: leaf-slot counter → parent centroid. Stable across re-renders via graphKey useMemo (keyed on manager_id + head_user_id values).
+- OrgNode custom node: renders avatar image or initials, department label, Head badge (amber), role badge.
+- Admin interactions: drag source handle → target node → onConnect → updateUserManager() server action. Cycle detection via wouldCreateCycle() (walks upward from source). onEdgesDelete → updateUserManager(target, null). Optimistic edge update with rollback on error.
+- Server action (org-chart/actions.ts): updateUserManager(userId, managerId) — adminClient + adminOnly guard + tenant check.
+
+M5 — User Directory (/directory): ✅ COMPLETE
+
+- Grid card browser (1–4 columns responsive). Filters: text search (name/email/dept) + department select.
+- Department filter is hierarchy-aware: selecting a parent dept includes all descendant dept members via BFS buildDescendantSet().
+- Dropdown uses DFS getSortedDepts() to produce indented tree (— prefix per depth level).
+- Colorized initials fallback: deterministic hash of user.id maps to 6 fixed avatar color classes.
+
+Avatar propagation — users list, org chart, directory:
+
+- avatar_url added to DB select + type in all three surfaces. Conditionally renders <img object-cover> inside existing rounded container; background color class suppressed when image present to prevent color bleed through rounded corners.
+- Files changed: users/page.tsx, users-table.tsx (UserRow type), directory/page.tsx, directory-client.tsx (DirectoryUser type), org-chart/page.tsx, org-chart-client.tsx (OrgUser + OrgNodeData types + computeGraph node data).
+
+Offboarding wizard step-drift bug fix (offboarding-wizard.tsx):
+
+- Root cause: steps[] was an inline array recomputed from props every render. bulkReassignTasks calls revalidatePath → Next.js re-renders page → pendingCount prop drops to 0 → steps shrinks from ['overview','tasks','deactivate'] to ['overview','deactivate'] while currentStepIdx was already at 2 → steps[2] = undefined → currentStep = 'done' → no action buttons rendered; user stuck with only Cancel.
+- Fix: steps moved into useState (initialized lazily via buildSteps()). useEffect with [open] dependency snapshots the step list at dialog open time and resets index. Props changing mid-flow no longer mutate the frozen step list. eslint-disable-next-line react-hooks/exhaustive-deps is intentional — we close over prop values at open time only.
+
+Enhanced User Profiles — avatar upload (migration 20260523200000_add_profile_fields.sql):
+
+- Adds avatar_url (text nullable) to users table.
+- Defines avatars storage bucket (private) + 4 RLS policies on storage.objects: SELECT own files, INSERT own files (path must start with auth.uid()), UPDATE own files, DELETE own files.
+- KNOWN ISSUE: bucket creation SQL in the migration must be applied via Supabase SQL editor (psql \i does not execute storage DDL). If avatar upload returns "bucket not found", run the storage.buckets INSERT + CREATE POLICY statements manually. Verify with: SELECT id, name FROM storage.buckets WHERE id = 'avatars';
+
+PHASE 7 MILESTONE STATUS UPDATE:
+M1 — MFA / OTP Authentication ✅ COMPLETE (Day 1)
+M2 — Bulk CSV User Import 🔜 PLANNED
+M3 — Invitation Pending Management ✅ COMPLETE (Day 1)
+M4 — Org Chart ✅ COMPLETE
+M5 — User Directory ✅ COMPLETE
+M6 — Enhanced User Profiles (avatar, job title, phone) ✅ COMPLETE — all three fields on /settings
+M7 — Department Management UI 🔜 PLANNED
+M8 — Guided Offboarding Wizard ✅ COMPLETE — multi-step dialog: overview→tasks→reports→depthead→deactivate

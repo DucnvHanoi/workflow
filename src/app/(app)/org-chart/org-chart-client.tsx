@@ -28,6 +28,7 @@ export type OrgUser = {
   manager_id: string | null
   department_id: string | null
   department: string | null
+  avatar_url: string | null
 }
 
 export type OrgDepartment = {
@@ -42,6 +43,7 @@ type OrgNodeData = Record<string, unknown> & {
   role: string
   department: string | null
   initials: string
+  avatarUrl: string | null
   isDeptHead: boolean
   isAdmin: boolean
 }
@@ -149,6 +151,7 @@ function computeGraph(users: OrgUser[], departments: OrgDepartment[], isAdmin: b
       role: u.role,
       department: u.department,
       initials: getInitials(u.name, u.email),
+      avatarUrl: u.avatar_url,
       isDeptHead: isDeptHeadSet.has(u.id),
       isAdmin,
     } satisfies OrgNodeData,
@@ -213,11 +216,24 @@ function OrgNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Top} style={handleStyle} />
       <div className="flex items-center gap-2.5">
         <div
-          className={`flex items-center justify-center w-9 h-9 rounded-full font-semibold text-sm shrink-0 ${
-            d.isDeptHead ? 'bg-amber-100 text-amber-700' : 'bg-primary/10 text-primary'
+          className={`flex items-center justify-center w-9 h-9 rounded-full font-semibold text-sm shrink-0 overflow-hidden ${
+            d.avatarUrl
+              ? ''
+              : d.isDeptHead
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-primary/10 text-primary'
           }`}
         >
-          {String(d.initials)}
+          {d.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={String(d.avatarUrl)}
+              alt={String(d.name ?? d.email)}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            String(d.initials)
+          )}
         </div>
         <div className="min-w-0">
           <p className="text-sm font-medium leading-tight truncate">
