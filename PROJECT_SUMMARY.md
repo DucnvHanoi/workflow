@@ -326,12 +326,14 @@ Enhanced User Profiles — avatar upload (migration 20260523200000_add_profile_f
 - Defines avatars storage bucket (private) + 4 RLS policies on storage.objects: SELECT own files, INSERT own files (path must start with auth.uid()), UPDATE own files, DELETE own files.
 - KNOWN ISSUE: bucket creation SQL in the migration must be applied via Supabase SQL editor (psql \i does not execute storage DDL). If avatar upload returns "bucket not found", run the storage.buckets INSERT + CREATE POLICY statements manually. Verify with: SELECT id, name FROM storage.buckets WHERE id = 'avatars';
 
-PHASE 7 MILESTONE STATUS UPDATE:
+PHASE 7 MILESTONE STATUS UPDATE — ALL COMPLETE ✅:
 M1 — MFA / OTP Authentication ✅ COMPLETE (Day 1)
-M2 — Bulk CSV User Import 🔜 PLANNED
+M2 — Bulk CSV User Import ✅ COMPLETE — /invite/import; parse→preview→import→results; bulkImportUsers server action; nav item "Bulk Import"
 M3 — Invitation Pending Management ✅ COMPLETE (Day 1)
 M4 — Org Chart ✅ COMPLETE
 M5 — User Directory ✅ COMPLETE
 M6 — Enhanced User Profiles (avatar, job title, phone) ✅ COMPLETE — all three fields on /settings
-M7 — Department Management UI 🔜 PLANNED
+M7 — Department Management UI ✅ COMPLETE — /departments; full CRUD (create/rename/delete/reparent/set-head); 3-level depth guard; 7 components
 M8 — Guided Offboarding Wizard ✅ COMPLETE — multi-step dialog: overview→tasks→reports→depthead→deactivate
+
+PHASE 7 COMPLETE. Build: 29 routes, clean. Known open: avatar upload "bucket not found" (storage bucket SQL must be applied in Supabase dashboard); Google OAuth MFA enforcement deferred.
