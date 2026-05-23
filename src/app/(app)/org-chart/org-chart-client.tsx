@@ -5,6 +5,8 @@ import {
   ReactFlow,
   Background,
   Controls,
+  Handle,
+  Position,
   MarkerType,
   type NodeProps,
   type Node,
@@ -83,10 +85,14 @@ function getInitials(name: string | null, email: string): string {
   return email[0].toUpperCase()
 }
 
+const EDGE_COLOR = '#64748b' // slate-500 — visible on both light and dark
+
 function OrgNode({ data }: NodeProps) {
   const d = data as OrgNodeData
   return (
     <div className="w-48 rounded-xl border bg-card shadow-sm px-3 py-2.5 text-left select-none">
+      {/* Handles are required for edges to connect; hidden since chart is read-only */}
+      <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
       <div className="flex items-center gap-2.5">
         <div
           className={`flex items-center justify-center w-9 h-9 rounded-full font-semibold text-sm shrink-0 ${
@@ -125,6 +131,7 @@ function OrgNode({ data }: NodeProps) {
           </Badge>
         </div>
       </div>
+      <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
     </div>
   )
 }
@@ -228,9 +235,9 @@ export function OrgChartClient({ users, departments }: Props) {
             type: MarkerType.ArrowClosed,
             width: 12,
             height: 12,
-            color: 'hsl(var(--muted-foreground))',
+            color: EDGE_COLOR,
           },
-          style: { stroke: 'hsl(var(--muted-foreground))', strokeWidth: 1.5 },
+          style: { stroke: EDGE_COLOR, strokeWidth: 1.5 },
         })
       }
     })
