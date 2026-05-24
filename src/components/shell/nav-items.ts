@@ -14,6 +14,7 @@ import {
   Upload,
   Network,
   BookUser,
+  BarChart2,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -44,7 +45,22 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Flow Builder', href: '/flows', icon: GitBranch, adminOnly: true },
   { label: 'Instances', href: '/admin/instances', icon: List, adminOnly: true },
   { label: 'Audit Trail', href: '/admin/audit', icon: ScrollText, adminOnly: true },
-  { label: 'Departments', href: '/departments', icon: Building2, adminOnly: true },
+  // Departments group
+  {
+    label: 'Management',
+    href: '/departments',
+    icon: Building2,
+    adminOnly: true,
+    exact: true,
+    group: 'Departments',
+  },
+  {
+    label: 'Workload',
+    href: '/departments/workload',
+    icon: BarChart2,
+    adminOnly: true,
+    group: 'Departments',
+  },
   // Users group — admin sees management items, all users see Directory + Org Chart
   { label: 'Users', href: '/users', icon: Users, adminOnly: true, group: 'Users' },
   {

@@ -462,3 +462,43 @@ KNOWN GOTCHA — duplicate FieldRenderer: `StepFormModal.tsx` and
 `TaskDetailModal.tsx` each contain their own `FieldRenderer` function. Any new
 field type must be added to **both** files. Forgetting one causes the label to
 render but the input to be invisible (the bug that triggered this fix).
+
+25. PHASE 8 — DEPARTMENT MANAGEMENT IMPROVEMENTS (ROADMAP)
+    Theme: close the loop between org structure and live workflow activity —
+    making /departments a useful operational surface, not just a setup screen.
+
+M1 — Department Workload View ✅ COMPLETE
+
+- New route /departments/workload: server page showing pending steps, overdue,
+  due soon, and oldest pending age aggregated per department (independent, no
+  rollup). Hierarchy-aware display (indented sub-depts). Color coding matches
+  dashboard bottleneck table (red ≥ 5 / overdue, amber ≥ 3 / due soon,
+  7-day red alert on oldest).
+- Nav restructured: "Departments" is now a sidebar group (like "Users") with
+  two items — "Management" (/departments, exact match) and "Workload"
+  (/departments/workload). BarChart2 icon for Workload.
+
+M2 — Inline Member Management 🔜 PLANNED
+
+- Add a "Members" slide-in panel on /departments (click a row). Show department
+  members inline; add/remove users from the department without navigating to
+  each user's profile.
+
+M3 — Department Merge 🔜 PLANNED
+
+- "Merge into…" action: bulk-moves all users from dept A → dept B, updates
+  department head if applicable, then optionally deletes dept A. Same pattern
+  as bulkReassignTasks.
+
+M4 — Flow Trigger Restrictions by Department 🔜 PLANNED
+
+- Optional allowed_department_ids[] on a flow. When set, triggerFlow checks
+  the caller's department_id before creating the instance. Stored in flows
+  table (new nullable jsonb or text[] column). UI toggle in flow settings panel.
+
+M5 — Department-level SLA Defaults 🔜 PLANNED
+
+- Add default_sla_hours (nullable integer) to departments table. When a builder
+  picks a department-routed assignee rule (department_head, role_in_dept,
+  requester_dept_head), StepConfigPanel auto-fills the SLA field from the
+  department's default. Admin can still override per-step.
