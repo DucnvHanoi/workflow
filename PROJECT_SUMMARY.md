@@ -421,3 +421,44 @@ Commit `c9338e5` — 8 files, 678 insertions:
 Build status: 29 routes, clean. No lint warnings. Test suite: 41 passing, 2 pre-existing category-actions failures unchanged.
 
 Next phase TBD.
+
+24. BUG FIXES & FORM IMPROVEMENTS (2026-05-24)
+
+─── A. Notification bell redirect fix ───────────────────────────────────────
+
+Bug: clicking a notification in the bell dropdown did not navigate to the
+linked page. Root cause: `router.push()` in Next.js App Router is a soft
+(client-side) navigation that only re-renders the page segment — the layout
+(including `NotificationBell`) is not remounted, so the Radix `DropdownMenu`
+open state persisted across navigations, leaving the dropdown sitting on top
+of the new page and making it look like nothing happened.
+
+Fix (`src/components/shell/NotificationBell.tsx`): added controlled `open`
+state to `DropdownMenu`; `setOpen(false)` is called in `handleClick` before
+`router.push()` so the dropdown closes first and the navigation is visible.
+
+─── B. Long Text (textarea) form field type ─────────────────────────────────
+
+New `textarea` `FormFieldType` added alongside the existing `text` (short text).
+
+Builder changes:
+
+- `canvas-store.ts`: `FormFieldType` union extended with `'textarea'`.
+- `FormBuilderPanel.tsx`: new "Long Text" entry in the Add field dropdown;
+  existing "Text" renamed to "Short Text" for clarity.
+- `FormFieldRow.tsx`: badge label "Long Text", indigo color (`bg-indigo-100 text-indigo-700`).
+
+Runtime (step form) changes:
+
+- `StepFormModal.tsx` + `TaskDetailModal.tsx`: both files contain a `FieldRenderer`
+  copy. Both updated with an `AutoTextarea` component — `rows={5}` minimum,
+  auto-grows vertically via `scrollHeight` on every value change, `resize-none
+overflow-hidden`. Disabled state renders as a read-only textarea (same styling).
+- `instance-detail-client.tsx` + `TaskDetailModal.tsx` (`PreviousStepCard`):
+  textarea submitted values rendered with `whitespace-pre-wrap` so newlines
+  display correctly in read-only history views.
+
+KNOWN GOTCHA — duplicate FieldRenderer: `StepFormModal.tsx` and
+`TaskDetailModal.tsx` each contain their own `FieldRenderer` function. Any new
+field type must be added to **both** files. Forgetting one causes the label to
+render but the input to be invisible (the bug that triggered this fix).
