@@ -14,7 +14,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { bulkImportUsers, type BulkImportRow, type BulkImportResult } from '../actions'
 
-const TEMPLATE_CSV = `email,full_name,role\nalice@company.com,Alice Smith,user\nbob@company.com,Bob Jones,admin\n`
+const TEMPLATE_CSV = `email,full_name,role,password,invite\nalice@company.com,Alice Smith,user,TempPass123!,no\nbob@company.com,Bob Jones,admin,,yes\n`
 
 type Stage = 'idle' | 'preview' | 'results'
 
@@ -29,6 +29,8 @@ function parseCSV(text: string): { rows: BulkImportRow[]; errors: string[] } {
   const emailIdx = header.indexOf('email')
   const nameIdx = header.indexOf('full_name')
   const roleIdx = header.indexOf('role')
+  const passwordIdx = header.indexOf('password')
+  const inviteIdx = header.indexOf('invite')
 
   if (emailIdx === -1) return { rows: [], errors: ['CSV must have an "email" column.'] }
 
@@ -45,7 +47,10 @@ function parseCSV(text: string): { rows: BulkImportRow[]; errors: string[] } {
     const rawRole = roleIdx !== -1 ? cols[roleIdx]?.toLowerCase() : 'user'
     const role: 'admin' | 'user' = rawRole === 'admin' ? 'admin' : 'user'
     const full_name = nameIdx !== -1 ? cols[nameIdx] || undefined : undefined
-    rows.push({ email, role, full_name })
+    const password = passwordIdx !== -1 ? cols[passwordIdx] || undefined : undefined
+    const rawInvite = inviteIdx !== -1 ? cols[inviteIdx]?.toLowerCase() : ''
+    const invite = rawInvite === 'yes' || rawInvite === 'y'
+    rows.push({ email, role, full_name, password, invite })
   }
 
   return { rows, errors }
@@ -113,8 +118,9 @@ export function BulkImportClient() {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-muted-foreground">
-            Upload a CSV to create multiple users at once. Users are added immediately — no
-            invitation email is sent. They can set their password via &quot;Forgot password.&quot;
+            Upload a CSV to create multiple users at once. Set <strong>invite=yes</strong> to send
+            an invitation email, or <strong>invite=no</strong> to create users with a password
+            immediately.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={downloadTemplate}>
@@ -134,7 +140,7 @@ export function BulkImportClient() {
             Click to upload or drag a CSV file here
           </span>
           <span className="text-xs text-muted-foreground/60 mt-1">
-            Required column: email — Optional: full_name, role
+            Required: email — Optional: full_name, role, password, invite (yes/no)
           </span>
           <input
             id="csv-upload"
@@ -183,6 +189,8 @@ export function BulkImportClient() {
                   <TableHead>Email</TableHead>
                   <TableHead>Full Name</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Password</TableHead>
+                  <TableHead>Invite</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -197,11 +205,25 @@ export function BulkImportClient() {
                         {row.role}
                       </Badge>
                     </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {row.invite ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : row.password ? (
+                        '••••••••'
+                      ) : (
+                        <span className="text-destructive text-xs">missing</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={row.invite ? 'default' : 'outline'}>
+                        {row.invite ? 'invite' : 'password'}
+                      </Badge>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {preview.length > 50 && (
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
                       … and {preview.length - 50} more rows
                     </TableCell>
                   </TableRow>
@@ -243,7 +265,8 @@ export function BulkImportClient() {
                     <TableCell>
                       {row.success ? (
                         <span className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
-                          <CheckCircle2 className="h-4 w-4" /> Imported
+                          <CheckCircle2 className="h-4 w-4" />
+                          {row.invited ? 'Invite sent' : 'Created'}
                         </span>
                       ) : (
                         <span className="flex items-center gap-1.5 text-destructive text-sm font-medium">

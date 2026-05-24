@@ -10,8 +10,19 @@ import type { PendingInvitation } from './pending/pending-client'
 type InviteResult = { success: true; email: string } | { success: false; error: string }
 type ActionResult = { success: true } | { success: false; error: string }
 
-export type BulkImportRow = { email: string; full_name?: string; role: 'admin' | 'user' }
-export type BulkImportResult = { email: string; success: boolean; error?: string }
+export type BulkImportRow = {
+  email: string
+  full_name?: string
+  role: 'admin' | 'user'
+  password?: string
+  invite: boolean
+}
+export type BulkImportResult = {
+  email: string
+  success: boolean
+  error?: string
+  invited?: boolean
+}
 
 export async function bulkImportUsers(rows: BulkImportRow[]): Promise<BulkImportResult[]> {
   const { user, claims } = await getSessionClaims()
@@ -25,6 +36,12 @@ export async function bulkImportUsers(rows: BulkImportRow[]): Promise<BulkImport
   const MAX_ROWS = 100
   const batch = rows.slice(0, MAX_ROWS)
   const adminClient = createAdminClient()
+
+  // Fetch inviter + tenant name once for invite emails
+  const [{ data: inviter }, { data: tenant }] = await Promise.all([
+    adminClient.from('users').select('full_name, email').eq('id', user.id).single(),
+    adminClient.from('tenants').select('name').eq('id', claims.tenant_id).single(),
+  ])
 
   const results: BulkImportResult[] = []
 
@@ -46,45 +63,107 @@ export async function bulkImportUsers(rows: BulkImportRow[]): Promise<BulkImport
       continue
     }
 
-    // Create auth user — email confirmed, no password (user sets via forgot-password)
-    const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
-      email,
-      email_confirm: true,
-    })
-
-    if (authError || !authData.user) {
-      results.push({
+    if (row.invite) {
+      // Invite flow: generate magic link, send email, track in pending_invitations
+      const { data: inviteData, error: inviteError } = await adminClient.auth.admin.generateLink({
+        type: 'invite',
         email,
-        success: false,
-        error: authError?.message ?? 'Failed to create auth user.',
+        options: { redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/confirm` },
       })
-      continue
-    }
 
-    // Insert into public.users
-    const { error: insertError } = await adminClient.from('users').insert({
-      id: authData.user.id,
-      tenant_id: claims.tenant_id,
-      email,
-      role,
-      ...(fullName ? { full_name: fullName } : {}),
-    })
+      if (inviteError || !inviteData?.user) {
+        results.push({
+          email,
+          success: false,
+          error: inviteError?.message ?? 'Failed to generate invite link.',
+        })
+        continue
+      }
 
-    if (insertError) {
-      // Roll back auth user to keep things consistent
-      await adminClient.auth.admin.deleteUser(authData.user.id)
-      results.push({
+      const { error: insertError } = await adminClient.from('users').insert({
+        id: inviteData.user.id,
+        tenant_id: claims.tenant_id,
         email,
-        success: false,
-        error: 'Failed to create user record: ' + insertError.message,
+        role,
+        ...(fullName ? { full_name: fullName } : {}),
       })
-      continue
-    }
 
-    results.push({ email, success: true })
+      if (insertError) {
+        results.push({
+          email,
+          success: false,
+          error: 'Failed to create user record: ' + insertError.message,
+        })
+        continue
+      }
+
+      // Track in pending_invitations (non-fatal)
+      await adminClient.from('pending_invitations').insert({
+        tenant_id: claims.tenant_id,
+        email,
+        invited_by: user.id,
+        user_id: inviteData.user.id,
+      })
+
+      void sendInviteEmail({
+        tenantId: claims.tenant_id,
+        inviteeEmail: email,
+        inviterName: inviter?.full_name ?? inviter?.email ?? 'Your admin',
+        tenantName: tenant?.name ?? 'your team',
+        actionLink: inviteData.properties.action_link,
+      })
+
+      results.push({ email, success: true, invited: true })
+    } else {
+      // Password flow: create user with the provided password
+      if (!row.password?.trim()) {
+        results.push({
+          email,
+          success: false,
+          error: 'Password is required when invite is "no".',
+        })
+        continue
+      }
+
+      const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
+        email,
+        password: row.password.trim(),
+        email_confirm: true,
+      })
+
+      if (authError || !authData.user) {
+        results.push({
+          email,
+          success: false,
+          error: authError?.message ?? 'Failed to create auth user.',
+        })
+        continue
+      }
+
+      const { error: insertError } = await adminClient.from('users').insert({
+        id: authData.user.id,
+        tenant_id: claims.tenant_id,
+        email,
+        role,
+        ...(fullName ? { full_name: fullName } : {}),
+      })
+
+      if (insertError) {
+        await adminClient.auth.admin.deleteUser(authData.user.id)
+        results.push({
+          email,
+          success: false,
+          error: 'Failed to create user record: ' + insertError.message,
+        })
+        continue
+      }
+
+      results.push({ email, success: true, invited: false })
+    }
   }
 
   revalidatePath('/users')
+  revalidatePath('/invite/pending')
   return results
 }
 

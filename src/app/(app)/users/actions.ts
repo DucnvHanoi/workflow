@@ -279,6 +279,88 @@ export async function removeDeptHeadRoles(targetUserId: string): Promise<void> {
   revalidatePath('/users')
 }
 
+export async function getUsersDeleteImpact(userIds: string[]): Promise<{
+  pendingTasks: number
+  directReports: number
+  deptHeadRoles: number
+  activeFlows: number
+}> {
+  const { user, claims } = await getSessionClaims()
+  if (!user || claims.role !== 'admin') throw new Error('Unauthorized')
+
+  const adminClient = createAdminClient()
+
+  const [
+    { count: pendingTasks },
+    { count: directReports },
+    { count: deptHeadRoles },
+    { count: activeFlows },
+  ] = await Promise.all([
+    adminClient
+      .from('step_instances')
+      .select('id', { count: 'exact', head: true })
+      .in('assigned_to', userIds)
+      .eq('status', 'pending'),
+    adminClient
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .in('manager_id', userIds)
+      .eq('tenant_id', claims.tenant_id),
+    adminClient
+      .from('departments')
+      .select('id', { count: 'exact', head: true })
+      .in('head_user_id', userIds)
+      .eq('tenant_id', claims.tenant_id),
+    adminClient
+      .from('flow_instances')
+      .select('id', { count: 'exact', head: true })
+      .in('triggered_by', userIds)
+      .eq('status', 'pending'),
+  ])
+
+  return {
+    pendingTasks: pendingTasks ?? 0,
+    directReports: directReports ?? 0,
+    deptHeadRoles: deptHeadRoles ?? 0,
+    activeFlows: activeFlows ?? 0,
+  }
+}
+
+export async function deleteUsers(
+  userIds: string[]
+): Promise<{ deleted: number; skipped: number }> {
+  const { user, claims } = await getSessionClaims()
+  if (!user || claims.role !== 'admin') throw new Error('Unauthorized')
+
+  const adminClient = createAdminClient()
+
+  // Verify all targets belong to this tenant
+  const { data: tenantUsers } = await adminClient
+    .from('users')
+    .select('id')
+    .in('id', userIds)
+    .eq('tenant_id', claims.tenant_id)
+
+  const validIds = new Set((tenantUsers ?? []).map((u) => u.id as string))
+
+  let deleted = 0
+  let skipped = 0
+
+  for (const id of userIds) {
+    if (id === user.id || !validIds.has(id)) {
+      skipped++
+      continue
+    }
+    const { error } = await adminClient.auth.admin.deleteUser(id)
+    if (!error) deleted++
+    else skipped++
+  }
+
+  revalidatePath('/users')
+  revalidatePath('/org-chart')
+  return { deleted, skipped }
+}
+
 export async function updateUserDepartment(targetUserId: string, departmentId: string | null) {
   const { user, claims } = await getSessionClaims()
   if (!user || claims.role !== 'admin') throw new Error('Unauthorized')

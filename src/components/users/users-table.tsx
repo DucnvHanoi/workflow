@@ -9,6 +9,7 @@ import {
   flexRender,
   type ColumnDef,
   type SortingState,
+  type RowSelectionState,
 } from '@tanstack/react-table'
 import {
   Table,
@@ -18,9 +19,23 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Trash2, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { UserActions } from './user-actions'
+import { deleteUsers, getUsersDeleteImpact } from '@/app/(app)/users/actions'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,7 +49,7 @@ export type UserRow = {
   department_id: string | null
   departments: { id: string; name: string } | null
   manager: { id: string; full_name: string | null; email: string } | null
-  headOf: string | null // department name this user heads; null if not a head
+  headOf: string | null
   avatar_url: string | null
 }
 
@@ -60,9 +75,71 @@ function formatDate(iso: string) {
 export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: UsersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [loadingImpact, setLoadingImpact] = useState(false)
+  const [impact, setImpact] = useState<{
+    pendingTasks: number
+    directReports: number
+    deptHeadRoles: number
+    activeFlows: number
+  } | null>(null)
+
+  const selectedIds = Object.keys(rowSelection).filter((id) => rowSelection[id])
+
+  async function handleOpenDelete() {
+    setLoadingImpact(true)
+    try {
+      const data = await getUsersDeleteImpact(selectedIds)
+      setImpact(data)
+      setDeleteOpen(true)
+    } catch {
+      toast.error('Could not load impact data')
+    } finally {
+      setLoadingImpact(false)
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      const { deleted } = await deleteUsers(selectedIds)
+      toast.success(`Deleted ${deleted} user${deleted !== 1 ? 's' : ''}`)
+      setRowSelection({})
+      setImpact(null)
+      setDeleteOpen(false)
+    } catch {
+      toast.error('Failed to delete selected users')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const columns = useMemo<ColumnDef<UserRow>[]>(
     () => [
+      {
+        id: 'select',
+        header: ({ table }) => (
+          <input
+            type="checkbox"
+            className="h-4 w-4 cursor-pointer accent-primary"
+            checked={table.getIsAllPageRowsSelected()}
+            onChange={table.getToggleAllPageRowsSelectedHandler()}
+            title="Select all"
+          />
+        ),
+        cell: ({ row }) => (
+          <input
+            type="checkbox"
+            className="h-4 w-4 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-30"
+            checked={row.getIsSelected()}
+            disabled={!row.getCanSelect()}
+            onChange={row.getToggleSelectedHandler()}
+          />
+        ),
+        enableSorting: false,
+      },
       {
         accessorKey: 'full_name',
         header: 'Name',
@@ -180,9 +257,12 @@ export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: Us
   const table = useReactTable({
     data: rows,
     columns,
-    state: { sorting, globalFilter },
+    getRowId: (row) => row.id,
+    enableRowSelection: (row) => row.original.id !== currentUserId,
+    state: { sorting, globalFilter, rowSelection },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
+    onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -190,12 +270,108 @@ export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: Us
 
   return (
     <div className="space-y-4">
-      <Input
-        placeholder="Search by name or email…"
-        value={globalFilter}
-        onChange={(e) => setGlobalFilter(e.target.value)}
-        className="max-w-sm"
-      />
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3">
+        <Input
+          placeholder="Search by name or email…"
+          value={globalFilter}
+          onChange={(e) => setGlobalFilter(e.target.value)}
+          className="max-w-sm"
+        />
+
+        {selectedIds.length > 0 && (
+          <>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleOpenDelete}
+              disabled={loadingImpact}
+            >
+              {loadingImpact ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-1.5" />
+              )}
+              Delete {selectedIds.length} selected
+            </Button>
+
+            <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Delete {selectedIds.length} user{selectedIds.length !== 1 ? 's' : ''}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently removes the selected user
+                    {selectedIds.length !== 1 ? 's' : ''} and their login access. This cannot be
+                    undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+
+                {/* Impact summary */}
+                {impact && (
+                  <>
+                    {impact.pendingTasks > 0 ||
+                    impact.activeFlows > 0 ||
+                    impact.directReports > 0 ||
+                    impact.deptHeadRoles > 0 ? (
+                      <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2.5 space-y-1.5 text-sm">
+                        <p className="font-medium text-amber-800 flex items-center gap-1.5">
+                          <AlertTriangle className="h-4 w-4 shrink-0" />
+                          The following will be affected:
+                        </p>
+                        {impact.pendingTasks > 0 && (
+                          <p className="text-amber-700 pl-5">
+                            • {impact.pendingTasks} pending task
+                            {impact.pendingTasks !== 1 ? 's' : ''} will become unassigned and stall
+                          </p>
+                        )}
+                        {impact.activeFlows > 0 && (
+                          <p className="text-amber-700 pl-5">
+                            • {impact.activeFlows} active flow
+                            {impact.activeFlows !== 1 ? 's' : ''} they triggered are still in
+                            progress
+                          </p>
+                        )}
+                        {impact.directReports > 0 && (
+                          <p className="text-amber-700 pl-5">
+                            • {impact.directReports} direct report
+                            {impact.directReports !== 1 ? 's' : ''} will have no manager
+                          </p>
+                        )}
+                        {impact.deptHeadRoles > 0 && (
+                          <p className="text-amber-700 pl-5">
+                            • {impact.deptHeadRoles} department
+                            {impact.deptHeadRoles !== 1 ? 's' : ''} will lose their head
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rounded-md bg-green-50 border border-green-200 px-3 py-2.5 text-sm text-green-700 flex items-center gap-1.5">
+                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                        No pending tasks, active flows, direct reports, or dept head roles — safe to
+                        delete.
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                  >
+                    {deleting && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        )}
+      </div>
 
       <div className="rounded-md border">
         <Table>
@@ -242,6 +418,7 @@ export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: Us
                 <TableRow
                   key={row.id}
                   className={!row.original.is_active ? 'opacity-60' : undefined}
+                  data-state={row.getIsSelected() ? 'selected' : undefined}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>

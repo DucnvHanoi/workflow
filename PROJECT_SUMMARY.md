@@ -324,7 +324,7 @@ Enhanced User Profiles — avatar upload (migration 20260523200000_add_profile_f
 
 - Adds avatar_url (text nullable) to users table.
 - Defines avatars storage bucket (private) + 4 RLS policies on storage.objects: SELECT own files, INSERT own files (path must start with auth.uid()), UPDATE own files, DELETE own files.
-- KNOWN ISSUE: bucket creation SQL in the migration must be applied via Supabase SQL editor (psql \i does not execute storage DDL). If avatar upload returns "bucket not found", run the storage.buckets INSERT + CREATE POLICY statements manually. Verify with: SELECT id, name FROM storage.buckets WHERE id = 'avatars';
+- Storage bucket `avatars` is active; avatar upload, display in users list, org chart, and directory confirmed working.
 
 PHASE 7 MILESTONE STATUS UPDATE — ALL COMPLETE ✅:
 M1 — MFA / OTP Authentication ✅ COMPLETE (Day 1)
@@ -336,4 +336,66 @@ M6 — Enhanced User Profiles (avatar, job title, phone) ✅ COMPLETE — all th
 M7 — Department Management UI ✅ COMPLETE — /departments; full CRUD (create/rename/delete/reparent/set-head); 3-level depth guard; 7 components
 M8 — Guided Offboarding Wizard ✅ COMPLETE — multi-step dialog: overview→tasks→reports→depthead→deactivate
 
-PHASE 7 COMPLETE. Build: 29 routes, clean. Known open: avatar upload "bucket not found" (storage bucket SQL must be applied in Supabase dashboard); Google OAuth MFA enforcement deferred.
+PHASE 7 COMPLETE. Build: 29 routes, clean. Known open: Google OAuth MFA enforcement deferred (OAuth returns aal1 regardless of enrolled TOTP; AAL check in /auth/callback needed for full enforcement).
+
+22. POST-PHASE 7 — USER MANAGEMENT IMPROVEMENTS (CURRENT SESSION)
+    `npm run build` passes clean (29 routes). Three independent improvements shipped.
+
+─── A. Bulk CSV Import — password & invite columns ───────────────────────────
+
+CSV template updated from `email,full_name,role` to `email,full_name,role,password,invite`.
+
+Two creation paths in `bulkImportUsers` (src/app/(app)/invite/actions.ts):
+
+- `invite=yes` → generates a Supabase magic invite link, sends the invite email via Resend, inserts a `pending_invitations` row (user appears on /invite/pending for tracking), password column ignored.
+- `invite=no` → creates user immediately with the provided password (`email_confirm: true`). Password is required; missing password returns a row-level error without aborting the rest of the batch.
+
+`BulkImportRow` type extended: `password?: string`, `invite: boolean`.
+`BulkImportResult` type extended: `invited?: boolean` (true = invite sent, false = created with password).
+
+Preview table gains Password (masked as ••••••••) and Invite (badge) columns. Rows with invite=no and no password show a red "missing" warning in the preview so admin catches errors before importing. Results table shows "Invite sent" vs "Created" in the status column. Description text and upload-zone hint updated. `revalidatePath('/invite/pending')` added so bulk-invited users appear immediately on the pending list.
+
+─── B. Bulk user delete with checkbox selection ──────────────────────────────
+
+`users-table.tsx` (src/components/users/users-table.tsx):
+
+- First column is a checkbox using TanStack Table row selection (`getRowId: row => row.id`, `enableRowSelection: row => row.id !== currentUserId`). Native `<input type="checkbox">` with Tailwind styling (no new Radix dependency needed).
+- "Select all" checkbox in the header. Own row's checkbox is always disabled.
+- When ≥ 1 row is selected, a "Delete N selected" destructive button appears in the toolbar.
+- Clicking the button first fetches impact data (see §C), then opens an AlertDialog showing the impact summary. Confirming calls `deleteUsers`.
+- Selected rows get `data-state=selected` highlight.
+
+`deleteUsers(userIds)` server action (src/app/(app)/users/actions.ts):
+
+- Admin-only + tenant-scoped: verifies all targets belong to the caller's tenant before deleting.
+- Silently skips the caller's own ID (cannot delete yourself).
+- Calls `auth.admin.deleteUser(id)` per user; revalidates `/users` and `/org-chart`.
+- Returns `{ deleted, skipped }`.
+
+─── C. Pre-delete impact warning ─────────────────────────────────────────────
+
+`getUsersDeleteImpact(userIds)` server action (src/app/(app)/users/actions.ts):
+
+- Four parallel `count` queries: pending step_instances (`assigned_to IN userIds, status=pending`), direct reports (`manager_id IN userIds`), dept head roles (`head_user_id IN userIds`), active flow instances (`triggered_by IN userIds, status=pending`).
+- Returns `{ pendingTasks, directReports, deptHeadRoles, activeFlows }`.
+
+Delete dialog renders one of two states:
+
+- **Amber warning box** listing every non-zero impact item with plain-English descriptions (e.g. "3 pending tasks will become unassigned and stall").
+- **Green safe-to-delete box** when all counts are zero.
+- Delete is not blocked — the dialog informs rather than prevents, so admins can still remove test/duplicate accounts even if they have incidental data.
+
+─── D. DB bug fix — flow_instances.triggered_by NOT NULL ─────────────────────
+
+Bug: `auth.admin.deleteUser()` was silently failing for users who had ever triggered a flow. Root cause found via Supabase auth logs:
+
+`ERROR: null value in column "triggered_by" of relation "flow_instances" violates not-null constraint (SQLSTATE 23502)`
+
+The FK on `flow_instances.triggered_by` was `ON DELETE SET NULL`, but the column was declared `NOT NULL`. When Supabase Auth deleted the auth.users row, Postgres tried to null out the `triggered_by` references and hit the column constraint, rolling back the entire delete.
+
+Fix: migration `20260523210000_fix_flow_instances_triggered_by_nullable.sql`:
+`ALTER TABLE public.flow_instances ALTER COLUMN triggered_by DROP NOT NULL;`
+
+Applied to remote DB via Supabase MCP. Local migration file created. All other SET NULL FK columns (`step_instances.assigned_to`, `flow_event_logs.actor_id`, `audit_log.actor_id`, `users.manager_id`) were verified already nullable — only `triggered_by` was affected.
+
+KNOWN GOTCHA — SET NULL FKs require nullable columns: Any FK declared `ON DELETE SET NULL` must have the column itself declared as nullable (`ALTER COLUMN ... DROP NOT NULL`). Mismatch causes silent delete failures at the auth layer that are only visible in Supabase auth service logs, not in PostgREST error responses.

@@ -68,23 +68,36 @@ describe('category-actions — auth gates', () => {
       claims: { tenant_id: null, role: null },
     })
 
-    expect((await getCategories()).error).toBe('Unauthenticated')
+    // getCategories() returns empty silently for unauthenticated callers — intentional,
+    // it is used on the /flows server page before auth resolves.
+    expect((await getCategories()).error).toBeNull()
+    expect((await getCategories()).categories).toEqual([])
+
+    // All mutation actions must reject unauthenticated callers.
     expect((await createCategory('x')).error).toBe('Unauthenticated')
     expect((await renameCategory('c1', 'x')).error).toBe('Unauthenticated')
     expect((await updateCategory('c1', 'x', '#fff')).error).toBe('Unauthenticated')
     expect((await deleteCategory('c1')).error).toBe('Unauthenticated')
     expect((await updateFlowCategory('f1', null)).error).toBe('Unauthenticated')
 
+    // requireAdmin() returns before constructing the admin client on auth failure.
     expect(mockCreateAdminClient).not.toHaveBeenCalled()
   })
 
-  it('rejects non-admin role', async () => {
+  it('rejects non-admin role for mutations', async () => {
     mockGetSessionClaims.mockResolvedValue({
       user: { id: 'u1', email: 'u@test.com' },
       claims: { tenant_id: 't1', role: 'user' },
     })
 
-    expect((await getCategories()).error).toBe('Unauthorized')
+    // Mutation actions require admin — all must reject with 'Unauthorized'.
+    expect((await createCategory('x')).error).toBe('Unauthorized')
+    expect((await renameCategory('c1', 'x')).error).toBe('Unauthorized')
+    expect((await updateCategory('c1', 'x', '#fff')).error).toBe('Unauthorized')
+    expect((await deleteCategory('c1')).error).toBe('Unauthorized')
+    expect((await updateFlowCategory('f1', null)).error).toBe('Unauthorized')
+
+    // requireAdmin() returns before constructing the admin client on role failure.
     expect(mockCreateAdminClient).not.toHaveBeenCalled()
   })
 
