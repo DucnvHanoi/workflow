@@ -11,7 +11,7 @@
 // Fetches task context (timeline + previous data) via getTaskContext() on open.
 // On submit, calls submitStep() + onSubmitted() so tasks-client.tsx can refresh.
 
-import { useState, useEffect, useTransition } from 'react'
+import { useState, useEffect, useRef, useTransition } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -508,7 +508,13 @@ function PreviousStepCard({ step }: { step: PreviousStepData }) {
                   {f.fieldLabel}
                 </dt>
                 <dd className="flex-1 break-words text-foreground">
-                  {f.fieldType === 'file' ? <FilePaths value={f.value} /> : f.value}
+                  {f.fieldType === 'file' ? (
+                    <FilePaths value={f.value} />
+                  ) : f.fieldType === 'textarea' ? (
+                    <span className="whitespace-pre-wrap">{f.value}</span>
+                  ) : (
+                    f.value
+                  )}
                 </dd>
               </div>
             ))}
@@ -614,7 +620,45 @@ const EVENT_CONFIG: Record<FlowEventLog['eventType'], EventConfig> = {
   flow_cancelled: { Icon: BanIcon, iconColor: 'text-zinc-500', dotColor: 'bg-zinc-400' },
 }
 
-// ─── FieldRenderer (identical to StepFormModal) ───────────────────────────────
+// ─── AutoTextarea ─────────────────────────────────────────────────────────────
+
+function AutoTextarea({
+  id,
+  value,
+  onChange,
+  disabled,
+  className,
+}: {
+  id: string
+  value: string
+  onChange: (val: string) => void
+  disabled: boolean
+  className?: string
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+
+  return (
+    <textarea
+      ref={ref}
+      id={id}
+      value={value}
+      rows={5}
+      disabled={disabled}
+      placeholder="Enter your answer…"
+      onChange={(e) => onChange(e.target.value)}
+      className={`flex w-full rounded-md border bg-background px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none overflow-hidden ${className ?? ''}`}
+    />
+  )
+}
+
+// ─── FieldRenderer ────────────────────────────────────────────────────────────
 
 function FieldRenderer({
   field,
@@ -652,6 +696,16 @@ function FieldRenderer({
           disabled={disabled}
           placeholder="Enter your answer…"
           className={error ? 'border-destructive' : ''}
+        />
+      )}
+
+      {field.type === 'textarea' && (
+        <AutoTextarea
+          id={`field-${field.id}`}
+          value={typeof value === 'string' ? value : ''}
+          onChange={onChange}
+          disabled={disabled}
+          className={error ? 'border-destructive' : 'border-input'}
         />
       )}
 
