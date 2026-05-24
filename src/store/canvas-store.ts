@@ -16,7 +16,14 @@ import { saveDraftVersion, updateDraftGraph } from '@/lib/flows/actions'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type FormFieldType = 'text' | 'dropdown' | 'radio' | 'checkbox' | 'file' | 'date'
+export type FormFieldType =
+  | 'text'
+  | 'textarea'
+  | 'dropdown'
+  | 'radio'
+  | 'checkbox'
+  | 'file'
+  | 'date'
 
 export interface FormField {
   id: string

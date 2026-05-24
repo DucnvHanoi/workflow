@@ -31,7 +31,8 @@ interface FormBuilderPanelProps {
 // ─── Add-field menu options ───────────────────────────────────────────────────
 
 const FIELD_TYPES: { type: FormFieldType; label: string; description: string }[] = [
-  { type: 'text', label: 'Text', description: 'Single-line or multi-line text input' },
+  { type: 'text', label: 'Short Text', description: 'Single-line text input' },
+  { type: 'textarea', label: 'Long Text', description: 'Multi-line text area (auto-grows)' },
   { type: 'dropdown', label: 'Dropdown', description: 'Select one from a list' },
   { type: 'radio', label: 'Radio', description: 'Pick one from visible options' },
   { type: 'checkbox', label: 'Checkbox', description: 'One or more selections' },
