@@ -399,3 +399,25 @@ Fix: migration `20260523210000_fix_flow_instances_triggered_by_nullable.sql`:
 Applied to remote DB via Supabase MCP. Local migration file created. All other SET NULL FK columns (`step_instances.assigned_to`, `flow_event_logs.actor_id`, `audit_log.actor_id`, `users.manager_id`) were verified already nullable — only `triggered_by` was affected.
 
 KNOWN GOTCHA — SET NULL FKs require nullable columns: Any FK declared `ON DELETE SET NULL` must have the column itself declared as nullable (`ALTER COLUMN ... DROP NOT NULL`). Mismatch causes silent delete failures at the auth layer that are only visible in Supabase auth service logs, not in PostgREST error responses.
+
+23. SESSION — POST-PHASE 7 COMMIT & BUILD SIGN-OFF (2026-05-24)
+    Reviewed Phase 7 completion (all 8 milestones ✅). Verified post-Phase 7 work (§22) was uncommitted; ran build, fixed lint, committed.
+
+Lint fix — `users-table.tsx`:
+
+- Removed unused `AlertDialogTrigger` import (imported but never used in JSX after the delete dialog was wired through a state flag rather than a Trigger wrapper). ESLint `no-unused-vars` flagged it as a hard warning.
+
+Commit `c9338e5` — 8 files, 678 insertions:
+
+- `src/app/(app)/invite/actions.ts` — bulkImportUsers two-path logic (invite vs password)
+- `src/app/(app)/invite/import/import-client.tsx` — preview/results UI for password + invite columns
+- `src/app/(app)/users/actions.ts` — deleteUsers + getUsersDeleteImpact server actions
+- `src/components/users/users-table.tsx` — checkbox row selection + delete toolbar + lint fix
+- `src/lib/flows/category-actions.test.ts` — pre-existing test file (minor touch)
+- `scripts/verify-bulk-import.mjs` — new one-shot verification script for bulk import email flow
+- `supabase/migrations/20260523210000_fix_flow_instances_triggered_by_nullable.sql` — triggered_by nullable fix
+- `PROJECT_SUMMARY.md` — §22 docs
+
+Build status: 29 routes, clean. No lint warnings. Test suite: 41 passing, 2 pre-existing category-actions failures unchanged.
+
+Next phase TBD.
