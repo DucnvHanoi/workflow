@@ -514,21 +514,9 @@ M4 — Flow Trigger Restrictions by Department ✅ COMPLETE
     All AI calls must go through server actions or API routes — never from the browser.
     Use claude-sonnet-4-6 as the default model (best price/quality balance).
 
-M1 — AI Flow Builder 🔜 PLANNED
+M1 — AI Flow Builder ✅ COMPLETE
 
-    Highest-impact feature. User types a plain-English description of the workflow
-    they need ("3-step expense approval: employee submits, manager approves, finance
-    confirms") and Claude generates a complete draft graph (nodes, edges, form fields,
-    assignee rules) ready to edit on the canvas.
-
-    Implementation sketch:
-    - "Generate with AI" button in NodeToolbar (or on the empty canvas state).
-    - Server action generateFlowFromDescription(description, flowId) in
-      src/lib/ai/flow-builder.ts — calls Claude API with a system prompt that
-      includes the NodeData + Edge schema and returns a SerializedGraph JSON.
-    - On success: deserializeGraph() the result and setState into the canvas store,
-      then triggerSave() to persist as a draft version.
-    - Model: claude-sonnet-4-6. Typical call: ~3k tokens (~$0.00002).
+    See §27 for full implementation notes and bug-fix history.
 
 M2 — Smart Form Field Suggestions 🔜 PLANNED
 
@@ -593,3 +581,102 @@ M5 — SLA Suggestions from History 🔜 PLANNED
 
     PREREQUISITE: meaningful step_instances history in the tenant (suggestion
     skipped / hidden when fewer than 10 comparable historical steps exist).
+
+27. PHASE 9 M1 — AI FLOW BUILDER (COMPLETE ✅)
+    `npm run build` passes clean. Committed across 5 incremental commits on master.
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+Two modes are available from the AI button (Sparkles/violet) in NodeToolbar:
+
+- Generate (replace): describe a new workflow in plain English → Claude returns
+  a complete SerializedGraph (nodes, edges, form fields, assignee rules) which
+  replaces the current canvas and is saved as a new draft version.
+- Modify (existing): describe a change to the current flow → Claude receives the
+  full current graph as compact JSON and returns the updated graph. Only shown
+  when the canvas already has nodes.
+
+─── Files ────────────────────────────────────────────────────────────────────
+
+src/lib/ai/flow-builder.ts (new — 'use server')
+
+- Anthropic client instantiated once at module level (reads ANTHROPIC_API_KEY).
+- SYSTEM_PROMPT: strict schema spec for generate mode — one trigger, one
+  complete, action/branch rules, AssigneeRule options, BranchCondition rules,
+  layout rules. Ends with hard JSON-only instruction.
+- MODIFY_SYSTEM_PROMPT: same schema reference + 7 modification rules (preserve
+  ids, keep trigger/complete, maintain connectivity). Hard JSON-only instruction.
+- callClaude(systemPrompt, userContent, maxTokens): shared helper. Strips
+  code fences (`json ... `) from model output, guards that response starts
+  with '{', parses JSON, validates nodes/edges arrays.
+- generateFlowFromDescription(description): admin auth gate + callClaude with
+  SYSTEM_PROMPT, 4096 output tokens.
+- modifyFlowFromDescription(instruction, currentGraph): admin auth gate +
+  builds userContent as "EXISTING GRAPH:\n{compact JSON}\n\nMODIFICATION
+  INSTRUCTION:\n..." + callClaude with MODIFY_SYSTEM_PROMPT, 8192 output tokens
+  (modified graphs can be larger than generated ones).
+
+src/components/canvas/AiFlowGeneratorDialog.tsx (new)
+
+- Mode toggle (Modify existing / Replace with new) — only shown when canvas
+  has existing nodes; defaults to generate when canvas is empty.
+- Amber warning when in generate mode with existing nodes (canvas will be
+  replaced).
+- Textarea placeholder text differs by mode. Character counter.
+- Generate button disabled until description.trim().length ≥ 10.
+- Error surface: red alert box using destructive/30 border + AlertTriangle.
+
+src/components/canvas/NodeToolbar.tsx
+
+- Violet "AI" button (Sparkles icon) with onAiClick prop wired to open dialog.
+
+src/components/canvas/FlowCanvas.tsx
+
+- aiDialogOpen state + setAiDialogOpen.
+- AiFlowGeneratorDialog wired with hasExistingNodes={nodes.length > 0} and
+  currentGraph={serializeGraph(nodes, edges)}.
+- handleGraphGenerated: deserializeGraph → setState(nodes, edges) → triggerSave.
+
+─── Bug fixes encountered during M1 development ──────────────────────────────
+
+1. Markdown code fences in response (SyntaxError: Unexpected token '`'):
+   Model returned `json ... ` despite the system prompt instruction.
+   Fix: strip with /^`(?:json)?\s*/i ... /\s*`$/ before JSON.parse.
+
+2. Plain-text refusal (SyntaxError: Unexpected token 'I', "I don't se..."):
+   Triggered when the prompt was judged ambiguous; model responded in English
+   instead of JSON. Fix: !cleaned.startsWith('{') guard returns a friendly
+   error; strengthened system prompt to say "make reasonable assumptions and
+   still output valid JSON."
+
+3. Assistant prefill 400 (invalid_request_error — "This model does not support
+   assistant message prefill. The conversation must end with a user message."):
+   An attempt to force JSON by appending { role: 'assistant', content: '{' }
+   to the messages array failed because claude-sonnet-4-6 does not support
+   assistant prefill. Fix: removed the prefill entirely; reverted to the
+   instruction-only + code-fence-strip approach.
+
+4. Modify mode 400 (compact JSON + token budget):
+   First attempt at modify mode sent a large pretty-printed graph and hit
+   token/request limits. Fix: JSON.stringify(currentGraph) (compact, no
+   pretty-print) and raised max_tokens to 8192 for the modify call.
+
+5. ANTHROPIC_API_KEY not set in production:
+   "Could not resolve authentication method" error in Vercel logs. Fix: add
+   ANTHROPIC_API_KEY to Vercel environment variables.
+
+─── KNOWN GOTCHA — claude-sonnet-4-6 and assistant prefill ──────────────────
+
+claude-sonnet-4-6 does NOT support the assistant message prefill technique
+({ role: 'assistant', content: '...' } as the last message). The API returns
+400 immediately. Rely on system prompt instructions + response post-processing
+(code-fence stripping, startsWith guard) instead.
+
+─── Assignee rule mapping ────────────────────────────────────────────────────
+
+The system prompt lists 5 AssigneeRule options and instructs Claude to pick
+the best match from the description:
+requester | manager_of_requestor | skip_level | requester_dept_head
+| fixed (only when an email address is explicitly mentioned)
+Results are noticeably better when the description mentions roles explicitly
+(e.g. "assigned to the requester's manager") vs. generic "step 2 approval".
