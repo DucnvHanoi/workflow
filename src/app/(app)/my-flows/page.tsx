@@ -3,23 +3,18 @@
 // Both admins and regular users can access this page.
 
 import { getMyInstances } from '@/lib/flows/actions'
-import { getAvailableFlowSummaries } from '@/lib/ai/trigger-assistant'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { redirect } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import { ArrowRightIcon, InboxIcon } from 'lucide-react'
-import { FlowTriggerAssistant } from '@/components/my-flows/FlowTriggerAssistant'
 
 export default async function MyFlowsPage() {
   const { user } = await getSessionClaims()
   if (!user) redirect('/login')
 
-  const [{ instances, error }, { summaries }] = await Promise.all([
-    getMyInstances(),
-    getAvailableFlowSummaries(),
-  ])
+  const { instances, error } = await getMyInstances()
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -30,9 +25,6 @@ export default async function MyFlowsPage() {
           Flows you have started and their current status
         </p>
       </div>
-
-      {/* ── AI flow trigger assistant ── */}
-      <FlowTriggerAssistant flows={summaries} />
 
       {error && (
         <div className="mb-4 rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">

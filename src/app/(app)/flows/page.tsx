@@ -6,11 +6,13 @@
 import { createFlow } from '@/app/(app)/flows/actions'
 import { getFlows } from '@/lib/flows/actions'
 import { getCategories } from '@/lib/flows/category-actions'
+import { getAvailableFlowSummaries } from '@/lib/ai/trigger-assistant'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { redirect } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { PlusIcon } from 'lucide-react'
 import { FlowsClient } from '@/components/flows/flows-client'
+import { FlowTriggerAssistant } from '@/components/my-flows/FlowTriggerAssistant'
 
 export default async function FlowsPage() {
   const { user, claims } = await getSessionClaims()
@@ -18,11 +20,9 @@ export default async function FlowsPage() {
 
   const isAdmin = claims.role === 'admin'
 
-  // Parallel fetch — flows and categories in one round-trip pair
-  const [{ flows, error: flowsError }, { categories, error: catsError }] = await Promise.all([
-    getFlows(),
-    getCategories(),
-  ])
+  // Parallel fetch — flows, categories, and AI summaries in one round-trip
+  const [{ flows, error: flowsError }, { categories, error: catsError }, { summaries }] =
+    await Promise.all([getFlows(), getCategories(), getAvailableFlowSummaries()])
 
   const error = flowsError ?? catsError
 
@@ -51,6 +51,9 @@ export default async function FlowsPage() {
           {error}
         </div>
       )}
+
+      {/* ── AI trigger assistant — non-admins only ── */}
+      {!isAdmin && <FlowTriggerAssistant flows={summaries} />}
 
       {/* ── Client component handles search + filtering ── */}
       <FlowsClient
