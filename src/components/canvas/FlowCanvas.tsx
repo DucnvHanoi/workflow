@@ -21,8 +21,9 @@ import {
 import { useCanvasStore } from '@/store/canvas-store'
 import type { TenantUser, TenantDepartment } from '@/store/canvas-store'
 import type { Node, Edge } from '@xyflow/react'
-import { deserializeGraph } from '@/lib/flows/graph'
+import { deserializeGraph, type SerializedGraph } from '@/lib/flows/graph'
 import { getLatestDraftGraph } from '@/lib/flows/actions'
+import { AiFlowGeneratorDialog } from './AiFlowGeneratorDialog'
 
 import { TriggerNode } from './nodes/TriggerNode'
 import { ActionNode } from './nodes/ActionNode'
@@ -86,11 +87,10 @@ export default function FlowCanvas({
     reset,
   } = useCanvasStore()
 
-  // flowStatus lives in local state so publish/unpublish updates the UI
-  // without a full page reload.
   const [currentFlowStatus, setCurrentFlowStatus] = useState<'draft' | 'published'>(
     initialFlowStatus
   )
+  const [aiDialogOpen, setAiDialogOpen] = useState(false)
 
   // ── Hydrate store from DB on mount ────────────────────────────────────────
   // Always hydrate from DB — never trust React Flow's default empty state.
@@ -212,6 +212,17 @@ export default function FlowCanvas({
     [nodes, edges]
   )
 
+  // ── Apply AI-generated graph to canvas ────────────────────────────────────
+
+  const handleGraphGenerated = useCallback(
+    (graph: SerializedGraph) => {
+      const { nodes: n, edges: e } = deserializeGraph(graph)
+      useCanvasStore.setState({ nodes: n, edges: e })
+      triggerSave()
+    },
+    [triggerSave]
+  )
+
   // ── Re-hydrate after version restore / preview exit ───────────────────────
 
   const handleVersionRestored = useCallback(async () => {
@@ -238,7 +249,15 @@ export default function FlowCanvas({
         )}
 
         {/* Add-node toolbar */}
-        {!isReadOnly && <NodeToolbar />}
+        {!isReadOnly && <NodeToolbar onAiClick={() => setAiDialogOpen(true)} />}
+
+        {/* AI flow generator dialog */}
+        <AiFlowGeneratorDialog
+          open={aiDialogOpen}
+          onOpenChange={setAiDialogOpen}
+          hasExistingNodes={nodes.length > 0}
+          onGraphGenerated={handleGraphGenerated}
+        />
 
         <ReactFlow
           nodes={nodes}

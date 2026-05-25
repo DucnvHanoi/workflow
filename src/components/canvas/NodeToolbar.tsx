@@ -1,6 +1,6 @@
 'use client'
 
-import { Play, CheckSquare, GitBranch, Flag } from 'lucide-react'
+import { Play, CheckSquare, GitBranch, Flag, Sparkles } from 'lucide-react'
 import { useCanvasStore } from '@/store/canvas-store'
 
 const NODE_TYPES: { type: string; label: string; icon: React.ReactNode; color: string }[] = [
@@ -30,7 +30,11 @@ const NODE_TYPES: { type: string; label: string; icon: React.ReactNode; color: s
   },
 ]
 
-export function NodeToolbar() {
+interface NodeToolbarProps {
+  onAiClick: () => void
+}
+
+export function NodeToolbar({ onAiClick }: NodeToolbarProps) {
   const addNode = useCanvasStore((s) => s.addNode)
 
   return (
@@ -46,6 +50,17 @@ export function NodeToolbar() {
           {label}
         </button>
       ))}
+
+      <div className="border-t border-border my-0.5" />
+
+      <button
+        onClick={onAiClick}
+        className="flex flex-col items-center gap-1 rounded-lg border border-violet-200 px-3 py-2 text-xs font-medium text-violet-600 transition-colors hover:bg-violet-50"
+        title="Generate flow with AI"
+      >
+        <Sparkles className="h-4 w-4" />
+        AI
+      </button>
     </div>
   )
 }
