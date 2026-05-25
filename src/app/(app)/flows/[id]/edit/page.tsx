@@ -96,6 +96,7 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
       <div className="flex-1 overflow-hidden">
         <FlowCanvas
           flowId={flow.id}
+          flowName={flow.name}
           flowStatus={flow.status as 'draft' | 'published'}
           users={users}
           departments={departments}

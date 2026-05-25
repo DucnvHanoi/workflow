@@ -20,6 +20,7 @@ interface ConfigSidebarProps {
   users: TenantUser[]
   departments: TenantDepartment[]
   flowId: string
+  flowName: string
   flowStatus: 'draft' | 'published'
   onFlowStatusChange: (status: 'draft' | 'published') => void
   onVersionRestored: () => void
@@ -94,6 +95,7 @@ export default function ConfigSidebar({
   users,
   departments,
   flowId,
+  flowName,
   flowStatus,
   onFlowStatusChange,
   onVersionRestored,
@@ -130,7 +132,7 @@ export default function ConfigSidebar({
             {hasFormAndAssignee && (
               <>
                 <div className="border-t border-border" />
-                <FormBuilderPanel node={selectedNode} />
+                <FormBuilderPanel node={selectedNode} flowName={flowName} />
 
                 <div className="border-t border-border" />
                 <AssigneePanel node={selectedNode} users={users} departments={departments} />

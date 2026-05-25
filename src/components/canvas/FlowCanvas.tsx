@@ -53,6 +53,7 @@ const STRUCTURAL_NODE_CHANGES = new Set(['add', 'remove', 'reset'])
 
 interface FlowCanvasProps {
   flowId: string
+  flowName: string
   flowStatus: 'draft' | 'published'
   users: TenantUser[]
   departments: TenantDepartment[]
@@ -65,6 +66,7 @@ interface FlowCanvasProps {
 
 export default function FlowCanvas({
   flowId,
+  flowName,
   flowStatus: initialFlowStatus,
   users,
   departments,
@@ -290,6 +292,7 @@ export default function FlowCanvas({
           users={users}
           departments={departments}
           flowId={flowId}
+          flowName={flowName}
           flowStatus={currentFlowStatus}
           onFlowStatusChange={setCurrentFlowStatus}
           onVersionRestored={handleVersionRestored}
