@@ -825,3 +825,142 @@ getAvailableFlowSummaries uses the same allowed_department_ids logic as
 triggerFlow so the AI panel never surfaces a flow the user cannot actually
 trigger. The dept check is: if allowed is empty → open to all; otherwise the
 user's department_id must be in the list.
+
+31. PHASE 10 — AI COST CONTROL & MULTI-TENANCY (ROADMAP)
+    Theme: make AI features financially sustainable. Every tenant controls whether
+    AI is on, which provider/model they use, and pays (or consumes quota) for usage.
+    Platform owner can see per-tenant spend for billing. BYOK tenants pay their
+    provider directly; platform-key tenants consume an org-level USD credit quota.
+    Encryption secret: AI_KEY_ENCRYPTION_SECRET (64-char hex, openssl rand -hex 32).
+    Also requires OPENAI_API_KEY in env for platform-key OpenAI tenants.
+
+M1 — Foundation Infrastructure ✅ COMPLETE
+
+    See §32 for full implementation notes.
+
+M2 — Tenant AI Settings UI ✅ COMPLETE
+
+    See §33 for full implementation notes.
+
+M3 — Platform-owner AI Usage Dashboard 🔜 PLANNED
+
+    Per-tenant monthly spend breakdown, per-feature and per-user views. Intended
+    for the platform owner (/admin/* area) to monitor burn and drive billing.
+
+32. PHASE 10 M1 — AI FOUNDATION INFRASTRUCTURE (COMPLETE ✅)
+    Build: clean. Committed on master (commit 2fbef04).
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+Replaced all direct Anthropic SDK calls with a unified callAI() gateway that
+enforces per-tenant quota, logs every call for billing, encrypts BYOK keys, and
+supports both Anthropic and OpenAI providers behind a single interface.
+
+─── Database ─────────────────────────────────────────────────────────────────
+
+supabase/migrations/20260525200000_ai_tenant_config.sql
+
+tenant_ai_configs (one row per tenant):
+ai_enabled bool (default false), use_own_key bool, provider text,
+api_key_encrypted text | null, credit_limit_usd numeric (default 5.0000),
+credit_used_usd numeric (default 0). RLS: tenant admin can SELECT/UPDATE own row.
+
+ai_usage_logs (append-only billing log):
+tenant_id, user_id, feature (flow_builder|form_suggestions|condition_parser|
+trigger_assistant), provider, model, input_tokens, output_tokens, cost_usd,
+using_own_key. RLS: tenant can SELECT own rows. Indexed on (tenant_id, created_at)
+and (tenant_id, feature).
+
+increment_ai_credit_used(p_tenant_id, p_amount) — SECURITY DEFINER function for
+atomic credit increment (avoids read-modify-write race condition).
+
+─── Files ────────────────────────────────────────────────────────────────────
+
+src/lib/ai/crypto.ts
+AES-256-GCM encrypt/decrypt. Key from AI_KEY_ENCRYPTION_SECRET (64-char hex).
+Stored format: "iv:tag:ciphertext" (all hex). Authenticated encryption —
+tamper-evident and integrity-checked.
+
+src/lib/ai/pricing.ts
+MODEL_PRICING record (USD per 1M tokens) for Claude Sonnet 4.6, Haiku 4.5,
+Opus 4.7, GPT-4o, GPT-4o-mini. DEFAULT_MODEL per provider. computeCost() helper.
+
+src/lib/ai/client.ts ('use server')
+callAI({ tenantId, userId, feature, systemPrompt, userContent, maxTokens })
+→ { text, inputTokens, outputTokens, costUsd }
+
+Full flow:
+
+1. Load tenant_ai_configs row (upsert default if missing).
+2. Abort if ai_enabled = false (user-facing message).
+3. If platform key: abort if credit_used_usd >= credit_limit_usd.
+4. Resolve API key (decrypt BYOK or read platform env var).
+5. Route to callAnthropic() or callOpenAI().
+6. Insert ai_usage_logs row.
+7. If platform key: call increment_ai_credit_used() RPC.
+
+All 4 existing AI server actions (flow-builder, form-suggestions,
+condition-parser, trigger-assistant) were rewritten to route through callAI()
+instead of instantiating Anthropic SDK directly.
+
+─── KNOWN GOTCHA — openai package version ───────────────────────────────────
+
+openai@6.x is required (installed as openai@6.39.0). The older openai@4.x API
+is incompatible with the v6 client constructor and chat.completions.create shape.
+
+33. PHASE 10 M2 — TENANT AI SETTINGS UI (COMPLETE ✅)
+    Build: clean. Committed on master (commit 73cfff9).
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+Tenant admins can configure AI through a new "AI Features" section appended to
+the existing /settings page. Non-admins see no AI section (the section is
+conditionally rendered server-side by role check).
+
+─── Files ────────────────────────────────────────────────────────────────────
+
+src/lib/ai/ai-settings-actions.ts ('use server')
+
+- AISettingsData: { aiEnabled, provider, useOwnKey, hasOwnKey, creditUsedUsd,
+  creditLimitUsd }. hasOwnKey is a bool — the raw key is never sent to the client.
+- getAISettings(): reads tenant_ai_configs via admin client (admin role guard).
+  Returns default values if no row exists yet (row is created on first AI call).
+- updateAISettings({ aiEnabled?, provider?, useOwnKey? }): upserts the changed
+  columns atomically.
+- saveAPIKey(apiKey): encrypts with encryptApiKey(), upserts api_key_encrypted
+  and sets use_own_key = true.
+- removeAPIKey(): clears api_key_encrypted, sets use_own_key = false.
+
+src/components/settings/AISettingsCard.tsx ('use client')
+
+Rendered inside a card on /settings, admin only. All mutations use useTransition
+and revert optimistic local state on error.
+
+Controls:
+
+- Enable AI toggle (saved on click, toggles visibility of all sub-controls).
+- Provider select: Anthropic (Claude) | OpenAI (GPT). Saved on change.
+- Key source radio: Platform key | Your own key. Saved on change.
+- Own key section (when "Your own key"):
+  - If key exists: masked display + Change (shows input) + Remove button.
+  - If no key / Change pressed: password input + Cancel (if existing) + Save.
+- Credit usage (when "Platform key"):
+  Progress bar coloured green / yellow (≥70%) / red (≥90%).
+  Shows "$used / $limit" and a note to contact admin for limit increases.
+
+src/app/(app)/settings/page.tsx
+
+- isAdmin derived from claims.role.
+- getAISettings() fetched in parallel with the user profile query (Promise.all).
+  Non-admins skip the fetch entirely (resolves to null immediately).
+- "AI Features" section rendered only if isAdmin. Falls back to defaultAISettings
+  if the DB row doesn't exist yet (first-time state).
+
+─── Design decisions ─────────────────────────────────────────────────────────
+
+- Credit limit is read-only in this UI — only the platform owner can raise it
+  (future: /admin billing page).
+- creditUsedUsd is read from the initial server render and is not refreshed
+  live — accurate enough for an informational display.
+- The API key password input uses type="password" so the browser never shows it
+  in plain text; the value is only transmitted server-side over TLS.
