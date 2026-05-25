@@ -103,6 +103,65 @@ export async function saveAPIKey(apiKey: string): Promise<{ error: string | null
   return { error: error?.message ?? null }
 }
 
+export interface AIUsageLogEntry {
+  id: string
+  createdAt: string
+  userName: string | null
+  userEmail: string | null
+  feature: string
+  provider: string
+  model: string
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+  usingOwnKey: boolean
+}
+
+export async function getAIUsageLogs(limit = 100): Promise<{
+  data: AIUsageLogEntry[]
+  error: string | null
+}> {
+  const { user, claims } = await getSessionClaims()
+  if (!user || !claims?.tenant_id) return { data: [], error: 'Unauthorized' }
+  if (claims.role !== 'admin') return { data: [], error: 'Admin access required' }
+
+  const db = createAdminClient()
+  const [{ data: logs, error: logsErr }, { data: users }] = await Promise.all([
+    db
+      .from('ai_usage_logs')
+      .select(
+        'id, created_at, user_id, feature, provider, model, input_tokens, output_tokens, cost_usd, using_own_key'
+      )
+      .eq('tenant_id', claims.tenant_id)
+      .order('created_at', { ascending: false })
+      .limit(limit),
+    db.from('users').select('id, full_name, email').eq('tenant_id', claims.tenant_id),
+  ])
+
+  if (logsErr) return { data: [], error: logsErr.message }
+
+  const userMap = new Map((users ?? []).map((u) => [u.id, u]))
+
+  const entries: AIUsageLogEntry[] = (logs ?? []).map((row) => {
+    const u = userMap.get(row.user_id)
+    return {
+      id: row.id,
+      createdAt: row.created_at,
+      userName: u?.full_name ?? null,
+      userEmail: u?.email ?? null,
+      feature: row.feature,
+      provider: row.provider,
+      model: row.model,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      costUsd: Number(row.cost_usd),
+      usingOwnKey: row.using_own_key,
+    }
+  })
+
+  return { data: entries, error: null }
+}
+
 export async function removeAPIKey(): Promise<{ error: string | null }> {
   const { user, claims } = await getSessionClaims()
   if (!user || !claims?.tenant_id) return { error: 'Unauthorized' }

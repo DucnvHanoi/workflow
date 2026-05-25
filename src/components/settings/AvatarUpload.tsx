@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from 'react'
 import { Camera, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { updateAvatarUrl } from '@/app/(app)/settings/actions'
+import { updateAvatarUrl } from '@/app/(app)/profiles/actions'
 
 interface Props {
   userId: string

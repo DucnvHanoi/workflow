@@ -15,6 +15,8 @@ import {
   Network,
   BookUser,
   BarChart2,
+  Settings,
+  Bot,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -45,6 +47,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Flow Builder', href: '/flows', icon: GitBranch, adminOnly: true },
   { label: 'Instances', href: '/admin/instances', icon: List, adminOnly: true },
   { label: 'Audit Trail', href: '/admin/audit', icon: ScrollText, adminOnly: true },
+  { label: 'AI Spend', href: '/admin/ai-usage', icon: Bot, adminOnly: true },
   // Departments group
   {
     label: 'Management',
@@ -81,6 +84,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Bulk Import', href: '/invite/import', icon: Upload, adminOnly: true, group: 'Users' },
   { label: 'Directory', href: '/directory', icon: BookUser, adminOnly: false, group: 'Users' },
   { label: 'Org Chart', href: '/org-chart', icon: Network, adminOnly: false, group: 'Users' },
+  // Settings group (admin only)
+  { label: 'Settings', href: '/settings', icon: Settings, adminOnly: true, group: 'Settings' },
 ]
 
 export function getNavItems(role: string): NavItem[] {

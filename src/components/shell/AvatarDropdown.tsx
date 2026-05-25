@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { Settings, LogOut } from 'lucide-react'
+import { User, Settings, LogOut } from 'lucide-react'
 import { createBrowserClient } from '@supabase/ssr'
 import {
   DropdownMenu,
@@ -16,9 +16,10 @@ interface Props {
   initials: string
   displayName: string
   email: string
+  role: string
 }
 
-export function AvatarDropdown({ initials, displayName, email }: Props) {
+export function AvatarDropdown({ initials, displayName, email, role }: Props) {
   const router = useRouter()
 
   async function handleSignOut() {
@@ -49,10 +50,17 @@ export function AvatarDropdown({ initials, displayName, email }: Props) {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem onSelect={() => router.push('/settings')}>
-          <Settings className="mr-2 h-4 w-4" />
-          Settings
+        <DropdownMenuItem onSelect={() => router.push('/profiles')}>
+          <User className="mr-2 h-4 w-4" />
+          Profile
         </DropdownMenuItem>
+
+        {role === 'admin' && (
+          <DropdownMenuItem onSelect={() => router.push('/settings')}>
+            <Settings className="mr-2 h-4 w-4" />
+            Settings
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuSeparator />
 

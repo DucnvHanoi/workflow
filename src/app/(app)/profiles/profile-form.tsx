@@ -10,7 +10,7 @@ interface Props {
   email: string
 }
 
-export function SettingsForm({ initialFullName, initialJobTitle, initialPhone, email }: Props) {
+export function ProfileForm({ initialFullName, initialJobTitle, initialPhone, email }: Props) {
   const [fullName, setFullName] = useState(initialFullName)
   const [jobTitle, setJobTitle] = useState(initialJobTitle)
   const [phone, setPhone] = useState(initialPhone)

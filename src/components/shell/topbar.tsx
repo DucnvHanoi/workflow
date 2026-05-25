@@ -69,7 +69,12 @@ export async function Topbar({ userId, userEmail, tenantId, role }: TopbarProps)
             Admin
           </Badge>
         )}
-        <AvatarDropdown initials={initials} displayName={fullName ?? ''} email={userEmail} />
+        <AvatarDropdown
+          initials={initials}
+          displayName={fullName ?? ''}
+          email={userEmail}
+          role={role}
+        />
       </div>
     </header>
   )

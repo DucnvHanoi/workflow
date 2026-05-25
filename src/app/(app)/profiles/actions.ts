@@ -28,7 +28,7 @@ export async function updateOwnProfile(data: {
 
   if (error) return { error: 'Failed to save. Please try again.' }
 
-  revalidatePath('/settings')
+  revalidatePath('/profiles')
   return {}
 }
 
@@ -45,7 +45,7 @@ export async function updateAvatarUrl(url: string): Promise<{ error?: string }> 
 
   if (error) return { error: 'Failed to save avatar.' }
 
-  revalidatePath('/settings')
+  revalidatePath('/profiles')
   revalidatePath('/directory')
   return {}
 }

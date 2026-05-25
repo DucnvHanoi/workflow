@@ -842,10 +842,9 @@ M2 — Tenant AI Settings UI ✅ COMPLETE
 
     See §33 for full implementation notes.
 
-M3 — Platform-owner AI Usage Dashboard 🔜 PLANNED
+M3 — Platform-owner AI Usage Dashboard ✅ COMPLETE
 
-    Per-tenant monthly spend breakdown, per-feature and per-user views. Intended
-    for the platform owner (/admin/* area) to monitor burn and drive billing.
+    See §35 for full implementation notes.
 
 32. PHASE 10 M1 — AI FOUNDATION INFRASTRUCTURE (COMPLETE ✅)
     Build: clean. Committed on master (commit 2fbef04).
@@ -964,3 +963,141 @@ src/app/(app)/settings/page.tsx
   live — accurate enough for an informational display.
 - The API key password input uses type="password" so the browser never shows it
   in plain text; the value is only transmitted server-side over TLS.
+
+34. PHASE 10 — SETTINGS/PROFILES REFACTOR & AI USAGE LOG (COMPLETE ✅)
+    Build: clean (31 routes). `npm run build` passes with no lint or type errors.
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+Separated user profile management and AI administration into two distinct routes.
+The former /settings page (profile + MFA) is now /profiles. The new /settings
+page is an admin-only AI hub: enable/disable AI, configure provider and API key,
+and review the full usage log.
+
+─── Route changes ────────────────────────────────────────────────────────────
+
+/profiles (was /settings — accessible to all authenticated users)
+
+- src/app/(app)/profiles/page.tsx: server page rendering Photo, Profile form,
+  and Security (MFA) sections. No AI card.
+- src/app/(app)/profiles/actions.ts: updateOwnProfile() and updateAvatarUrl()
+  server actions, revalidatePath('/profiles'). Stable path required because
+  AvatarUpload (a shared client component) imports updateAvatarUrl directly.
+- src/app/(app)/profiles/profile-form.tsx: client form for full_name / job_title
+  / phone, imports from ./actions (relative to the profiles route).
+
+/settings (new — admin only, redirects non-admins to /tasks)
+
+- src/app/(app)/settings/page.tsx: server page with two sections:
+  1. "AI Configuration" — renders AISettingsCard (existing component unchanged).
+  2. "AI Usage Log" — server-rendered table of the last 100 ai_usage_logs rows.
+     Columns: Date, User (name + email), Feature, Provider / Model, Tokens
+     (input + output combined), Cost (USD 4 decimal places), Key (Platform /
+     Own badge). Footer shows total cost and call count.
+     max-w-3xl layout (wider than /profiles) to accommodate the table.
+     Non-admin sessions are hard-redirected to /tasks before any data fetch.
+
+─── New server action ────────────────────────────────────────────────────────
+
+getAIUsageLogs(limit = 100) in src/lib/ai/ai-settings-actions.ts
+
+- Admin-only auth gate (getSessionClaims()).
+- Two parallel queries: ai_usage_logs (ordered desc by created_at, limit N)
+  - users (id, full_name, email) for the same tenant.
+- User name/email resolved via an in-memory Map keyed by user id — avoids the
+  ambiguous PostgREST join on ai_usage_logs.user_id.
+- Returns AIUsageLogEntry[]: { id, createdAt, userName, userEmail, feature,
+  provider, model, inputTokens, outputTokens, costUsd, usingOwnKey }.
+
+─── Navigation updates ───────────────────────────────────────────────────────
+
+AvatarDropdown (src/components/shell/AvatarDropdown.tsx):
+
+- Added role prop (string). "Settings" link replaced by two items:
+  "Profile" (User icon) → /profiles for all users.
+  "Settings" (Settings icon) → /settings for admins only (role === 'admin').
+
+Topbar (src/components/shell/topbar.tsx):
+
+- Passes role={role} to AvatarDropdown (role was already available as a prop).
+
+nav-items.ts (src/components/shell/nav-items.ts):
+
+- Settings icon imported from lucide-react.
+- New nav item: { label: 'Settings', href: '/settings', icon: Settings,
+  adminOnly: true, group: 'Settings' } — appears at the bottom of the sidebar
+  under a "Settings" group label, admin-only.
+
+─── Cleanup ──────────────────────────────────────────────────────────────────
+
+- src/app/(app)/settings/actions.ts — deleted (profile actions moved to profiles/).
+- src/app/(app)/settings/settings-form.tsx — deleted (profile form moved to profiles/).
+- src/components/settings/AvatarUpload.tsx: import updated from
+  @/app/(app)/settings/actions → @/app/(app)/profiles/actions.
+
+─── KNOWN GOTCHA — stable import path for shared client components ───────────
+
+AvatarUpload is a shared component under src/components/settings/ and imports
+updateAvatarUrl directly. Per the CLAUDE.md architecture rule, server actions
+imported by client components must live at a static, non-dynamic path. Both
+/settings/actions.ts and /profiles/actions.ts satisfy this (neither is a dynamic
+route). The import was updated to /profiles/actions.ts to match the new route.
+
+35. PHASE 10 M3 — PLATFORM-OWNER AI USAGE DASHBOARD (COMPLETE ✅)
+    Build: clean (32 routes). `npm run build` passes with no lint or type errors.
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+New admin route /admin/ai-usage giving the platform owner a cross-tenant view
+of AI spend. Pure server component — no client state needed. Guarded by admin
+role check (middleware already covers /admin prefix; re-checked in page).
+
+Data is fetched via the service-role admin client so it spans all tenants.
+Three parallel queries: tenants, tenant_ai_configs, ai_usage_logs. Aggregation
+is done in JS using Map-based grouping (avoids PostgREST's lack of GROUP BY).
+
+─── Page layout ──────────────────────────────────────────────────────────────
+
+src/app/(app)/admin/ai-usage/page.tsx (new, max-w-6xl)
+
+Stat cards (4):
+
+- All-time spend (sum of all ai_usage_logs.cost_usd across all tenants).
+- This month's spend + platform-key sub-label (so the owner sees what they
+  are personally paying vs. BYOK tenants paying their own provider).
+- Total API calls (all time, all tenants).
+- AI-enabled tenants count out of total tenants.
+
+Per-Tenant Breakdown table:
+Columns: Tenant | Plan | AI (On/Off badge) | Provider | Key (BYOK/Platform badge)
+| Credit used/limit (progress bar, red ≥90%/amber ≥70%) | Calls
+| This month cost | All-time cost (with inline MiniBar).
+Rows sorted by tenant name. Tenants with AI off still appear (shows full
+roster so owner knows who has not yet enabled the feature).
+
+By Feature table (left half of bottom grid):
+Columns: Feature | Calls | Cost | Share (MiniBar + %).
+Sorted by cost descending. Footer row shows totals.
+
+By Provider / Model table (right half of bottom grid):
+Columns: Provider | Model (monospace) | Calls | Cost | Avg cost per call.
+Sorted by cost descending.
+
+─── Navigation ───────────────────────────────────────────────────────────────
+
+nav-items.ts: Bot icon imported from lucide-react. New nav item:
+{ label: 'AI Spend', href: '/admin/ai-usage', icon: Bot, adminOnly: true }
+Inserted immediately after 'Audit Trail' in the admin section.
+
+─── Design decisions ─────────────────────────────────────────────────────────
+
+- Platform key vs BYOK: "This month" stat card sub-label shows platform-key
+  portion so the owner knows their direct cost exposure immediately.
+- Credit bar on per-tenant row matches the same red/amber/green thresholds as
+  AISettingsCard (≥90% red, ≥70% amber) for visual consistency.
+- MiniBar inline in the All-time column gives a relative-scale visual without
+  needing a charting library.
+- All cost values use fmt(): 4 decimal places when < $0.01, 2 decimal places
+  otherwise — avoids "$0.00" for sub-cent AI calls.
+- No date filter controls in this initial version — shows all-time data.
+  "This month" is computed in JS using Date.now() at render time (UTC).
