@@ -111,14 +111,19 @@ async function callClaude(
     model: 'claude-sonnet-4-6',
     max_tokens: maxTokens,
     system: systemPrompt,
-    messages: [
-      { role: 'user', content: userContent },
-      { role: 'assistant', content: '{' },
-    ],
+    messages: [{ role: 'user', content: userContent }],
   })
 
   const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
-  const cleaned = '{' + raw.replace(/\s*```$/, '').trim()
+  const cleaned = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim()
+
+  if (!cleaned.startsWith('{')) {
+    return { graph: null, error: 'AI returned an unexpected format. Please try again.' }
+  }
+
   const graph = JSON.parse(cleaned) as SerializedGraph
 
   if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
