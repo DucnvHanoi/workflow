@@ -57,6 +57,10 @@ export default function FormBuilderPanel({ node, flowName }: FormBuilderPanelPro
   const data = node.data as NodeData
   const fields: FormField[] = data.formSchema ?? []
 
+  const DEFAULT_LABELS = new Set(['New Action', 'Branch', 'New Step', 'Trigger', 'Complete'])
+  const hasCustomLabel =
+    (data.label ?? '').trim().length > 0 && !DEFAULT_LABELS.has((data.label ?? '').trim())
+
   // ── dnd-kit sensors ─────────────────────────────────────────────────────
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -170,7 +174,7 @@ export default function FormBuilderPanel({ node, flowName }: FormBuilderPanelPro
           <p className="text-xs text-muted-foreground">
             No fields yet. Click <span className="font-semibold">Add field</span> to start.
           </p>
-          {(data.label ?? '').trim() && (
+          {hasCustomLabel && (
             <button
               onClick={handleSuggest}
               disabled={isSuggesting}
