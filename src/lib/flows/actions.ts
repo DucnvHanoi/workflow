@@ -1273,9 +1273,9 @@ async function advanceFlow(
           : String(rawValue ?? '')
         switch (cond.operator) {
           case 'eq':
-            return fieldValue === cond.value
+            return fieldValue.toLowerCase() === cond.value.toLowerCase()
           case 'neq':
-            return fieldValue !== cond.value
+            return fieldValue.toLowerCase() !== cond.value.toLowerCase()
           case 'contains':
             return fieldValue.toLowerCase().includes(cond.value.toLowerCase())
           case 'gt': {

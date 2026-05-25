@@ -48,6 +48,18 @@ const OPERATOR_LABELS: Record<string, string> = {
   contains: 'contains',
 }
 
+// Allowed operators per form field type
+const OPERATORS_BY_TYPE: Record<string, Array<BranchCondition['operator']>> = {
+  text: ['eq', 'neq', 'contains'],
+  textarea: ['eq', 'neq', 'contains'],
+  number: ['eq', 'neq', 'gt', 'lt', 'gte', 'lte'],
+  dropdown: ['eq', 'neq'],
+  radio: ['eq', 'neq'],
+  checkbox: ['eq', 'contains'],
+  date: ['eq', 'gt', 'lt', 'gte', 'lte'],
+  file: ['eq'],
+}
+
 // ─── Upstream field collection ────────────────────────────────────────────────
 // Walk graph edges backwards from the branch node (BFS), collecting every
 // action/branch node that is an ancestor. Returns nodes in BFS order so the
@@ -293,6 +305,7 @@ function BranchGroup({
               key={cond.id}
               condition={cond}
               fieldOptions={fieldOptions}
+              availableFields={availableFields}
               onUpdate={(patch) => onUpdate(cond.id, patch)}
               onRemove={() => onRemove(cond.id)}
             />
@@ -350,11 +363,18 @@ function BranchGroup({
 interface RowProps {
   condition: BranchCondition
   fieldOptions: FieldOption[]
+  availableFields: AvailableField[]
   onUpdate: (_patch: Partial<BranchCondition>) => void
   onRemove: () => void
 }
 
-function ConditionRow({ condition, fieldOptions, onUpdate, onRemove }: RowProps) {
+function ConditionRow({ condition, fieldOptions, availableFields, onUpdate, onRemove }: RowProps) {
+  const selectedField = availableFields.find(
+    (f) => f.fieldId === condition.fieldId && f.nodeId === condition.nodeId
+  )
+  const allowedOperators: Array<BranchCondition['operator']> = OPERATORS_BY_TYPE[
+    selectedField?.fieldType ?? ''
+  ] ?? ['eq', 'neq']
   // Group by step label for <optgroup>
   const groups = useMemo(() => {
     const map = new Map<string, { nodeId: string; isOwn: boolean; fields: FieldOption[] }>()
@@ -383,7 +403,10 @@ function ConditionRow({ condition, fieldOptions, onUpdate, onRemove }: RowProps)
     const sep = val.indexOf('::')
     const nodeId = val.slice(0, sep) || undefined
     const fieldId = val.slice(sep + 2)
-    onUpdate({ nodeId, fieldId })
+    const field = availableFields.find((f) => f.fieldId === fieldId && f.nodeId === nodeId)
+    const allowed = OPERATORS_BY_TYPE[field?.fieldType ?? ''] ?? ['eq', 'neq']
+    const operator = allowed.includes(condition.operator) ? condition.operator : allowed[0]
+    onUpdate({ nodeId, fieldId, operator })
   }
 
   return (
@@ -410,9 +433,17 @@ function ConditionRow({ condition, fieldOptions, onUpdate, onRemove }: RowProps)
 
       {/* Operator + value + remove */}
       <div className="flex items-center gap-2">
-        <span className="shrink-0 rounded border border-input bg-muted px-2 py-1 text-xs text-muted-foreground">
-          {OPERATOR_LABELS[condition.operator] ?? condition.operator}
-        </span>
+        <select
+          value={condition.operator}
+          onChange={(e) => onUpdate({ operator: e.target.value as BranchCondition['operator'] })}
+          className="shrink-0 cursor-pointer rounded border border-input bg-background px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          {allowedOperators.map((op) => (
+            <option key={op} value={op}>
+              {OPERATOR_LABELS[op]}
+            </option>
+          ))}
+        </select>
         <input
           type="text"
           value={condition.value}
