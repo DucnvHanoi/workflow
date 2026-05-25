@@ -77,7 +77,7 @@ STRICT RULES:
 7. Layout — position nodes vertically. Trigger at x:300,y:50. Each next node: y += 160. For branch yes-path: x:150, no-path: x:500. Reconnect after branch at x:300.
 8. Edge sourceHandle must be "yes" or "no" (string) only when the source node is a "branch" type. For all other source nodes, sourceHandle must be null.
 
-Respond with ONLY the raw JSON. No markdown, no code fences, no explanation.`
+IMPORTANT: Respond with ONLY the raw JSON object. Never write plain text, explanations, apologies, or questions — not even a single word outside the JSON. If the description is ambiguous, make reasonable assumptions and still output valid JSON.`
 
 export async function generateFlowFromDescription(
   description: string
@@ -101,6 +101,20 @@ export async function generateFlowFromDescription(
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/, '')
       .trim()
+
+    // Detect plain-text refusals before attempting JSON.parse
+    if (!cleaned.startsWith('{')) {
+      console.error(
+        'AI flow generation: model returned plain text instead of JSON:',
+        cleaned.slice(0, 200)
+      )
+      return {
+        graph: null,
+        error:
+          'The description was not specific enough to generate a flow. Try describing the steps, who handles each step, and what fields are needed.',
+      }
+    }
+
     const graph = JSON.parse(cleaned) as SerializedGraph
 
     if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
