@@ -709,7 +709,7 @@ default for action nodes) triggers the button immediately on node creation,
 yielding meaningless generic suggestions before the admin has named the step.
 
 29. PHASE 9 M3 — NATURAL-LANGUAGE BRANCH CONDITIONS (COMPLETE ✅)
-    Build: clean. Committed as a single atomic commit on master.
+    Build: clean. Three commits on master (initial M3, eq/neq case-insensitive fix, operator dropdown).
 
 ─── Overview ─────────────────────────────────────────────────────────────────
 
@@ -735,8 +735,8 @@ src/lib/flows/actions.ts (advanceFlow — condition evaluator)
 - switch on cond.operator replaces the single 'eq' check.
 - Numeric operators (gt/lt/gte/lte) use parseFloat; return false if either
   side is NaN (safe for non-numeric field values).
+- eq / neq: case-insensitive (toLowerCase on both sides).
 - contains: case-insensitive fieldValue.toLowerCase().includes(...).
-- neq: strict string inequality.
 
 src/lib/ai/condition-parser.ts (new — 'use server')
 
@@ -760,9 +760,21 @@ src/components/canvas/panels/BranchConfigPanel.tsx
   Contains local useState(aiText) + useTransition(isParsing) + aiError.
   AI input strip hidden when no fields available (nothing to reference).
   Enter key submits the input.
-- ConditionRow: operator badge now reads from OPERATOR_LABELS map
-  { eq:'equals', neq:'≠', gt:'>', lt:'<', gte:'≥', lte:'≤', contains:'contains' }
-  instead of the previous hardcoded "equals".
+- ConditionRow: operator is now an interactive <select> dropdown (was a
+  read-only badge). Options are filtered by the selected field's type via
+  OPERATORS_BY_TYPE:
+  text / textarea → eq, neq, contains
+  number → eq, neq, gt, lt, gte, lte
+  dropdown / radio → eq, neq
+  checkbox → eq, contains
+  date → eq, gt, lt, gte, lte
+  file → eq only
+  No field selected yet → defaults to eq, neq.
+- handleFieldChange: when the field changes, the operator is auto-reset to
+  the first allowed operator for the new field type if the current operator
+  is no longer valid.
+- RowProps gains availableFields: AvailableField[] so ConditionRow can look
+  up the field type for the currently selected nodeId+fieldId pair.
 
 ─── KNOWN GOTCHA — field type context ───────────────────────────────────────
 
@@ -771,3 +783,7 @@ operator class (numeric vs. text). Without it, "amount > 1000" on a text
 field would still parse correctly syntactically, but Claude might default to
 'eq' not knowing the field is numeric. Passing type gives Claude the hint it
 needs to select gt/lt/gte/lte for number fields automatically.
+
+The same fieldType lookup drives the operator dropdown — both the AI parser
+and the manual UI derive allowed operators from the same OPERATORS_BY_TYPE map,
+so they stay in sync automatically.
