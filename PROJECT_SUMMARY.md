@@ -1101,3 +1101,72 @@ Inserted immediately after 'Audit Trail' in the admin section.
   otherwise — avoids "$0.00" for sub-cent AI calls.
 - No date filter controls in this initial version — shows all-time data.
   "This month" is computed in JS using Date.now() at render time (UTC).
+
+36. PHASE 10 M4 — AI GENERATE / REWRITE FOR LONG TEXT FIELDS (COMPLETE ✅)
+    Build: clean (32 routes). Two commits on master (initial feature, preview-before-apply improvement).
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+Every Long Text (textarea) field in step forms now has an AI writing
+assistant. The user types a plain-English instruction, sees the AI result
+in a preview box, then explicitly chooses to apply or discard it — the
+field value is never touched until the user clicks "Use this."
+
+Two modes are detected automatically:
+
+- Generate (field is empty): "Describe what to write…"
+- Rewrite (field has content): "How should it be rewritten?"
+
+After generation, a "Regenerate" button lets the user tweak the instruction
+and try again without losing their original content.
+
+─── Files ────────────────────────────────────────────────────────────────────
+
+supabase/migrations/20260525210000_add_text_assist_feature.sql
+
+- Drops and recreates the ai_usage_logs.feature CHECK constraint to include
+  'text_assist' alongside the existing four feature values.
+
+src/lib/ai/client.ts
+
+- AIFeature union extended with 'text_assist'.
+
+src/lib/ai/text-assist.ts (new — 'use server')
+
+- assistTextarea({ fieldLabel, stepLabel, flowName?, instruction, currentText? })
+- getSessionClaims() provides tenantId/userId — no need to pass from client.
+- Two system prompts: GENERATE_SYSTEM_PROMPT (blank field) and
+  REWRITE_SYSTEM_PROMPT (existing content). Both instruct the model to output
+  only the field text with no preamble.
+- Calls callAI() with feature 'text_assist', maxTokens 1024.
+- Returns { text: string | null, error: string | null }.
+
+src/components/canvas/StepFormModal.tsx and TaskDetailModal.tsx
+
+- TextareaWithAI component added to both files (mirrors the existing
+  duplicate-FieldRenderer pattern documented in §24).
+- State machine: idle → prompt input → AI preview → accept / discard.
+  aiPreview: string | null holds the pending suggestion; onChange() is only
+  called on explicit "Use this" click.
+- Button label changes to "Regenerate" when a preview is already showing,
+  so the user can refine without dismissing.
+- FieldRenderer gains stepLabel: string and flowName?: string props, threaded
+  to TextareaWithAI for richer AI context.
+- StepFormModal gains optional flowName? prop.
+
+src/app/(app)/my-flows/[id]/instance-detail-client.tsx
+
+- Passes flowName={detail.flow_name} to StepFormModal so the AI has full
+  workflow context (flow name + step name + field label).
+
+─── KNOWN GOTCHA — duplicate TextareaWithAI ──────────────────────────────────
+
+TextareaWithAI is defined independently in both StepFormModal.tsx and
+TaskDetailModal.tsx, matching the existing duplicate-FieldRenderer pattern.
+Any change to the component must be applied to both files.
+
+─── Usage logging ────────────────────────────────────────────────────────────
+
+Each assistTextarea() call is logged to ai_usage_logs with feature='text_assist'.
+It appears in the tenant's /settings usage table and the platform's
+/admin/ai-usage spend dashboard under the "text_assist" feature row.
