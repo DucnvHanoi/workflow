@@ -22,7 +22,18 @@
       "PowerShell(Stop-Process *)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
       "PowerShell(Start-Process -NoNewWindow -FilePath \"cmd.exe\" -ArgumentList \"/c\",\"npm run dev\")",
-      "WebSearch"
+      "WebSearch",
+      "Bash(Sort-Object Name)",
+      "Bash(Select-Object -Last 5 -ExpandProperty Name)",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "PowerShell(git add *)",
+      "PowerShell(git push *)",
+      "PowerShell(npm install *)",
+      "Skill(claude-api)",
+      "Bash(git commit *)",
+      "Bash(npm install *)",
+      "Bash(npm list *)",
+      "mcp__claude_ai_Supabase__list_projects"
     ]
   }
 }
