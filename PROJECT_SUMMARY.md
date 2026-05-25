@@ -1273,99 +1273,84 @@ src/app/(app)/settings/page.tsx
   to claude-sonnet-4-6 by the migration) is always returned with a valid model
   even if the tenant was previously on OpenAI.
 
-38. PHASE 11 — ROADMAP (PLANNED)
-    Theme TBD — see brainstorm notes below for candidate options.
+38. PHASE 11 — ANALYTICS & REPORTING (ROADMAP)
+    Theme: turn the workflow data that already exists in the DB into actionable
+    intelligence for tenant admins. Zero new infrastructure required — all data
+    is captured in flow_instances, step_instances, ai_usage_logs, and audit_log.
+    Pure server-side JS aggregation (Map-based), consistent with the pattern in
+    /dashboard and /admin/ai-usage. No charting library needed for MVP.
 
-Option A — Analytics & Reporting (Recommended)
-Theme: turn the workflow data that already exists in the DB into actionable
-intelligence for tenant admins. Zero new infrastructure — all data is already
-captured in flow_instances, step_instances, ai_usage_logs, audit_log.
+M1 — Flow Performance Report 🔜 PLANNED
 
-M1 — Flow Performance Report
+New route /admin/reports/flows (admin only).
 
-- Per-flow: avg cycle time (trigger → complete), completion vs. cancellation
-  rates, error rates. Trend sparkline (last 30 / 90 days).
-- Step-level breakdown: which step has the longest median wait time (the true
-  process bottleneck, not just current pending count).
+- Per-flow stat table: avg cycle time (flow_instances.created_at →
+  updated_at for completed rows), completion rate, cancellation rate, error
+  rate. Sorted by instance count descending so busiest flows surface first.
+- Step-level bottleneck breakdown (expandable or detail panel): median wait
+  time per step across all completed instances — reveals which human step is
+  the true process bottleneck beyond just current pending count.
+- Period selector: Last 7 days / 30 days / 90 days / All time (URL search
+  param, no client state needed).
 
-M2 — SLA Adherence Report
+M2 — SLA Adherence Report 🔜 PLANNED
 
-- On-time vs. breached by flow and by step. Breach rate trend.
-- Escalation counts and whether escalated steps completed faster.
-- Exportable as CSV (reuses the existing /api/admin/export pattern).
+New route /admin/reports/sla (admin only).
 
-M3 — User Productivity Report
+- Per-flow SLA summary: steps with SLA set, on-time count, breached count,
+  breach rate %. Red (>20%) / amber (>10%) / green colour coding.
+- Per-step breakdown (expandable): which individual steps breach most often.
+- Escalation effectiveness: steps that were escalated — did they complete
+  faster after escalation? Compare avg completion time pre/post.
+- Export: "Download CSV" — new sla mode added to /api/admin/export (or a
+  dedicated route), reusing the existing UTF-8 BOM + CRLF pattern.
 
-- Tasks completed per user, per week / month. Avg time from assigned to done.
-- Pending task aging distribution (histogram buckets: <1d, 1-3d, 3-7d, >7d).
+M3 — User Productivity Report 🔜 PLANNED
 
-M4 — Executive Dashboard Enhancement
+New route /admin/reports/users (admin only).
 
-- Comparison vs. previous period (this month vs. last month delta %).
-- Configurable date-range filter for all main dashboard stat cards.
-- Inline sparklines on bottleneck table rows.
+- Per-user table: tasks completed this week / this month, avg time from
+  assigned to done (step_instances.created_at → completed_at), overdue
+  completion count.
+- Pending task aging distribution: histogram across all current pending tasks
+  bucketed as <1d, 1–3d, 3–7d, >7d — shows systemic delay at a glance.
+- Department filter using the BFS descendant-set pattern from /directory.
 
-M5 — Scheduled Email Reports
+M4 — Executive Dashboard Enhancement 🔜 PLANNED
 
-- Weekly digest email to tenant admins: top-level metrics + breach count +
-  overdue task summary. Reuses existing Resend + cron infrastructure.
-  De-duplicated via notification_logs (new email_type 'weekly_report').
+Upgrade the existing /dashboard with richer temporal context.
 
-Option B — Webhooks & Integrations
-Theme: connect workflows to the external tools tenants already use.
+- Period-over-period delta: each stat card shows +N% / -N% vs. the previous
+  equivalent period. Computed from two date-ranged aggregation passes.
+- Configurable date-range filter ("Last 7 days", "This month", "Last 30 days",
+  "Last 90 days") applied to all stat cards and the bottleneck table. Filter
+  state stored in URL search params — no new DB design needed.
+- Inline sparklines on the bottleneck table: tiny SVG bar strip showing each
+  assignee's pending count trend over the last 7 days.
 
-M1 — Inbound Webhooks (trigger a flow from external system)
+M5 — Scheduled Weekly Report Email 🔜 PLANNED
 
-- Per-flow webhook endpoint with a secret token (HMAC-SHA256 signature check).
-- Payload mapped to flow trigger context (triggered_by set to a system user).
-- Webhook delivery log (requests table, 30-day retention).
+Weekly summary email every Monday morning to all tenant admins.
 
-M2 — Outbound Action Steps (HTTP call on step completion)
+- Content: tasks completed this week, SLA breach count, top 3 overdue
+  assignees, any newly breached steps.
+- Delivery: new cron entry "0 1 \* \* 1" (1am UTC Monday = 8am ICT) in
+  vercel.json, or a weekly branch inside the existing /api/cron/sla route.
+- De-duplication: check notification_logs for email_type='weekly_report'
+  sent within the last 6 days. New email_type value added via migration
+  (DROP + re-ADD the CHECK constraint — same pattern as prior extensions).
+- Opt-out: per-tenant boolean flag in tenant_ai_configs (or a new
+  tenant_notification_prefs table if more preferences are added later).
 
-- New node type: "Webhook Action" — fires a POST to a configured URL with the
-  current step's form_data as the body. No human form; auto-completes after
-  the HTTP call succeeds (retries on 5xx, up to 3 attempts).
-- Webhook logs visible in instance detail view.
+CROSS-CUTTING NOTES
 
-M3 — Slack / Teams Notifications
-
-- Optional step notification: "notify #channel when this step is assigned."
-  Tenant admin provides a Slack webhook URL in settings. Stores encrypted in
-  tenant config (reuses crypto.ts AES-256-GCM pattern).
-
-M4 — n8n / Zapier-compatible Triggers
-
-- Step completion fires a configurable webhook that n8n/Zapier can listen to.
-  Enables no-code integration with 500+ external apps without custom connectors.
-
-Option C — Flow Templates & Library
-Theme: reduce the time-to-first-flow for new tenants with reusable templates.
-
-M1 — Flow Template Library
-
-- Admin can mark a flow as a Template (flag on flows table). Template browser
-  at /flows/templates shows published templates with category and description.
-  "Use template" clones the flow_version graph into a new draft flow.
-
-M2 — Template Categories & Tags
-
-- Flow categories already exist. Tags (many-to-many, flows_tags table) add
-  searchable labels. Template browser: filter by category + tag + search.
-
-M3 — Inter-tenant Template Sharing (Platform Owner)
-
-- Platform owner can publish platform-level templates visible to all tenants.
-  Separate templates table owned by a system tenant. Tenant admin can import
-  to their own flows.
-
-M4 — Import / Export Flow JSON
-
-- Admin downloads a flow as JSON (the existing graph JSONB + metadata).
-  Import uploads and validates a JSON file, creates a new draft. Useful for
-  backup, cross-environment copy, and sharing outside the template library.
-
-RECOMMENDATION: Option A (Analytics & Reporting) delivers immediate value with
-zero new infrastructure and no external dependencies. Option B unlocks enterprise
-deals but requires careful security work (HMAC, retry logic, encrypted webhook
-URLs). Option C reduces sales friction for new tenants. A natural sequence is
-A → C → B.
+- All /admin/reports/\* routes guarded by /admin middleware prefix plus an
+  in-page getSessionClaims() admin role re-check (same pattern as /admin/ai-usage
+  after the tenant isolation security fix).
+- No new DB tables required for M1–M4. M5 adds one new email_type value to
+  notification_logs (migration: DROP + re-ADD CHECK, standard pattern).
+- Nav: add a "Reports" group to nav-items.ts with three items (Flow Performance,
+  SLA, User Productivity), admin-only. BarChart2 / TrendingUp / Users icons.
+- All queries filter by claims.tenant_id. Service-role client for any writes;
+  read-only pages may use createClient() where RLS covers the tenant path.
+- Recommended build order: M1 → M4 → M2 → M3 → M5.
