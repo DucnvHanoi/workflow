@@ -1,11 +1,11 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { getNavItems } from './nav-items'
 import { cn } from '@/lib/utils'
-import { Workflow } from 'lucide-react'
+import { Workflow, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 interface SidebarProps {
   role: string
@@ -14,21 +14,32 @@ interface SidebarProps {
 export function Sidebar({ role }: SidebarProps) {
   const pathname = usePathname()
   const navItems = getNavItems(role)
+  const [collapsed, setCollapsed] = useState(false)
 
   return (
-    <aside className="flex flex-col w-56 border-r bg-card shrink-0 h-screen">
+    <aside
+      className={cn(
+        'flex flex-col border-r bg-card shrink-0 h-screen transition-all duration-200',
+        collapsed ? 'w-14' : 'w-56'
+      )}
+    >
       {/* Brand */}
-      <div className="flex items-center gap-2 px-4 h-14 border-b shrink-0">
-        <div className="flex items-center justify-center w-7 h-7 rounded-md bg-primary">
+      <div
+        className={cn(
+          'flex items-center h-14 border-b shrink-0',
+          collapsed ? 'justify-center' : 'gap-2 px-4'
+        )}
+      >
+        <div className="flex items-center justify-center w-7 h-7 rounded-md bg-primary shrink-0">
           <Workflow className="h-4 w-4 text-primary-foreground" />
         </div>
-        <span className="font-semibold text-sm tracking-tight">Workflow</span>
+        {!collapsed && <span className="font-semibold text-sm tracking-tight">Workflow</span>}
       </div>
 
       {/* Nav links */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
         {navItems.map((item, idx) => {
-          const showGroup = item.group && item.group !== navItems[idx - 1]?.group
+          const showGroup = !collapsed && item.group && item.group !== navItems[idx - 1]?.group
           const isActive = item.exact
             ? pathname === item.href
             : pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href + '/'))
@@ -43,20 +54,42 @@ export function Sidebar({ role }: SidebarProps) {
               )}
               <Link
                 href={item.href}
+                title={collapsed ? item.label : undefined}
                 className={cn(
-                  'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
+                  'flex items-center rounded-md text-sm transition-colors',
+                  collapsed ? 'justify-center py-2' : 'gap-2.5 px-3 py-2',
                   isActive
                     ? 'bg-primary text-primary-foreground font-medium'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {item.label}
+                {!collapsed && item.label}
               </Link>
             </Fragment>
           )
         })}
       </nav>
+
+      {/* Collapse toggle */}
+      <div
+        className={cn(
+          'border-t p-2 shrink-0',
+          collapsed ? 'flex justify-center' : 'flex justify-end'
+        )}
+      >
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        >
+          {collapsed ? (
+            <PanelLeftOpen className="h-4 w-4" />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" />
+          )}
+        </button>
+      </div>
     </aside>
   )
 }

@@ -285,8 +285,8 @@ export default function FlowCanvas({
         </ReactFlow>
       </div>
 
-      {/* ── Sidebar — always visible, fixed 288px width ───────────────── */}
-      <div className="w-72 shrink-0 h-full border-l border-border bg-background flex flex-col overflow-hidden">
+      {/* ── Sidebar — always visible, fixed 384px width ───────────────── */}
+      <div className="w-96 shrink-0 h-full border-l border-border bg-background flex flex-col overflow-hidden">
         <ConfigSidebar
           selectedNode={selectedNode}
           users={users}

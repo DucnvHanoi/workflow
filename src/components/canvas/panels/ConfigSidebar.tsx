@@ -111,7 +111,7 @@ export default function ConfigSidebar({
     // (node selected → config panels, no node → Publish/Versions tabs).
     // FlowCanvas already subtracts 288px (w-72) from the ReactFlow width
     // at all times, so the canvas never overlaps the sidebar.
-    <div className="absolute right-0 top-0 h-full w-72 border-l border-border bg-background overflow-hidden shadow-md flex flex-col">
+    <div className="absolute right-0 top-0 h-full w-96 border-l border-border bg-background overflow-hidden shadow-md flex flex-col">
       {selectedNode ? (
         /* ── Node selected: step config panels ──────────────────────── */
         <>
