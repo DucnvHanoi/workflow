@@ -1,7 +1,7 @@
 'use server'
 
-import Anthropic from '@anthropic-ai/sdk'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { callAI } from './client'
 import type { BranchCondition } from '@/store/canvas-store'
 
 export interface AvailableField {
@@ -11,8 +11,6 @@ export interface AvailableField {
   fieldLabel: string
   fieldType: string
 }
-
-const client = new Anthropic()
 
 const SYSTEM_PROMPT = `You are a workflow branch condition parser. Given a plain-English condition and a list of available form fields, parse the condition into a structured object.
 
@@ -72,14 +70,15 @@ export async function parseConditionFromText(
   ].join('\n')
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 512,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
+    const { text: raw } = await callAI({
+      tenantId: claims.tenant_id,
+      userId: user.id,
+      feature: 'condition_parser',
+      systemPrompt: SYSTEM_PROMPT,
+      userContent,
+      maxTokens: 512,
     })
 
-    const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
     const cleaned = raw
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/, '')
@@ -119,11 +118,8 @@ export async function parseConditionFromText(
       error: null,
     }
   } catch (err: unknown) {
-    const body = (err as { error?: { message?: string } })?.error?.message
-    console.error('AI condition parse error:', body ?? err)
-    return {
-      condition: null,
-      error: body ?? 'Failed to parse condition. Please try again.',
-    }
+    const msg = err instanceof Error ? err.message : 'Failed to parse condition. Please try again.'
+    console.error('AI condition parse error:', err)
+    return { condition: null, error: msg }
   }
 }

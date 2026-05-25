@@ -1,8 +1,8 @@
 'use server'
 
-import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { callAI } from './client'
 import type { SerializedGraph } from '@/lib/flows/graph'
 import type { FormField } from '@/store/canvas-store'
 
@@ -22,9 +22,7 @@ export interface FlowSuggestion {
   prefillData: Record<string, string>
 }
 
-// ─── Claude client ────────────────────────────────────────────────────────────
-
-const anthropic = new Anthropic()
+// ─── Prompt ───────────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are a workflow assistant. Given a user's request description and a list of available workflows, identify the best matching workflow and extract any field values you can confidently infer from the description.
 
@@ -148,14 +146,15 @@ export async function suggestFlowForRequest(
   const userContent = `User request: "${userText}"\n\nAvailable flows:\n${flowList}`
 
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 512,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
+    const { text: raw } = await callAI({
+      tenantId: claims.tenant_id,
+      userId: user.id,
+      feature: 'trigger_assistant',
+      systemPrompt: SYSTEM_PROMPT,
+      userContent,
+      maxTokens: 512,
     })
 
-    const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
     const cleaned = raw
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/, '')
@@ -178,11 +177,9 @@ export async function suggestFlowForRequest(
 
     return { suggestion: { ...parsed, prefillData: parsed.prefillData ?? {} }, error: null }
   } catch (err: unknown) {
-    const body = (err as { error?: { message?: string } })?.error?.message
-    console.error('AI trigger assistant error:', body ?? err)
-    return {
-      suggestion: null,
-      error: body ?? 'Failed to process your request. Please try again.',
-    }
+    const msg =
+      err instanceof Error ? err.message : 'Failed to process your request. Please try again.'
+    console.error('AI trigger assistant error:', err)
+    return { suggestion: null, error: msg }
   }
 }

@@ -1,15 +1,13 @@
 'use server'
 
-import Anthropic from '@anthropic-ai/sdk'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { callAI } from './client'
 import type { FormFieldType } from '@/store/canvas-store'
 
 export interface FieldSuggestion {
   type: FormFieldType
   label: string
 }
-
-const client = new Anthropic()
 
 const SYSTEM_PROMPT = `You are a workflow form designer. Given a workflow step's context, suggest the most useful form fields an assignee would need to fill in.
 
@@ -47,15 +45,16 @@ export async function suggestFormFields(
   ].join('\n')
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
+    const { text } = await callAI({
+      tenantId: claims.tenant_id,
+      userId: user.id,
+      feature: 'form_suggestions',
+      systemPrompt: SYSTEM_PROMPT,
+      userContent,
+      maxTokens: 1024,
     })
 
-    const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
-    const cleaned = raw
+    const cleaned = text
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/, '')
       .trim()
@@ -71,8 +70,9 @@ export async function suggestFormFields(
 
     return { suggestions, error: null }
   } catch (err: unknown) {
-    const body = (err as { error?: { message?: string } })?.error?.message
-    console.error('AI field suggestion error:', body ?? err)
-    return { suggestions: null, error: body ?? 'Failed to generate suggestions. Please try again.' }
+    const msg =
+      err instanceof Error ? err.message : 'Failed to generate suggestions. Please try again.'
+    console.error('AI field suggestion error:', err)
+    return { suggestions: null, error: msg }
   }
 }

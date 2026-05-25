@@ -1,10 +1,8 @@
 'use server'
 
-import Anthropic from '@anthropic-ai/sdk'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { callAI } from './client'
 import type { SerializedGraph } from '@/lib/flows/graph'
-
-const client = new Anthropic()
 
 const SYSTEM_PROMPT = `You are a workflow builder assistant. Given a plain-English description of a business workflow, generate a valid workflow graph as JSON.
 
@@ -102,20 +100,8 @@ MODIFICATION RULES:
 
 IMPORTANT: Respond with ONLY the complete updated graph as raw JSON. No markdown, no explanation, not a single word outside the JSON.`
 
-async function callClaude(
-  systemPrompt: string,
-  userContent: string,
-  maxTokens = 4096
-): Promise<{ graph: SerializedGraph | null; error: string | null }> {
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: maxTokens,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userContent }],
-  })
-
-  const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
-  const cleaned = raw
+function parseGraph(text: string): { graph: SerializedGraph | null; error: string | null } {
+  const cleaned = text
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/, '')
     .trim()
@@ -125,7 +111,6 @@ async function callClaude(
   }
 
   const graph = JSON.parse(cleaned) as SerializedGraph
-
   if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
     return { graph: null, error: 'AI returned an unexpected format. Please try again.' }
   }
@@ -133,26 +118,28 @@ async function callClaude(
   return { graph, error: null }
 }
 
-async function requireAdmin(): Promise<{ ok: boolean; error: string | null }> {
-  const { user, claims } = await getSessionClaims()
-  if (!user || !claims?.tenant_id) return { ok: false, error: 'Unauthorized' }
-  if (claims.role !== 'admin') return { ok: false, error: 'Admin access required' }
-  return { ok: true, error: null }
-}
-
 export async function generateFlowFromDescription(
   description: string
 ): Promise<{ graph: SerializedGraph | null; error: string | null }> {
-  const { ok, error: authError } = await requireAdmin()
-  if (!ok) return { graph: null, error: authError }
+  const { user, claims } = await getSessionClaims()
+  if (!user || !claims?.tenant_id) return { graph: null, error: 'Unauthorized' }
+  if (claims.role !== 'admin') return { graph: null, error: 'Admin access required' }
   if (!description.trim()) return { graph: null, error: 'Description is required' }
 
   try {
-    return await callClaude(SYSTEM_PROMPT, description.trim())
+    const { text } = await callAI({
+      tenantId: claims.tenant_id,
+      userId: user.id,
+      feature: 'flow_builder',
+      systemPrompt: SYSTEM_PROMPT,
+      userContent: description.trim(),
+      maxTokens: 4096,
+    })
+    return parseGraph(text)
   } catch (err: unknown) {
-    const body = (err as { error?: { message?: string } })?.error?.message
-    console.error('AI flow generation error:', body ?? err)
-    return { graph: null, error: body ?? 'Failed to generate flow. Please try again.' }
+    const msg = err instanceof Error ? err.message : 'Failed to generate flow. Please try again.'
+    console.error('AI flow generation error:', err)
+    return { graph: null, error: msg }
   }
 }
 
@@ -160,18 +147,25 @@ export async function modifyFlowFromDescription(
   instruction: string,
   currentGraph: SerializedGraph
 ): Promise<{ graph: SerializedGraph | null; error: string | null }> {
-  const { ok, error: authError } = await requireAdmin()
-  if (!ok) return { graph: null, error: authError }
+  const { user, claims } = await getSessionClaims()
+  if (!user || !claims?.tenant_id) return { graph: null, error: 'Unauthorized' }
+  if (claims.role !== 'admin') return { graph: null, error: 'Admin access required' }
   if (!instruction.trim()) return { graph: null, error: 'Instruction is required' }
 
   try {
-    // Compact JSON (no pretty-print) keeps the input token count minimal
     const userContent = `EXISTING GRAPH:\n${JSON.stringify(currentGraph)}\n\nMODIFICATION INSTRUCTION:\n${instruction.trim()}`
-    // Use 8192 output tokens — modified graphs can be larger than generated ones
-    return await callClaude(MODIFY_SYSTEM_PROMPT, userContent, 8192)
+    const { text } = await callAI({
+      tenantId: claims.tenant_id,
+      userId: user.id,
+      feature: 'flow_builder',
+      systemPrompt: MODIFY_SYSTEM_PROMPT,
+      userContent,
+      maxTokens: 8192,
+    })
+    return parseGraph(text)
   } catch (err: unknown) {
-    const body = (err as { error?: { message?: string } })?.error?.message
-    console.error('AI flow modification error:', body ?? err)
-    return { graph: null, error: body ?? 'Failed to modify flow. Please try again.' }
+    const msg = err instanceof Error ? err.message : 'Failed to modify flow. Please try again.'
+    console.error('AI flow modification error:', err)
+    return { graph: null, error: msg }
   }
 }
