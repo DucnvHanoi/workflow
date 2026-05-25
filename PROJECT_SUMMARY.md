@@ -846,6 +846,14 @@ M3 — Platform-owner AI Usage Dashboard ✅ COMPLETE
 
     See §35 for full implementation notes.
 
+M4 — AI Generate / Rewrite for Long Text Fields ✅ COMPLETE
+
+    See §36 for full implementation notes.
+
+M5 — Per-provider Model Selection ✅ COMPLETE
+
+    See §37 for full implementation notes.
+
 32. PHASE 10 M1 — AI FOUNDATION INFRASTRUCTURE (COMPLETE ✅)
     Build: clean. Committed on master (commit 2fbef04).
 
@@ -1056,6 +1064,30 @@ Data is fetched via the service-role admin client so it spans all tenants.
 Three parallel queries: tenants, tenant_ai_configs, ai_usage_logs. Aggregation
 is done in JS using Map-based grouping (avoids PostgREST's lack of GROUP BY).
 
+─── SECURITY FIX — Tenant isolation bug (post-M3) ───────────────────────────
+
+Bug: /admin/ai-usage originally used createAdminClient() (bypasses RLS) with
+no tenant filter. Any tenant admin could see every other tenant's usage data
+in the "Per-Tenant Breakdown" table.
+
+Root cause: getPlatformAIData() had no .eq('tenant_id', ...) clause and
+getAIUsageLogs() was also called without a tenant scope, so the admin client
+returned all rows from all tenants.
+
+Fix: replaced with getTenantAIData(tenantId) — all three queries (configs,
+logs, tenant row) are scoped with .eq('tenant_id', tenantId). tenantId is
+derived from getSessionClaims() on the server; if claims.tenant_id is absent
+the page hard-redirects to /tasks before any data fetch. The cross-tenant
+"Per-Tenant Breakdown" table was removed from the tenant-scoped page.
+
+The page now shows only the calling admin's own tenant: stat cards for
+all-time spend, this-month spend, total calls, and credit used/BYOK status.
+The feature breakdown and provider/model breakdown remain, filtered to the
+tenant.
+
+FEATURE_LABELS map updated to include text_assist: 'Text Assist' so the
+feature column displays a readable label instead of the raw DB enum value.
+
 ─── Page layout ──────────────────────────────────────────────────────────────
 
 src/app/(app)/admin/ai-usage/page.tsx (new, max-w-6xl)
@@ -1170,3 +1202,170 @@ Any change to the component must be applied to both files.
 Each assistTextarea() call is logged to ai_usage_logs with feature='text_assist'.
 It appears in the tenant's /settings usage table and the platform's
 /admin/ai-usage spend dashboard under the "text_assist" feature row.
+
+37. PHASE 10 M5 — PER-PROVIDER MODEL SELECTION (COMPLETE ✅)
+    Build: clean (32 routes). Committed on master (commit 7e2581f).
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+Tenant admins can now choose a specific AI model within their selected
+provider. When AI is enabled and a provider is selected, a radio-button list
+of available models appears (e.g. Haiku 4.5 / Sonnet 4.6 / Opus 4.7 for
+Anthropic). Exactly one model is active at a time. callAI() reads the stored
+model from the DB for every call — no longer hardcodes a default.
+
+─── Database ─────────────────────────────────────────────────────────────────
+
+supabase/migrations/20260525220000_add_model_to_ai_config.sql
+
+ALTER TABLE public.tenant_ai_configs
+ADD COLUMN IF NOT EXISTS model text NOT NULL DEFAULT 'claude-sonnet-4-6';
+
+Applied to remote DB via Supabase MCP.
+
+─── Files ────────────────────────────────────────────────────────────────────
+
+src/lib/ai/pricing.ts
+
+- ModelInfo interface: { id, name, description, pricing }.
+- MODELS_BY_PROVIDER: catalog of available models per provider with human-
+  readable names, capability descriptions, and short pricing strings.
+  anthropic: Haiku 4.5 / Sonnet 4.6 / Opus 4.7
+  openai: GPT-4o mini / GPT-4o
+
+src/lib/ai/ai-settings-actions.ts
+
+- AISettingsData gains model: string field.
+- getAISettings(): selects model from DB. Validates the stored model against
+  MODELS_BY_PROVIDER[provider]; falls back to DEFAULT_MODEL[provider] if the
+  stored model is not valid for the current provider (guards against stale data
+  after a provider switch).
+- updateAISettings(): now accepts model?: string and patches the model column.
+
+src/lib/ai/client.ts
+
+- TenantAIConfig gains model: string | null.
+- model column added to the tenant_ai_configs SELECT.
+- Model resolution: cfg.model ?? DEFAULT_MODEL[provider] ?? DEFAULT_MODEL['anthropic'].
+
+src/components/settings/AISettingsCard.tsx
+
+- model state initialized from initial.model.
+- handleProviderChange(p): resets model to DEFAULT_MODEL[p] and persists both
+  provider and model in a single updateAISettings() call (atomic provider swap).
+- handleModelChange(m): optimistic update with revert on error.
+- Model list UI: bordered divided list of radio buttons below the provider
+  select. Each row: radio + model name + description (flex-1) + pricing string
+  (right-aligned). Selected row has bg-primary/5 tint.
+- availableModels = MODELS_BY_PROVIDER[provider] ?? [].
+
+src/app/(app)/settings/page.tsx
+
+- defaultAISettings fallback object gains model: 'claude-sonnet-4-6' to match
+  the updated AISettingsData type.
+
+─── Design decisions ─────────────────────────────────────────────────────────
+
+- Single model active at a time: the UI uses radio buttons, not checkboxes.
+- Provider switch atomically resets model so there is never a mismatch between
+  provider and model stored in the DB.
+- Validation in getAISettings() means a legacy row (no model column, defaulted
+  to claude-sonnet-4-6 by the migration) is always returned with a valid model
+  even if the tenant was previously on OpenAI.
+
+38. PHASE 11 — ROADMAP (PLANNED)
+    Theme TBD — see brainstorm notes below for candidate options.
+
+Option A — Analytics & Reporting (Recommended)
+Theme: turn the workflow data that already exists in the DB into actionable
+intelligence for tenant admins. Zero new infrastructure — all data is already
+captured in flow_instances, step_instances, ai_usage_logs, audit_log.
+
+M1 — Flow Performance Report
+
+- Per-flow: avg cycle time (trigger → complete), completion vs. cancellation
+  rates, error rates. Trend sparkline (last 30 / 90 days).
+- Step-level breakdown: which step has the longest median wait time (the true
+  process bottleneck, not just current pending count).
+
+M2 — SLA Adherence Report
+
+- On-time vs. breached by flow and by step. Breach rate trend.
+- Escalation counts and whether escalated steps completed faster.
+- Exportable as CSV (reuses the existing /api/admin/export pattern).
+
+M3 — User Productivity Report
+
+- Tasks completed per user, per week / month. Avg time from assigned to done.
+- Pending task aging distribution (histogram buckets: <1d, 1-3d, 3-7d, >7d).
+
+M4 — Executive Dashboard Enhancement
+
+- Comparison vs. previous period (this month vs. last month delta %).
+- Configurable date-range filter for all main dashboard stat cards.
+- Inline sparklines on bottleneck table rows.
+
+M5 — Scheduled Email Reports
+
+- Weekly digest email to tenant admins: top-level metrics + breach count +
+  overdue task summary. Reuses existing Resend + cron infrastructure.
+  De-duplicated via notification_logs (new email_type 'weekly_report').
+
+Option B — Webhooks & Integrations
+Theme: connect workflows to the external tools tenants already use.
+
+M1 — Inbound Webhooks (trigger a flow from external system)
+
+- Per-flow webhook endpoint with a secret token (HMAC-SHA256 signature check).
+- Payload mapped to flow trigger context (triggered_by set to a system user).
+- Webhook delivery log (requests table, 30-day retention).
+
+M2 — Outbound Action Steps (HTTP call on step completion)
+
+- New node type: "Webhook Action" — fires a POST to a configured URL with the
+  current step's form_data as the body. No human form; auto-completes after
+  the HTTP call succeeds (retries on 5xx, up to 3 attempts).
+- Webhook logs visible in instance detail view.
+
+M3 — Slack / Teams Notifications
+
+- Optional step notification: "notify #channel when this step is assigned."
+  Tenant admin provides a Slack webhook URL in settings. Stores encrypted in
+  tenant config (reuses crypto.ts AES-256-GCM pattern).
+
+M4 — n8n / Zapier-compatible Triggers
+
+- Step completion fires a configurable webhook that n8n/Zapier can listen to.
+  Enables no-code integration with 500+ external apps without custom connectors.
+
+Option C — Flow Templates & Library
+Theme: reduce the time-to-first-flow for new tenants with reusable templates.
+
+M1 — Flow Template Library
+
+- Admin can mark a flow as a Template (flag on flows table). Template browser
+  at /flows/templates shows published templates with category and description.
+  "Use template" clones the flow_version graph into a new draft flow.
+
+M2 — Template Categories & Tags
+
+- Flow categories already exist. Tags (many-to-many, flows_tags table) add
+  searchable labels. Template browser: filter by category + tag + search.
+
+M3 — Inter-tenant Template Sharing (Platform Owner)
+
+- Platform owner can publish platform-level templates visible to all tenants.
+  Separate templates table owned by a system tenant. Tenant admin can import
+  to their own flows.
+
+M4 — Import / Export Flow JSON
+
+- Admin downloads a flow as JSON (the existing graph JSONB + metadata).
+  Import uploads and validates a JSON file, creates a new draft. Useful for
+  backup, cross-environment copy, and sharing outside the template library.
+
+RECOMMENDATION: Option A (Analytics & Reporting) delivers immediate value with
+zero new infrastructure and no external dependencies. Option B unlocks enterprise
+deals but requires careful security work (HMAC, retry logic, encrypted webhook
+URLs). Option C reduces sales friction for new tenants. A natural sequence is
+A → C → B.
