@@ -526,38 +526,9 @@ M3 — Natural-language Branch Conditions ✅ COMPLETE
 
     See §29 for full implementation notes.
 
-M4 — Flow Trigger Assistant 🔜 PLANNED
+M4 — Flow Trigger Assistant ✅ COMPLETE
 
-    On the "My Flows" / trigger page, a conversational input: "What do you need to
-    do today?" Claude matches the description against published flows available to
-    the user's department, suggests the best match with a confidence note, and
-    pre-fills any form fields it can infer from the description. User reviews and
-    confirms before the flow is triggered.
-
-    Implementation sketch:
-    - Server action suggestFlowForRequest(userText, availableFlows) in
-      src/lib/ai/trigger-assistant.ts. availableFlows is a lightweight list
-      (id, name, description, first-step field list) — not full graphs.
-    - Returns { flowId, confidence, prefillData: Record<fieldKey, value> }.
-    - UI: collapsible AI panel above the manual flow list on /my-flows.
-
-M5 — SLA Suggestions from History 🔜 PLANNED
-
-    When a builder configures a step SLA for the first time, Claude (augmented with
-    real step_instances data) suggests a value based on historical completion times
-    for similar steps across the tenant. Shown as a hint: "Steps like this have
-    historically taken 4–6 h — suggest 8 h SLA?"
-
-    Implementation sketch:
-    - Server action suggestSlaForStep(stepLabel, tenantId) in
-      src/lib/ai/sla-suggestions.ts. Queries avg/p90 completed_at - created_at
-      from step_instances grouped by a fuzzy label match, passes the stats to
-      Claude to produce a human-readable suggestion + recommended slaHours value.
-    - StepConfigPanel shows the hint below the SLA input when the field is empty
-      and a suggestion is available (lazy-loaded on first focus).
-
-    PREREQUISITE: meaningful step_instances history in the tenant (suggestion
-    skipped / hidden when fewer than 10 comparable historical steps exist).
+    See §30 for full implementation notes.
 
 27. PHASE 9 M1 — AI FLOW BUILDER (COMPLETE ✅)
     `npm run build` passes clean. Committed across 5 incremental commits on master.
@@ -787,3 +758,70 @@ needs to select gt/lt/gte/lte for number fields automatically.
 The same fieldType lookup drives the operator dropdown — both the AI parser
 and the manual UI derive allowed operators from the same OPERATORS_BY_TYPE map,
 so they stay in sync automatically.
+
+30. PHASE 9 M4 — FLOW TRIGGER ASSISTANT (COMPLETE ✅)
+    Build: clean. Two commits on master (initial M4, move from /my-flows to /flows).
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+Collapsible AI panel on the /flows page (nav bar item visible to all users).
+Non-admins see it above the flow list. Admins are excluded — they already have
+full builder controls on the same page.
+
+User types a plain-English request ("I need to submit a leave request for next
+week"). Claude matches it to the best published flow available to the user's
+department, returns a confidence rating, a 1–2 sentence reasoning, and any
+field values it can infer from the description. The user reviews the match and
+clicks "Start this flow" to trigger it, then fills in the real form.
+
+Prefill values are shown as informational hints only ("enter these when the
+task form opens") — the actual triggerFlow call is unchanged and does not
+pre-submit any form data.
+
+─── Files ────────────────────────────────────────────────────────────────────
+
+src/lib/ai/trigger-assistant.ts (new — 'use server')
+
+- FlowSummary: { id, name, description, firstStepFields[] }
+- FlowSuggestion: { flowId, confidence: 'high'|'medium'|'low', reasoning, prefillData }
+- getAvailableFlowSummaries(): fetches published flows for the current user's
+  tenant + filters by allowed_department_ids. Extracts first-step form fields
+  by walking: trigger node → first edge → first step node → formSchema.
+- suggestFlowForRequest(userText, flows): calls claude-sonnet-4-6 (512 tokens).
+  System prompt: strict JSON-only output, flowId must match a real id or null,
+  confidence definitions, prefillData rules (only explicitly stated values).
+  Response parsing: code-fence strip + startsWith('{') guard + flowId
+  validation against the provided list.
+
+src/components/my-flows/FlowTriggerAssistant.tsx (new — 'use client')
+
+- Collapsible violet panel (hidden entirely if flows.length === 0).
+- Collapsed header: Sparkles icon + "Start a flow with AI" label.
+- Expanded body: textarea + "Find a flow" button (useTransition for async).
+- Suggestion result card: flow name, description, confidence badge
+  (emerald=high, amber=medium, zinc=low), reasoning text, inferred values
+  list, "Start this flow" trigger button, "Try again" reset link.
+- No-match state: CircleDashed icon + reasoning + "Try a different description".
+- ⌘↵ / Ctrl↵ keyboard shortcut submits the textarea.
+- Error states: aiError (from Claude call) and triggerError (from triggerFlow)
+  shown as inline destructive alert boxes.
+
+src/app/(app)/flows/page.tsx
+
+- Adds getAvailableFlowSummaries() to the parallel Promise.all fetch.
+- Renders <FlowTriggerAssistant flows={summaries} /> for non-admins only,
+  above <FlowsClient>.
+
+─── Why /flows not /my-flows ─────────────────────────────────────────────────
+
+/my-flows shows triggered instances (history view) and is not in the nav bar.
+/flows is in the nav bar for all users and is where non-admins go to start a
+flow. Moving the AI panel there maximises discoverability without requiring a
+separate nav entry.
+
+─── KNOWN GOTCHA — department filtering mirrors triggerFlow ─────────────────
+
+getAvailableFlowSummaries uses the same allowed_department_ids logic as
+triggerFlow so the AI panel never surfaces a flow the user cannot actually
+trigger. The dept check is: if allowed is empty → open to all; otherwise the
+user's department_id must be in the list.
