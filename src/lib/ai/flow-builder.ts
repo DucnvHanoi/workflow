@@ -104,11 +104,12 @@ IMPORTANT: Respond with ONLY the complete updated graph as raw JSON. No markdown
 
 async function callClaude(
   systemPrompt: string,
-  userContent: string
+  userContent: string,
+  maxTokens = 4096
 ): Promise<{ graph: SerializedGraph | null; error: string | null }> {
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages: [
       { role: 'user', content: userContent },
@@ -143,9 +144,10 @@ export async function generateFlowFromDescription(
 
   try {
     return await callClaude(SYSTEM_PROMPT, description.trim())
-  } catch (err) {
-    console.error('AI flow generation error:', err)
-    return { graph: null, error: 'Failed to generate flow. Please try again.' }
+  } catch (err: unknown) {
+    const body = (err as { error?: { message?: string } })?.error?.message
+    console.error('AI flow generation error:', body ?? err)
+    return { graph: null, error: body ?? 'Failed to generate flow. Please try again.' }
   }
 }
 
@@ -158,10 +160,13 @@ export async function modifyFlowFromDescription(
   if (!instruction.trim()) return { graph: null, error: 'Instruction is required' }
 
   try {
-    const userContent = `EXISTING GRAPH:\n${JSON.stringify(currentGraph, null, 2)}\n\nMODIFICATION INSTRUCTION:\n${instruction.trim()}`
-    return await callClaude(MODIFY_SYSTEM_PROMPT, userContent)
-  } catch (err) {
-    console.error('AI flow modification error:', err)
-    return { graph: null, error: 'Failed to modify flow. Please try again.' }
+    // Compact JSON (no pretty-print) keeps the input token count minimal
+    const userContent = `EXISTING GRAPH:\n${JSON.stringify(currentGraph)}\n\nMODIFICATION INSTRUCTION:\n${instruction.trim()}`
+    // Use 8192 output tokens — modified graphs can be larger than generated ones
+    return await callClaude(MODIFY_SYSTEM_PROMPT, userContent, 8192)
+  } catch (err: unknown) {
+    const body = (err as { error?: { message?: string } })?.error?.message
+    console.error('AI flow modification error:', body ?? err)
+    return { graph: null, error: body ?? 'Failed to modify flow. Please try again.' }
   }
 }
