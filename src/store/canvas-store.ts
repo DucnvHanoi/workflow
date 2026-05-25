@@ -16,7 +16,14 @@ import { saveDraftVersion, updateDraftGraph } from '@/lib/flows/actions'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type FormFieldType = 'text' | 'dropdown' | 'radio' | 'checkbox' | 'file' | 'date'
+export type FormFieldType =
+  | 'text'
+  | 'textarea'
+  | 'dropdown'
+  | 'radio'
+  | 'checkbox'
+  | 'file'
+  | 'date'
 
 export interface FormField {
   id: string
@@ -61,6 +68,7 @@ export interface NodeData {
   assigneeRule: AssigneeRule
   branchConditions: BranchCondition[]
   slaHours?: number // optional SLA; runtime computes due_at = now() + slaHours
+  escalateAfterHours?: number // optional; escalate to manager this many hours after due_at
   [key: string]: unknown // required by React Flow's NodeData constraint
 }
 

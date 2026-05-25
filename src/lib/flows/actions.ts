@@ -619,6 +619,31 @@ export async function deleteFlow(flowId: string): Promise<{ error: string | null
   return { error: error?.message ?? null }
 }
 
+// ─── updateFlowDepartmentRestrictions ────────────────────────────────────────
+
+export async function updateFlowDepartmentRestrictions(
+  flowId: string,
+  deptIds: string[]
+): Promise<{ error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { error: access.error }
+
+  const { error } = await db
+    .from('flows')
+    .update({
+      allowed_department_ids: deptIds.length > 0 ? deptIds : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+
+  return { error: error?.message ?? null }
+}
+
 // ─── updateFlowDescription ───────────────────────────────────────────────────
 
 export async function updateFlowDescription(
@@ -662,7 +687,7 @@ export async function triggerFlow(
 
   const { data: flow, error: flowError } = await db
     .from('flows')
-    .select('id, status, latest_version_id')
+    .select('id, status, latest_version_id, allowed_department_ids')
     .eq('id', flowId)
     .eq('tenant_id', tenantId)
     .maybeSingle()
@@ -670,6 +695,22 @@ export async function triggerFlow(
   if (flowError || !flow) return { instanceId: null, error: 'Flow not found.' }
   if (flow.status !== 'published') return { instanceId: null, error: 'Flow is not published.' }
   if (!flow.latest_version_id) return { instanceId: null, error: 'Flow has no published version.' }
+
+  // Department restriction check
+  const allowedDeptIds = flow.allowed_department_ids as string[] | null
+  if (allowedDeptIds && allowedDeptIds.length > 0) {
+    const { data: callerUser } = await db
+      .from('users')
+      .select('department_id')
+      .eq('id', userId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+
+    const callerDeptId = (callerUser as { department_id: string | null } | null)?.department_id
+    if (!callerDeptId || !allowedDeptIds.includes(callerDeptId)) {
+      return { instanceId: null, error: 'Your department is not authorised to trigger this flow.' }
+    }
+  }
 
   const { data: version, error: versionError } = await db
     .from('flow_versions')
@@ -777,6 +818,7 @@ export async function triggerFlow(
       form_data: {},
       status: 'pending',
       due_at: computeDueAt(firstNode.data?.slaHours as number | undefined),
+      escalate_after_hours: (firstNode.data?.escalateAfterHours as number | undefined) ?? null,
     })
     .select('id')
     .single()
@@ -1375,6 +1417,7 @@ async function advanceFlow(
       form_data: {},
       status: 'pending',
       due_at: computeDueAt(nextNode.data?.slaHours as number | undefined),
+      escalate_after_hours: (nextNode.data?.escalateAfterHours as number | undefined) ?? null,
     })
     .select('id')
     .single()

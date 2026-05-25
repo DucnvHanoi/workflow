@@ -21,8 +21,14 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import {
   buildAssignmentEmail,
   buildCompletionEmail,
+  buildInviteEmail,
+  buildSlaDigestEmail,
+  buildEscalationEmail,
   type AssignmentEmailData,
   type CompletionEmailData,
+  type InviteEmailData,
+  type SlaDigestEmailData,
+  type EscalationEmailData,
 } from './templates'
 
 // ---------------------------------------------------------------------------
@@ -33,10 +39,6 @@ import {
 // RESEND_API_KEY must be set in .env.local and in Vercel environment variables.
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-// The "from" address.
-// During dev/testing: use "onboarding@resend.dev" (Resend's shared sender —
-//   emails go to your own verified address only, no custom domain needed).
-// In production: use "noreply@yourdomain.com" after domain is verified in Resend.
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
 
 // ---------------------------------------------------------------------------
@@ -45,10 +47,10 @@ const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
 
 interface LogEmailParams {
   tenantId: string
-  instanceId: string
+  instanceId: string | null
   stepInstanceId?: string | null
   recipientEmail: string
-  emailType: 'step_assigned' | 'flow_completed'
+  emailType: 'step_assigned' | 'flow_completed' | 'invite' | 'sla_reminder' | 'sla_escalation'
   status: 'sent' | 'failed'
   resendId?: string | null
   errorMessage?: string | null
@@ -201,6 +203,188 @@ export async function sendCompletionEmail(params: SendCompletionEmailParams): Pr
       stepInstanceId: null,
       recipientEmail: params.triggererEmail,
       emailType: 'flow_completed',
+      status: 'failed',
+      errorMessage: message,
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendInviteEmail
+// ---------------------------------------------------------------------------
+
+export interface SendInviteEmailParams extends InviteEmailData {
+  tenantId: string
+}
+
+/**
+ * Sends an invitation email with the Supabase magic link.
+ * Called from inviteUser() after generateLink() succeeds.
+ * Fire-and-forget safe: never throws.
+ */
+export async function sendInviteEmail(params: SendInviteEmailParams): Promise<void> {
+  const { subject, html } = buildInviteEmail(params)
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: params.inviteeEmail,
+      subject,
+      html,
+    })
+
+    if (error) {
+      console.error('[email] Resend API error (invite):', error)
+      await logEmail({
+        tenantId: params.tenantId,
+        instanceId: null,
+        recipientEmail: params.inviteeEmail,
+        emailType: 'invite',
+        status: 'failed',
+        errorMessage: error.message,
+      })
+      return
+    }
+
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.inviteeEmail,
+      emailType: 'invite',
+      status: 'sent',
+      resendId: data?.id ?? null,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[email] Unexpected error sending invite email:', message)
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.inviteeEmail,
+      emailType: 'invite',
+      status: 'failed',
+      errorMessage: message,
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendSlaDigestEmail
+// ---------------------------------------------------------------------------
+
+export interface SendSlaDigestEmailParams extends SlaDigestEmailData {
+  recipientEmail: string
+  tenantId: string
+}
+
+/**
+ * Sends the daily SLA digest to an assignee.
+ * Called from the /api/cron/sla route. Fire-and-forget safe: never throws.
+ */
+export async function sendSlaDigestEmail(params: SendSlaDigestEmailParams): Promise<void> {
+  const { subject, html } = buildSlaDigestEmail(params)
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: params.recipientEmail,
+      subject,
+      html,
+    })
+
+    if (error) {
+      console.error('[email] Resend API error (sla-digest):', error)
+      await logEmail({
+        tenantId: params.tenantId,
+        instanceId: null,
+        recipientEmail: params.recipientEmail,
+        emailType: 'sla_reminder',
+        status: 'failed',
+        errorMessage: error.message,
+      })
+      return
+    }
+
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'sla_reminder',
+      status: 'sent',
+      resendId: data?.id ?? null,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[email] Unexpected error sending SLA digest:', message)
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'sla_reminder',
+      status: 'failed',
+      errorMessage: message,
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendEscalationEmail
+// ---------------------------------------------------------------------------
+
+export interface SendEscalationEmailParams extends EscalationEmailData {
+  managerEmail: string
+  tenantId: string
+  instanceId: string
+  stepInstanceId: string
+}
+
+/**
+ * Sends an escalation alert to the assignee's manager.
+ * Called from the /api/cron/sla route. Fire-and-forget safe: never throws.
+ */
+export async function sendEscalationEmail(params: SendEscalationEmailParams): Promise<void> {
+  const { subject, html } = buildEscalationEmail(params)
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: params.managerEmail,
+      subject,
+      html,
+    })
+
+    if (error) {
+      console.error('[email] Resend API error (escalation):', error)
+      await logEmail({
+        tenantId: params.tenantId,
+        instanceId: params.instanceId,
+        stepInstanceId: params.stepInstanceId,
+        recipientEmail: params.managerEmail,
+        emailType: 'sla_escalation',
+        status: 'failed',
+        errorMessage: error.message,
+      })
+      return
+    }
+
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: params.instanceId,
+      stepInstanceId: params.stepInstanceId,
+      recipientEmail: params.managerEmail,
+      emailType: 'sla_escalation',
+      status: 'sent',
+      resendId: data?.id ?? null,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[email] Unexpected error sending escalation email:', message)
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: params.instanceId,
+      stepInstanceId: params.stepInstanceId,
+      recipientEmail: params.managerEmail,
+      emailType: 'sla_escalation',
       status: 'failed',
       errorMessage: message,
     })

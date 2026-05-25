@@ -15,6 +15,8 @@ import {
 import { EditDepartmentDialog } from './rename-department-dialog'
 import { DeleteDepartmentDialog } from './delete-department-dialog'
 import { SetDepartmentHeadDialog } from './set-department-head-dialog'
+import { DepartmentMembersPanel } from './department-members-panel'
+import { MergeDepartmentDialog } from './merge-department-dialog'
 
 interface DeptUser {
   id: string
@@ -40,6 +42,8 @@ export function DepartmentActions({ department, allDepartments, allUsers }: Prop
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [setHeadOpen, setSetHeadOpen] = useState(false)
+  const [membersOpen, setMembersOpen] = useState(false)
+  const [mergeOpen, setMergeOpen] = useState(false)
 
   return (
     <>
@@ -51,9 +55,11 @@ export function DepartmentActions({ department, allDepartments, allUsers }: Prop
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setMembersOpen(true)}>Members</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setEditOpen(true)}>Edit</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setSetHeadOpen(true)}>Set Head</DropdownMenuItem>
           <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setMergeOpen(true)}>Merge into…</DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => setDeleteOpen(true)}
             className="text-destructive focus:text-destructive"
@@ -80,6 +86,18 @@ export function DepartmentActions({ department, allDepartments, allUsers }: Prop
         onOpenChange={setDeleteOpen}
         department={department}
         userCount={department.userCount}
+      />
+      <DepartmentMembersPanel
+        department={department}
+        allUsers={allUsers}
+        open={membersOpen}
+        onOpenChange={setMembersOpen}
+      />
+      <MergeDepartmentDialog
+        department={department}
+        allDepartments={allDepartments}
+        open={mergeOpen}
+        onOpenChange={setMergeOpen}
       />
     </>
   )

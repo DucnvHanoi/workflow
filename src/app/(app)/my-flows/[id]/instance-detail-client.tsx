@@ -844,6 +844,8 @@ function ActivityEvent({ event, nodeMap, isLast }: ActivityEventProps) {
                           <FileDownloadLink key={path} storagePath={path} />
                         ))}
                       </span>
+                    ) : fv.fieldType === 'textarea' ? (
+                      <span className="whitespace-pre-wrap">{fv.value}</span>
                     ) : (
                       fv.value
                     )}

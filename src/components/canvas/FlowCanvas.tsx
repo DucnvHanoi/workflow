@@ -57,6 +57,7 @@ interface FlowCanvasProps {
   departments: TenantDepartment[]
   initialNodes: Node[]
   initialEdges: Edge[]
+  initialAllowedDeptIds: string[]
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ export default function FlowCanvas({
   departments,
   initialNodes,
   initialEdges,
+  initialAllowedDeptIds,
 }: FlowCanvasProps) {
   const {
     nodes,
@@ -271,6 +273,7 @@ export default function FlowCanvas({
           flowStatus={currentFlowStatus}
           onFlowStatusChange={setCurrentFlowStatus}
           onVersionRestored={handleVersionRestored}
+          initialAllowedDeptIds={initialAllowedDeptIds}
         />
       </div>
     </div>

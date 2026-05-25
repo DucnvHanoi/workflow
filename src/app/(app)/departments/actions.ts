@@ -262,3 +262,134 @@ export async function setDepartmentHead(
   revalidatePath('/users')
   return { error: null }
 }
+
+// ─── member management ────────────────────────────────────────────────────────
+
+export async function addMemberToDepartment(
+  userId: string,
+  departmentId: string
+): Promise<{ error: string | null }> {
+  const { user, claims } = await getSessionClaims()
+  if (!user || claims.role !== 'admin') return { error: 'Unauthorised' }
+
+  const adminClient = createAdminClient()
+
+  const { data: dept } = await adminClient
+    .from('departments')
+    .select('id')
+    .eq('id', departmentId)
+    .eq('tenant_id', claims.tenant_id)
+    .maybeSingle()
+
+  if (!dept) return { error: 'Department not found.' }
+
+  const { error } = await adminClient
+    .from('users')
+    .update({ department_id: departmentId })
+    .eq('id', userId)
+    .eq('tenant_id', claims.tenant_id)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/departments')
+  revalidatePath('/users')
+  revalidatePath('/org-chart')
+  return { error: null }
+}
+
+export async function removeMemberFromDepartment(
+  userId: string,
+  departmentId: string
+): Promise<{ error: string | null }> {
+  const { user, claims } = await getSessionClaims()
+  if (!user || claims.role !== 'admin') return { error: 'Unauthorised' }
+
+  const adminClient = createAdminClient()
+
+  const { error } = await adminClient
+    .from('users')
+    .update({ department_id: null })
+    .eq('id', userId)
+    .eq('department_id', departmentId)
+    .eq('tenant_id', claims.tenant_id)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/departments')
+  revalidatePath('/users')
+  revalidatePath('/org-chart')
+  return { error: null }
+}
+
+// ─── merge ────────────────────────────────────────────────────────────────────
+
+export async function mergeDepartment(
+  sourceId: string,
+  targetId: string,
+  deleteSource: boolean
+): Promise<{ error: string | null; movedCount: number }> {
+  const { user, claims } = await getSessionClaims()
+  if (!user || claims.role !== 'admin') return { error: 'Unauthorised', movedCount: 0 }
+  if (sourceId === targetId) return { error: 'Source and target must be different.', movedCount: 0 }
+
+  const adminClient = createAdminClient()
+
+  // Verify both departments belong to this tenant
+  const { data: depts } = await adminClient
+    .from('departments')
+    .select('id, head_user_id')
+    .in('id', [sourceId, targetId])
+    .eq('tenant_id', claims.tenant_id)
+
+  const sourceDept = depts?.find((d) => d.id === sourceId)
+  const targetDept = depts?.find((d) => d.id === targetId)
+  if (!sourceDept) return { error: 'Source department not found.', movedCount: 0 }
+  if (!targetDept) return { error: 'Target department not found.', movedCount: 0 }
+
+  // Move all users from source → target
+  const { data: movedRows, error: moveError } = await adminClient
+    .from('users')
+    .update({ department_id: targetId })
+    .eq('department_id', sourceId)
+    .eq('tenant_id', claims.tenant_id)
+    .select('id')
+
+  if (moveError) return { error: moveError.message, movedCount: 0 }
+  const movedCount = movedRows?.length ?? 0
+
+  // Transfer department head if source has one and target does not
+  if (sourceDept.head_user_id && !targetDept.head_user_id) {
+    await adminClient
+      .from('departments')
+      .update({ head_user_id: sourceDept.head_user_id })
+      .eq('id', targetId)
+      .eq('tenant_id', claims.tenant_id)
+  }
+
+  // Optionally delete source department (only if it has no children)
+  if (deleteSource) {
+    const { count: childCount } = await adminClient
+      .from('departments')
+      .select('id', { count: 'exact', head: true })
+      .eq('parent_id', sourceId)
+      .eq('tenant_id', claims.tenant_id)
+
+    if (childCount && childCount > 0) {
+      return {
+        error: `Merged ${movedCount} user${movedCount !== 1 ? 's' : ''} successfully, but could not delete source — it still has ${childCount} sub-department${childCount > 1 ? 's' : ''}. Delete them first.`,
+        movedCount,
+      }
+    }
+
+    await adminClient
+      .from('departments')
+      .delete()
+      .eq('id', sourceId)
+      .eq('tenant_id', claims.tenant_id)
+  }
+
+  revalidatePath('/departments')
+  revalidatePath('/users')
+  revalidatePath('/org-chart')
+  return { error: null, movedCount }
+}

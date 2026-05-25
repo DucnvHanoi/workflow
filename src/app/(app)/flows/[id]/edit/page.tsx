@@ -26,7 +26,7 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
   // ── Fetch flow ────────────────────────────────────────────────────────────
   const { data: flow } = await supabase
     .from('flows')
-    .select('id, name, status')
+    .select('id, name, status, allowed_department_ids')
     .eq('id', params.id)
     .eq('tenant_id', tenantId)
     .single()
@@ -101,6 +101,7 @@ export default async function FlowEditPage({ params }: { params: { id: string } 
           departments={departments}
           initialNodes={initialNodes}
           initialEdges={initialEdges}
+          initialAllowedDeptIds={(flow.allowed_department_ids as string[] | null) ?? []}
         />
       </div>
     </div>

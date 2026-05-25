@@ -27,6 +27,7 @@ const TYPE_ICON: Record<string, string> = {
 
 export function NotificationBell({ userId, initialNotifications }: NotificationBellProps) {
   const router = useRouter()
+  const [open, setOpen] = useState(false)
   const [notifications, setNotifications] = useState<NotificationItem[]>(initialNotifications)
   const [isPending, startTransition] = useTransition()
 
@@ -72,6 +73,9 @@ export function NotificationBell({ userId, initialNotifications }: NotificationB
 
   const handleClick = useCallback(
     (n: NotificationItem) => {
+      // Close the dropdown first — router.push is a soft nav that doesn't
+      // remount the layout, so the dropdown would stay open otherwise.
+      setOpen(false)
       if (!n.read_at) {
         startTransition(async () => {
           await markNotificationRead(n.id)
@@ -96,7 +100,7 @@ export function NotificationBell({ userId, initialNotifications }: NotificationB
   }, [])
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative h-8 w-8">
           <BellIcon className="h-4 w-4" />

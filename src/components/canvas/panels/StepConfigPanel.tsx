@@ -28,15 +28,24 @@ export default function StepConfigPanel({ node }: Props) {
   const [slaUnit, setSlaUnit] = useState<'hours' | 'days'>(
     () => deriveSlaDisplay(data.slaHours).unit
   )
+  const [escValue, setEscValue] = useState<number | ''>(
+    () => deriveSlaDisplay(data.escalateAfterHours).value
+  )
+  const [escUnit, setEscUnit] = useState<'hours' | 'days'>(
+    () => deriveSlaDisplay(data.escalateAfterHours).unit
+  )
 
   // Sync local state when a different node is selected
   useEffect(() => {
     setLabel(data.label ?? '')
     setDescription(data.description ?? '')
-    const { value, unit } = deriveSlaDisplay(data.slaHours)
-    setSlaValue(value)
-    setSlaUnit(unit)
-  }, [node.id, data.label, data.description, data.slaHours])
+    const sla = deriveSlaDisplay(data.slaHours)
+    setSlaValue(sla.value)
+    setSlaUnit(sla.unit)
+    const esc = deriveSlaDisplay(data.escalateAfterHours)
+    setEscValue(esc.value)
+    setEscUnit(esc.unit)
+  }, [node.id, data.label, data.description, data.slaHours, data.escalateAfterHours])
 
   const handleLabelChange = (value: string) => {
     setLabel(value)
@@ -71,6 +80,33 @@ export default function StepConfigPanel({ node }: Props) {
     setSlaUnit(unit)
     if (slaValue !== '') {
       updateNodeData(node.id, { slaHours: (slaValue as number) * (unit === 'days' ? 24 : 1) })
+      triggerSave()
+    }
+  }
+
+  const handleEscValueChange = (raw: string) => {
+    if (raw === '') {
+      setEscValue('')
+      updateNodeData(node.id, { escalateAfterHours: undefined })
+    } else {
+      const num = parseInt(raw, 10)
+      if (!isNaN(num) && num > 0) {
+        setEscValue(num)
+        updateNodeData(node.id, { escalateAfterHours: num * (escUnit === 'days' ? 24 : 1) })
+      } else {
+        setEscValue('')
+        updateNodeData(node.id, { escalateAfterHours: undefined })
+      }
+    }
+    triggerSave()
+  }
+
+  const handleEscUnitChange = (unit: 'hours' | 'days') => {
+    setEscUnit(unit)
+    if (escValue !== '') {
+      updateNodeData(node.id, {
+        escalateAfterHours: (escValue as number) * (unit === 'days' ? 24 : 1),
+      })
       triggerSave()
     }
   }
@@ -152,6 +188,45 @@ export default function StepConfigPanel({ node }: Props) {
                 {slaValue} {slaUnit}
               </span>{' '}
               of assignment.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Escalation — only shown when an SLA due date is configured */}
+      {(node.type === 'action' || node.type === 'branch') && slaValue !== '' && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Escalate after
+            <span className="ml-1 font-normal normal-case text-muted-foreground/60">
+              (optional, hours overdue)
+            </span>
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              min={1}
+              value={escValue}
+              onChange={(e) => handleEscValueChange(e.target.value)}
+              placeholder="e.g. 24"
+              className="w-24 rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            />
+            <select
+              value={escUnit}
+              onChange={(e) => handleEscUnitChange(e.target.value as 'hours' | 'days')}
+              className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <option value="hours">hours overdue</option>
+              <option value="days">days overdue</option>
+            </select>
+          </div>
+          {escValue !== '' && (
+            <p className="text-xs text-muted-foreground">
+              Manager notified if overdue by more than{' '}
+              <span className="font-medium">
+                {escValue} {escUnit}
+              </span>
+              .
             </p>
           )}
         </div>

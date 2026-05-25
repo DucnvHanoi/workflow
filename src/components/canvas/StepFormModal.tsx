@@ -21,7 +21,7 @@
 //   3. "Submit"     → validates required fields client-side, calls submitStep(),
 //                     shows toast, closes modal, calls onSubmitted()
 import { FileDownloadLink, isFilePaths } from '@/components/canvas/FileDownloadLink'
-import { useState, useEffect, useTransition } from 'react'
+import { useState, useEffect, useRef, useTransition } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -317,6 +317,45 @@ export function StepFormModal({
   )
 }
 
+// ─── AutoTextarea ─────────────────────────────────────────────────────────────
+// Textarea that auto-grows with content, starting at 5 rows minimum.
+
+function AutoTextarea({
+  id,
+  value,
+  onChange,
+  disabled,
+  className,
+}: {
+  id: string
+  value: string
+  onChange: (val: string) => void
+  disabled: boolean
+  className?: string
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+
+  return (
+    <textarea
+      ref={ref}
+      id={id}
+      value={value}
+      rows={5}
+      disabled={disabled}
+      placeholder="Enter your answer…"
+      onChange={(e) => onChange(e.target.value)}
+      className={`flex w-full rounded-md border bg-background px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none overflow-hidden ${className ?? ''}`}
+    />
+  )
+}
+
 // ─── FieldRenderer ────────────────────────────────────────────────────────────
 // Renders a single form field based on its type.
 
@@ -364,6 +403,16 @@ function FieldRenderer({
           disabled={disabled}
           placeholder="Enter your answer…"
           className={error ? 'border-destructive' : ''}
+        />
+      )}
+
+      {field.type === 'textarea' && (
+        <AutoTextarea
+          id={`field-${field.id}`}
+          value={typeof value === 'string' ? value : ''}
+          onChange={onChange}
+          disabled={disabled}
+          className={error ? 'border-destructive' : 'border-input'}
         />
       )}
 

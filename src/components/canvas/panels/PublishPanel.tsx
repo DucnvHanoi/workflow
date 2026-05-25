@@ -2,13 +2,13 @@
 
 // FILE PATH: src/components/canvas/panels/PublishPanel.tsx
 
-import { useTransition } from 'react'
-import { CheckCircle2, AlertTriangle, Globe, FileText } from 'lucide-react'
+import { useState, useTransition } from 'react'
+import { CheckCircle2, AlertTriangle, Globe, FileText, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { serializeGraph, validateGraph, type ValidationError } from '@/lib/flows/graph'
-import { publishFlow, unpublishFlow } from '@/lib/flows/actions'
-import { useCanvasStore, type NodeData } from '@/store/canvas-store'
+import { publishFlow, unpublishFlow, updateFlowDepartmentRestrictions } from '@/lib/flows/actions'
+import { useCanvasStore, type NodeData, type TenantDepartment } from '@/store/canvas-store'
 import type { Node } from '@xyflow/react'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -16,15 +16,28 @@ import type { Node } from '@xyflow/react'
 interface PublishPanelProps {
   flowId: string
   flowStatus: 'draft' | 'published'
-  onStatusChange: (status: 'draft' | 'published') => void // Removed unused 'status' property
+  departments: TenantDepartment[]
+  initialAllowedDeptIds: string[]
+  onStatusChange: (status: 'draft' | 'published') => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function PublishPanel({ flowId, flowStatus, onStatusChange }: PublishPanelProps) {
+export default function PublishPanel({
+  flowId,
+  flowStatus,
+  departments,
+  initialAllowedDeptIds,
+  onStatusChange,
+}: PublishPanelProps) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
   const [isPending, startTransition] = useTransition()
+  const [isRestrictionPending, startRestrictionTransition] = useTransition()
+
+  // Local restriction state — initialised from server, auto-saved on change
+  const [restricted, setRestricted] = useState(initialAllowedDeptIds.length > 0)
+  const [allowedDeptIds, setAllowedDeptIds] = useState<string[]>(initialAllowedDeptIds)
 
   // The Zustand store types nodes as Node[] (React Flow base type) but our
   // serializeGraph expects Node<NodeData>[]. The data shape is always NodeData
@@ -59,6 +72,28 @@ export default function PublishPanel({ flowId, flowStatus, onStatusChange }: Pub
       }
       toast.success('Flow unpublished and set back to draft.')
       onStatusChange('draft')
+    })
+  }
+
+  // ── Restriction toggle ────────────────────────────────────────────────────
+
+  function handleRestrictedToggle(checked: boolean) {
+    setRestricted(checked)
+    const nextIds = checked ? allowedDeptIds : []
+    startRestrictionTransition(async () => {
+      const result = await updateFlowDepartmentRestrictions(flowId, nextIds)
+      if (result.error) toast.error(result.error)
+    })
+  }
+
+  function handleDeptToggle(deptId: string, checked: boolean) {
+    const next = checked
+      ? [...allowedDeptIds, deptId]
+      : allowedDeptIds.filter((id) => id !== deptId)
+    setAllowedDeptIds(next)
+    startRestrictionTransition(async () => {
+      const result = await updateFlowDepartmentRestrictions(flowId, next)
+      if (result.error) toast.error(result.error)
     })
   }
 
@@ -130,6 +165,65 @@ export default function PublishPanel({ flowId, flowStatus, onStatusChange }: Pub
           {isPending ? 'Unpublishing…' : 'Unpublish (back to draft)'}
         </Button>
       )}
+
+      <div className="border-t border-border" />
+
+      {/* ── Trigger restrictions ──────────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-muted-foreground shrink-0" />
+          <p className="text-sm font-semibold text-foreground">Trigger Restrictions</p>
+        </div>
+
+        <div className="flex items-start gap-2">
+          <input
+            id="restrict-toggle"
+            type="checkbox"
+            checked={restricted}
+            onChange={(e) => handleRestrictedToggle(e.target.checked)}
+            disabled={isRestrictionPending}
+            className="mt-0.5 h-4 w-4 rounded border-input accent-primary cursor-pointer"
+          />
+          <label htmlFor="restrict-toggle" className="text-xs leading-snug cursor-pointer">
+            Restrict to specific departments
+            <span className="block text-muted-foreground">
+              When enabled, only users in selected departments can trigger this flow.
+            </span>
+          </label>
+        </div>
+
+        {restricted && (
+          <div className="space-y-1.5 pl-1">
+            {departments.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No departments found.</p>
+            ) : (
+              departments.map((dept) => (
+                <div key={dept.id} className="flex items-center gap-2">
+                  <input
+                    id={`dept-${dept.id}`}
+                    type="checkbox"
+                    checked={allowedDeptIds.includes(dept.id)}
+                    onChange={(e) => handleDeptToggle(dept.id, e.target.checked)}
+                    disabled={isRestrictionPending}
+                    className="h-3.5 w-3.5 rounded border-input accent-primary cursor-pointer"
+                  />
+                  <label
+                    htmlFor={`dept-${dept.id}`}
+                    className="text-xs text-foreground cursor-pointer truncate"
+                  >
+                    {dept.name}
+                  </label>
+                </div>
+              ))
+            )}
+            {restricted && allowedDeptIds.length === 0 && (
+              <p className="text-xs text-amber-600">
+                No departments selected — all users can still trigger this flow.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -20,21 +20,31 @@ interface ConfigSidebarProps {
   users: TenantUser[]
   departments: TenantDepartment[]
   flowId: string
-  flowStatus: 'draft' | 'published' // Removed unused 'status' property
+  flowStatus: 'draft' | 'published'
   onFlowStatusChange: (status: 'draft' | 'published') => void
   onVersionRestored: () => void
+  initialAllowedDeptIds: string[]
 }
 
 type SidebarTab = 'publish' | 'versions'
 
 interface IdlePanelProps {
-  flowId: string // Removed unused 'status' property
-  flowStatus: 'draft' | 'published' // Removed unused 'status' property
+  flowId: string
+  flowStatus: 'draft' | 'published'
+  departments: TenantDepartment[]
+  initialAllowedDeptIds: string[]
   onFlowStatusChange: (status: 'draft' | 'published') => void
   onVersionRestored: () => void
 }
 
-function IdlePanel({ flowId, flowStatus, onFlowStatusChange, onVersionRestored }: IdlePanelProps) {
+function IdlePanel({
+  flowId,
+  flowStatus,
+  departments,
+  initialAllowedDeptIds,
+  onFlowStatusChange,
+  onVersionRestored,
+}: IdlePanelProps) {
   const [tab, setTab] = useState<SidebarTab>('publish')
 
   return (
@@ -65,6 +75,8 @@ function IdlePanel({ flowId, flowStatus, onFlowStatusChange, onVersionRestored }
           <PublishPanel
             flowId={flowId}
             flowStatus={flowStatus}
+            departments={departments}
+            initialAllowedDeptIds={initialAllowedDeptIds}
             onStatusChange={onFlowStatusChange}
           />
         ) : (
@@ -85,6 +97,7 @@ export default function ConfigSidebar({
   flowStatus,
   onFlowStatusChange,
   onVersionRestored,
+  initialAllowedDeptIds,
 }: ConfigSidebarProps) {
   const { setSelectedNodeId } = useCanvasStore()
 
@@ -137,6 +150,8 @@ export default function ConfigSidebar({
         <IdlePanel
           flowId={flowId}
           flowStatus={flowStatus}
+          departments={departments}
+          initialAllowedDeptIds={initialAllowedDeptIds}
           onFlowStatusChange={onFlowStatusChange}
           onVersionRestored={onVersionRestored}
         />

@@ -51,6 +51,13 @@ export function LoginForm() {
       return
     }
 
+    // Check if MFA is required before proceeding to the app
+    const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aalData?.nextLevel === 'aal2' && aalData.currentLevel !== 'aal2') {
+      router.push('/auth/mfa')
+      return
+    }
+
     // Success — hard refresh to let middleware handle redirect
     router.push('/tasks')
     router.refresh()

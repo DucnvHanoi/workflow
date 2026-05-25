@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { Badge } from '@/components/ui/badge'
 import { NotificationBell } from './NotificationBell'
+import { AvatarDropdown } from './AvatarDropdown'
 import type { NotificationItem } from '@/lib/notifications/actions'
 
 interface TopbarProps {
@@ -68,12 +69,7 @@ export async function Topbar({ userId, userEmail, tenantId, role }: TopbarProps)
             Admin
           </Badge>
         )}
-        <div
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground select-none"
-          title={fullName ?? userEmail}
-        >
-          {initials}
-        </div>
+        <AvatarDropdown initials={initials} displayName={fullName ?? ''} email={userEmail} />
       </div>
     </header>
   )

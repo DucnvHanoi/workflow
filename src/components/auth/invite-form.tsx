@@ -23,13 +23,13 @@ export function InviteForm() {
     if (!email.trim()) return
 
     startTransition(async () => {
-      try {
-        await inviteUser(email, role)
+      const result = await inviteUser(email, role)
+      if (result.success) {
         toast.success(`Invite sent to ${email}.`)
         setEmail('')
         setRole('user')
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : 'Failed to send invite.')
+      } else {
+        toast.error(result.error)
       }
     })
   }

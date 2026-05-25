@@ -217,16 +217,292 @@ Resolve-assignee edge function redeployed to Supabase (npx supabase functions de
 
 KNOWN TEST SCENARIO — Bulk Reassign button (Test 3): The "Reassign N pending tasks" button on /users/[id] only renders when pendingCount > 0. To test: trigger a flow that assigns a step to User A first, then deactivate User A, then visit their profile. The button appears because the pending step_instance remains assigned to them after deactivation.
 
-16. PHASE 6 ROADMAP (REMAINING)
+16. PHASE 6 — COMPLETE ✅
 
 M1 — User deactivation ✅ COMPLETE (Day 1)
 M2 — Bulk task reassignment ✅ COMPLETE (Day 1)
+M3 — Invite email delivery ✅ COMPLETE (Day 2)
+M4 — SLA digest emails + escalation ✅ COMPLETE (Day 2)
+M5 — User self-service profile page ✅ COMPLETE (Day 2)
 
-M3 — Fix invite email delivery (NEXT):
-The /invite page and inviteUser() action exist and correctly call auth.admin.generateLink({ type: 'invite' }) + pre-insert the public.users row. However, generateLink does NOT send an email — it only returns the magic link in inviteData.properties.action_link. The invited user currently receives nothing. Fix: pass action_link to Resend (using the existing RESEND_API_KEY / RESEND_FROM_EMAIL env vars) so the invite email is actually delivered.
+17. PHASE 6 DAY 2 — INVITE EMAIL, SLA CRON & SETTINGS (COMPLETED)
+    `npm run build` passes clean (24 routes). Test suite: 41 passing, 2 pre-existing category-actions failures unchanged.
 
-M4 — SLA reminder & digest emails + overdue escalation (deferred from Phase 5 M2/M3):
-Parked because Resend requires a verified domain to send to arbitrary recipients. Route: GET /api/cron/sla (Vercel Cron, secured by CRON_SECRET header). Scans pending step_instances for T-1d reminders and overdue notices. De-dupe via notification_logs (track last-sent). Escalation: overdue past threshold → email assignee's manager, log audit 'step_escalated'. Revisit once domain verified.
+M3 — Invite email delivery:
+inviteUser() in src/app/(app)/invite/actions.ts now calls sendInviteEmail() (fire-and-forget) after the public.users row is pre-inserted. The Supabase magic link from inviteData.properties.action_link is passed directly to Resend. New buildInviteEmail() template in templates.ts: branded shell, "Accept invitation" CTA button, 24h expiry note. sendInviteEmail() in resend.ts logs to notification_logs with email_type='invite' (instanceId=null — nullable FK, no constraint violation). Migration 20260522100000 extends notification_logs.email_type CHECK to include 'invite', 'sla_reminder', 'sla_overdue', 'sla_escalation'. inviterName and tenantName are resolved via two parallel adminClient queries so the email body is personalised.
 
-M5 — User self-service profile page (/settings or /profile):
-Regular users currently have no way to update their own name or notification preferences. Admins can edit any user via /users. Build a lightweight /settings page (accessible to all roles) for self-editing full_name and email (mirrors updateUserProfile but scoped to own account).
+M4 — SLA daily digest + escalation emails:
+Migration 20260522110000 adds escalate_after_hours (nullable integer) to step_instances with a partial index on (due_at, escalate_after_hours). NodeData gains escalateAfterHours?: number (stored in graph JSONB). StepConfigPanel shows an "Escalate after N hours/days overdue" field only when an SLA is already configured — the field is hidden otherwise to keep the UI clean. Both step_instance creation sites in actions.ts (triggerFlow first step + advanceFlow subsequent steps) now copy escalate_after_hours alongside due_at. Two new email templates: buildSlaDigestEmail() (per-assignee table of overdue + due-soon tasks) and buildEscalationEmail() (to manager, with overdue duration). Cron route GET /api/cron/sla (src/app/api/cron/sla/route.ts): secured by Authorization: Bearer {CRON_SECRET} header check; fetches all pending step_instances with due_at set; resolves flow names + step labels by walking instance→flow_version→graph JSONB; groups by assignee; sends one digest per assignee per day (de-duped via notification_logs sla_reminder rows for today); sends one escalation per step_instance once only (de-duped via notification_logs sla_escalation + step_instance_id). vercel.json created with schedule "0 1 \* \* \*" (1am UTC = 8am ICT). Env var CRON_SECRET must be set in .env.local and Vercel dashboard.
+
+KNOWN GOTCHA — Array.from vs Set spread: cron route uses Array.from(new Set(...)) throughout. Never use [...new Set()] — tsconfig target defaults to ES3 and Set/Map spread fails at build time (downlevelIteration error). This is the same trap documented in Day 41.
+
+M5 — User self-service profile page:
+New route /settings (24th route) accessible to all authenticated roles — not in ADMIN_ONLY_ROUTES so middleware lets any logged-in user through. Server page src/app/(app)/settings/page.tsx fetches own users row (full_name, email) via read-only createClient(). Client form settings-form.tsx: email field shown read-only (no self-serve email change), full_name editable, save button disabled until value differs from initial. Server action updateOwnFullName() in src/app/(app)/settings/actions.ts: getSessionClaims() auth gate (no admin check), trims + validates name length, updates own row only via adminClient with .eq('id', user.id) + .eq('tenant_id', claims.tenant_id) double-guard. Avatar in Topbar replaced: static div → AvatarDropdown client component (src/components/shell/AvatarDropdown.tsx) using shadcn DropdownMenu; shows display name + email in header, Settings link (router.push('/settings')), Sign out (reuses createBrowserClient signOut pattern from SignOutButton). SignOutButton standalone component is still available but no longer used by Topbar.
+
+18. PHASE 6 POST-DAY-2 — INVITE EMAIL QA & FORM FIX (COMPLETED)
+
+Verified custom domain email delivery (noreply@bizflow.id.vn):
+.env.local updated to RESEND_FROM_EMAIL=noreply@bizflow.id.vn (verified domain on Resend). No code change was required — resend.ts already reads const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev' at module load. The env-var swap was the only needed change. End-to-end verification via scripts/verify-invite.mjs confirmed Resend accepted the message with status=sent and a real resend_id, logged correctly to notification_logs with email_type='invite'.
+
+Bug fix — InviteForm always showed success toast:
+src/components/auth/invite-form.tsx was wrapping inviteUser() in a try/catch. Since Next.js server actions return discriminated union results ({ success: true } | { success: false, error: string }) rather than throwing, the catch block never fired — every call appeared to succeed even when the action returned { success: false }. Fixed by removing the try/catch and checking result.success directly, calling toast.error(result.error) on failure. Duplicate-invite attempts now correctly show the "A user with this email already exists." error toast instead of a false success.
+
+Code hygiene — resend.ts comment removal:
+Removed a stale multi-line comment on the FROM_EMAIL line that referenced onboarding@resend.dev as a production fallback; the single const line is self-documenting.
+
+PENDING — Production environment variables to add in Vercel:
+
+- RESEND_FROM_EMAIL=noreply@bizflow.id.vn (invite + notification emails use verified domain)
+- CRON_SECRET=<secret from .env.local> (required for GET /api/cron/sla to accept Vercel's cron trigger)
+
+19. PHASE 7 — ENHANCED USER MANAGEMENT (ROADMAP)
+    Theme: deeper user lifecycle management — securing access with MFA, streamlining onboarding via bulk import, and visualising team structure with an org chart.
+
+M1 — MFA / OTP Authentication ✅ COMPLETE (Day 1)
+M2 — Bulk CSV User Import 🔜 PLANNED (Day 2)
+M3 — Invitation Pending Management ✅ COMPLETE (Day 1)
+M4 — Org Chart 🔜 PLANNED (Day 3)
+M5 — User Directory 🔜 PLANNED (Day 3)
+M6 — Enhanced User Profiles (avatar, job title, phone) 🔜 PLANNED (Day 4)
+M7 — Department Management UI 🔜 PLANNED (Day 2)
+M8 — Guided Offboarding Wizard 🔜 PLANNED (Day 4)
+
+20. PHASE 7 DAY 1 — MFA & INVITATION PENDING MANAGEMENT (COMPLETED)
+    `npm run build` passes clean (26 routes — /auth/mfa and /invite/pending added). Test suite unchanged.
+
+M1 — MFA / OTP Authentication:
+
+- MfaCard.tsx (src/components/settings/MfaCard.tsx): client component on the /settings page. On mount calls supabase.auth.mfa.listFactors() to detect enrolled TOTP. Three states: unenrolled → qr (enroll + show QR + manual secret) → enrolled. Cleans up lingering unverified factors before re-enrolling. Verify calls supabase.auth.mfa.challengeAndVerify(); unenroll calls supabase.auth.mfa.unenroll(). No DB schema change required — Supabase stores TOTP factors internally.
+- /settings page updated: split into "Profile" and "Security" sections; MfaCard renders in Security.
+- login-form.tsx: after successful signInWithPassword, checks getAuthenticatorAssuranceLevel(). If nextLevel === 'aal2' and currentLevel !== 'aal2', redirects to /auth/mfa instead of /tasks.
+- /auth/mfa page (src/app/auth/mfa/page.tsx): client page. On mount checks AAL (redirects to /tasks if already aal2 or MFA not enrolled). Creates a TOTP challenge, shows 6-digit input, calls verify(). On success redirects to /tasks.
+- middleware.ts: /auth/mfa added to PUBLIC_ROUTES so the AAL1 session (post-password, pre-MFA) can load the challenge page.
+
+KNOWN GOTCHA — Google OAuth + MFA: signInWithOAuth bypasses the login-form AAL check. If a user enrolled TOTP via email/password and then signs in with Google, the /auth/callback redirect goes straight to /tasks. Supabase returns aal1 for OAuth flows regardless of enrolled TOTP factors. Full enforcement would require an AAL check in /auth/callback — deferred to a future session.
+
+M3 — Invitation Pending Management:
+
+- Migration 20260523100000_add_pending_invitations.sql: pending_invitations table (tenant_id, email, invited_by FK→users, user_id FK→users ON DELETE SET NULL, invited_at, resend_count, last_resent_at, revoked_at, status CHECK pending|accepted|revoked). Admin-only SELECT RLS via app_metadata path. Partial index on (tenant_id, status, invited_at DESC).
+- inviteUser() extended: after inserting public.users, inserts a pending_invitations row (non-fatal if insert fails).
+- getPendingInvitations(): admin-only; joins inviter and invitee via users!invited_by and users!user_id; computes is_accepted from invitee.full_name IS NOT NULL (set during /account-setup).
+- resendInvitation(id): regenerates magic link via generateLink, re-sends email, increments resend_count + updates last_resent_at.
+- revokeInvitation(id): marks revoked first (captures user_id before ON DELETE SET NULL), then deletes public.users + auth.users via admin API.
+- /invite/pending page: server page + PendingInvitationsClient. Table shows email, Pending/Accepted badge, invited-by name, last-sent date, resend count, Resend/Revoke action buttons (only for pending rows). Revoke requires a confirm() dialog.
+- nav-items.ts: "Invite" gains exact: true flag (active only on /invite, not /invite/pending). "Pending Invites" added as a separate nav item. sidebar.tsx active-link logic respects the exact flag.
+
+DELETION ORDER for revokeInvitation — status set to 'revoked' first (before the DB cascade nullifies user_id), then public.users deleted, then auth.admin.deleteUser(). This ordering is intentional: it ensures user_id is captured before ON DELETE SET NULL fires and that the auth.users deletion doesn't fail due to public.users FK reference.
+
+21. PHASE 7 DAY 2+ — ORG CHART, DIRECTORY, AVATAR PROPAGATION & OFFBOARDING BUG FIX (COMPLETED)
+
+M4 — Org Chart (/org-chart): ✅ COMPLETE
+
+- ReactFlow-based interactive org chart; read-only for members, editable for admins.
+- computeGraph() builds parentMap by combining users.manager_id with dept head relationships from departments.head_user_id. Dept heads' parent is the head of their dept's parent department.
+- computeLayout() tree layout: leaf-slot counter → parent centroid. Stable across re-renders via graphKey useMemo (keyed on manager_id + head_user_id values).
+- OrgNode custom node: renders avatar image or initials, department label, Head badge (amber), role badge.
+- Admin interactions: drag source handle → target node → onConnect → updateUserManager() server action. Cycle detection via wouldCreateCycle() (walks upward from source). onEdgesDelete → updateUserManager(target, null). Optimistic edge update with rollback on error.
+- Server action (org-chart/actions.ts): updateUserManager(userId, managerId) — adminClient + adminOnly guard + tenant check.
+
+M5 — User Directory (/directory): ✅ COMPLETE
+
+- Grid card browser (1–4 columns responsive). Filters: text search (name/email/dept) + department select.
+- Department filter is hierarchy-aware: selecting a parent dept includes all descendant dept members via BFS buildDescendantSet().
+- Dropdown uses DFS getSortedDepts() to produce indented tree (— prefix per depth level).
+- Colorized initials fallback: deterministic hash of user.id maps to 6 fixed avatar color classes.
+
+Avatar propagation — users list, org chart, directory:
+
+- avatar_url added to DB select + type in all three surfaces. Conditionally renders <img object-cover> inside existing rounded container; background color class suppressed when image present to prevent color bleed through rounded corners.
+- Files changed: users/page.tsx, users-table.tsx (UserRow type), directory/page.tsx, directory-client.tsx (DirectoryUser type), org-chart/page.tsx, org-chart-client.tsx (OrgUser + OrgNodeData types + computeGraph node data).
+
+Offboarding wizard step-drift bug fix (offboarding-wizard.tsx):
+
+- Root cause: steps[] was an inline array recomputed from props every render. bulkReassignTasks calls revalidatePath → Next.js re-renders page → pendingCount prop drops to 0 → steps shrinks from ['overview','tasks','deactivate'] to ['overview','deactivate'] while currentStepIdx was already at 2 → steps[2] = undefined → currentStep = 'done' → no action buttons rendered; user stuck with only Cancel.
+- Fix: steps moved into useState (initialized lazily via buildSteps()). useEffect with [open] dependency snapshots the step list at dialog open time and resets index. Props changing mid-flow no longer mutate the frozen step list. eslint-disable-next-line react-hooks/exhaustive-deps is intentional — we close over prop values at open time only.
+
+Enhanced User Profiles — avatar upload (migration 20260523200000_add_profile_fields.sql):
+
+- Adds avatar_url (text nullable) to users table.
+- Defines avatars storage bucket (private) + 4 RLS policies on storage.objects: SELECT own files, INSERT own files (path must start with auth.uid()), UPDATE own files, DELETE own files.
+- Storage bucket `avatars` is active; avatar upload, display in users list, org chart, and directory confirmed working.
+
+PHASE 7 MILESTONE STATUS UPDATE — ALL COMPLETE ✅:
+M1 — MFA / OTP Authentication ✅ COMPLETE (Day 1)
+M2 — Bulk CSV User Import ✅ COMPLETE — /invite/import; parse→preview→import→results; bulkImportUsers server action; nav item "Bulk Import"
+M3 — Invitation Pending Management ✅ COMPLETE (Day 1)
+M4 — Org Chart ✅ COMPLETE
+M5 — User Directory ✅ COMPLETE
+M6 — Enhanced User Profiles (avatar, job title, phone) ✅ COMPLETE — all three fields on /settings
+M7 — Department Management UI ✅ COMPLETE — /departments; full CRUD (create/rename/delete/reparent/set-head); 3-level depth guard; 7 components
+M8 — Guided Offboarding Wizard ✅ COMPLETE — multi-step dialog: overview→tasks→reports→depthead→deactivate
+
+PHASE 7 COMPLETE. Build: 29 routes, clean. Known open: Google OAuth MFA enforcement deferred (OAuth returns aal1 regardless of enrolled TOTP; AAL check in /auth/callback needed for full enforcement).
+
+22. POST-PHASE 7 — USER MANAGEMENT IMPROVEMENTS (CURRENT SESSION)
+    `npm run build` passes clean (29 routes). Three independent improvements shipped.
+
+─── A. Bulk CSV Import — password & invite columns ───────────────────────────
+
+CSV template updated from `email,full_name,role` to `email,full_name,role,password,invite`.
+
+Two creation paths in `bulkImportUsers` (src/app/(app)/invite/actions.ts):
+
+- `invite=yes` → generates a Supabase magic invite link, sends the invite email via Resend, inserts a `pending_invitations` row (user appears on /invite/pending for tracking), password column ignored.
+- `invite=no` → creates user immediately with the provided password (`email_confirm: true`). Password is required; missing password returns a row-level error without aborting the rest of the batch.
+
+`BulkImportRow` type extended: `password?: string`, `invite: boolean`.
+`BulkImportResult` type extended: `invited?: boolean` (true = invite sent, false = created with password).
+
+Preview table gains Password (masked as ••••••••) and Invite (badge) columns. Rows with invite=no and no password show a red "missing" warning in the preview so admin catches errors before importing. Results table shows "Invite sent" vs "Created" in the status column. Description text and upload-zone hint updated. `revalidatePath('/invite/pending')` added so bulk-invited users appear immediately on the pending list.
+
+─── B. Bulk user delete with checkbox selection ──────────────────────────────
+
+`users-table.tsx` (src/components/users/users-table.tsx):
+
+- First column is a checkbox using TanStack Table row selection (`getRowId: row => row.id`, `enableRowSelection: row => row.id !== currentUserId`). Native `<input type="checkbox">` with Tailwind styling (no new Radix dependency needed).
+- "Select all" checkbox in the header. Own row's checkbox is always disabled.
+- When ≥ 1 row is selected, a "Delete N selected" destructive button appears in the toolbar.
+- Clicking the button first fetches impact data (see §C), then opens an AlertDialog showing the impact summary. Confirming calls `deleteUsers`.
+- Selected rows get `data-state=selected` highlight.
+
+`deleteUsers(userIds)` server action (src/app/(app)/users/actions.ts):
+
+- Admin-only + tenant-scoped: verifies all targets belong to the caller's tenant before deleting.
+- Silently skips the caller's own ID (cannot delete yourself).
+- Calls `auth.admin.deleteUser(id)` per user; revalidates `/users` and `/org-chart`.
+- Returns `{ deleted, skipped }`.
+
+─── C. Pre-delete impact warning ─────────────────────────────────────────────
+
+`getUsersDeleteImpact(userIds)` server action (src/app/(app)/users/actions.ts):
+
+- Four parallel `count` queries: pending step_instances (`assigned_to IN userIds, status=pending`), direct reports (`manager_id IN userIds`), dept head roles (`head_user_id IN userIds`), active flow instances (`triggered_by IN userIds, status=pending`).
+- Returns `{ pendingTasks, directReports, deptHeadRoles, activeFlows }`.
+
+Delete dialog renders one of two states:
+
+- **Amber warning box** listing every non-zero impact item with plain-English descriptions (e.g. "3 pending tasks will become unassigned and stall").
+- **Green safe-to-delete box** when all counts are zero.
+- Delete is not blocked — the dialog informs rather than prevents, so admins can still remove test/duplicate accounts even if they have incidental data.
+
+─── D. DB bug fix — flow_instances.triggered_by NOT NULL ─────────────────────
+
+Bug: `auth.admin.deleteUser()` was silently failing for users who had ever triggered a flow. Root cause found via Supabase auth logs:
+
+`ERROR: null value in column "triggered_by" of relation "flow_instances" violates not-null constraint (SQLSTATE 23502)`
+
+The FK on `flow_instances.triggered_by` was `ON DELETE SET NULL`, but the column was declared `NOT NULL`. When Supabase Auth deleted the auth.users row, Postgres tried to null out the `triggered_by` references and hit the column constraint, rolling back the entire delete.
+
+Fix: migration `20260523210000_fix_flow_instances_triggered_by_nullable.sql`:
+`ALTER TABLE public.flow_instances ALTER COLUMN triggered_by DROP NOT NULL;`
+
+Applied to remote DB via Supabase MCP. Local migration file created. All other SET NULL FK columns (`step_instances.assigned_to`, `flow_event_logs.actor_id`, `audit_log.actor_id`, `users.manager_id`) were verified already nullable — only `triggered_by` was affected.
+
+KNOWN GOTCHA — SET NULL FKs require nullable columns: Any FK declared `ON DELETE SET NULL` must have the column itself declared as nullable (`ALTER COLUMN ... DROP NOT NULL`). Mismatch causes silent delete failures at the auth layer that are only visible in Supabase auth service logs, not in PostgREST error responses.
+
+23. SESSION — POST-PHASE 7 COMMIT & BUILD SIGN-OFF (2026-05-24)
+    Reviewed Phase 7 completion (all 8 milestones ✅). Verified post-Phase 7 work (§22) was uncommitted; ran build, fixed lint, committed.
+
+Lint fix — `users-table.tsx`:
+
+- Removed unused `AlertDialogTrigger` import (imported but never used in JSX after the delete dialog was wired through a state flag rather than a Trigger wrapper). ESLint `no-unused-vars` flagged it as a hard warning.
+
+Commit `c9338e5` — 8 files, 678 insertions:
+
+- `src/app/(app)/invite/actions.ts` — bulkImportUsers two-path logic (invite vs password)
+- `src/app/(app)/invite/import/import-client.tsx` — preview/results UI for password + invite columns
+- `src/app/(app)/users/actions.ts` — deleteUsers + getUsersDeleteImpact server actions
+- `src/components/users/users-table.tsx` — checkbox row selection + delete toolbar + lint fix
+- `src/lib/flows/category-actions.test.ts` — pre-existing test file (minor touch)
+- `scripts/verify-bulk-import.mjs` — new one-shot verification script for bulk import email flow
+- `supabase/migrations/20260523210000_fix_flow_instances_triggered_by_nullable.sql` — triggered_by nullable fix
+- `PROJECT_SUMMARY.md` — §22 docs
+
+Build status: 29 routes, clean. No lint warnings. Test suite: 41 passing, 2 pre-existing category-actions failures unchanged.
+
+Next phase TBD.
+
+24. BUG FIXES & FORM IMPROVEMENTS (2026-05-24)
+
+─── A. Notification bell redirect fix ───────────────────────────────────────
+
+Bug: clicking a notification in the bell dropdown did not navigate to the
+linked page. Root cause: `router.push()` in Next.js App Router is a soft
+(client-side) navigation that only re-renders the page segment — the layout
+(including `NotificationBell`) is not remounted, so the Radix `DropdownMenu`
+open state persisted across navigations, leaving the dropdown sitting on top
+of the new page and making it look like nothing happened.
+
+Fix (`src/components/shell/NotificationBell.tsx`): added controlled `open`
+state to `DropdownMenu`; `setOpen(false)` is called in `handleClick` before
+`router.push()` so the dropdown closes first and the navigation is visible.
+
+─── B. Long Text (textarea) form field type ─────────────────────────────────
+
+New `textarea` `FormFieldType` added alongside the existing `text` (short text).
+
+Builder changes:
+
+- `canvas-store.ts`: `FormFieldType` union extended with `'textarea'`.
+- `FormBuilderPanel.tsx`: new "Long Text" entry in the Add field dropdown;
+  existing "Text" renamed to "Short Text" for clarity.
+- `FormFieldRow.tsx`: badge label "Long Text", indigo color (`bg-indigo-100 text-indigo-700`).
+
+Runtime (step form) changes:
+
+- `StepFormModal.tsx` + `TaskDetailModal.tsx`: both files contain a `FieldRenderer`
+  copy. Both updated with an `AutoTextarea` component — `rows={5}` minimum,
+  auto-grows vertically via `scrollHeight` on every value change, `resize-none
+overflow-hidden`. Disabled state renders as a read-only textarea (same styling).
+- `instance-detail-client.tsx` + `TaskDetailModal.tsx` (`PreviousStepCard`):
+  textarea submitted values rendered with `whitespace-pre-wrap` so newlines
+  display correctly in read-only history views.
+
+KNOWN GOTCHA — duplicate FieldRenderer: `StepFormModal.tsx` and
+`TaskDetailModal.tsx` each contain their own `FieldRenderer` function. Any new
+field type must be added to **both** files. Forgetting one causes the label to
+render but the input to be invisible (the bug that triggered this fix).
+
+25. PHASE 8 — DEPARTMENT MANAGEMENT IMPROVEMENTS (COMPLETE ✅)
+    Theme: close the loop between org structure and live workflow activity —
+    making /departments a useful operational surface, not just a setup screen.
+
+M1 — Department Workload View ✅ COMPLETE
+
+- New route /departments/workload: server page showing pending steps, overdue,
+  due soon, and oldest pending age aggregated per department (independent, no
+  rollup). Hierarchy-aware display (indented sub-depts). Color coding matches
+  dashboard bottleneck table (red ≥ 5 / overdue, amber ≥ 3 / due soon,
+  7-day red alert on oldest).
+- Nav restructured: "Departments" is now a sidebar group (like "Users") with
+  two items — "Management" (/departments, exact match) and "Workload"
+  (/departments/workload). BarChart2 icon for Workload.
+
+M2 — Inline Member Management ✅ COMPLETE
+
+- Dialog on /departments: shows current members (with remove ✕ per row) and
+  an "Add member" select for users in other depts (with "(moving dept)" hint).
+  addMemberToDepartment / removeMemberFromDepartment server actions in
+  src/app/(app)/departments/actions.ts. Revalidates /departments, /users,
+  /org-chart. Wired via "Members" item in DepartmentActions dropdown.
+
+M3 — Department Merge ✅ COMPLETE
+
+- "Merge into…" action: bulk-moves all users from dept A → dept B via a single
+  UPDATE. Transfers dept A's head to dept B if B has none. Optionally deletes
+  source dept (skipped with amber warning if source has child departments).
+  mergeDepartment() server action in src/app/(app)/departments/actions.ts.
+  MergeDepartmentDialog renders a target Select + delete-source checkbox.
+  Wired via "Merge into…" item in DepartmentActions dropdown.
+
+M4 — Flow Trigger Restrictions by Department ✅ COMPLETE
+
+- Migration 20260525100000_add_flow_department_restrictions.sql: adds
+  allowed_department_ids uuid[] DEFAULT NULL to flows table.
+- updateFlowDepartmentRestrictions() server action stores the list (null when
+  empty, meaning unrestricted).
+- triggerFlow() checks the caller's department_id against allowed_department_ids
+  before creating the instance; returns an error if not in the list.
+- "Trigger Restrictions" section in PublishPanel: toggle + per-dept checklist,
+  auto-saves on every change, amber warning when restricted but no depts selected.
+- Prop-threaded: edit page → FlowCanvas → ConfigSidebar → IdlePanel → PublishPanel.
