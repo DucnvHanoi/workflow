@@ -416,6 +416,18 @@ function FieldRenderer({
         />
       )}
 
+      {field.type === 'number' && (
+        <Input
+          id={`field-${field.id}`}
+          type="number"
+          value={typeof value === 'string' || typeof value === 'number' ? String(value) : ''}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          placeholder="Enter a number…"
+          className={error ? 'border-destructive' : ''}
+        />
+      )}
+
       {field.type === 'dropdown' && (
         <select
           id={`field-${field.id}`}

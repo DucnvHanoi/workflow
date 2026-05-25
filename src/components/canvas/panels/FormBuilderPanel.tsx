@@ -33,6 +33,7 @@ interface FormBuilderPanelProps {
 const FIELD_TYPES: { type: FormFieldType; label: string; description: string }[] = [
   { type: 'text', label: 'Short Text', description: 'Single-line text input' },
   { type: 'textarea', label: 'Long Text', description: 'Multi-line text area (auto-grows)' },
+  { type: 'number', label: 'Number', description: 'Numeric input (integers or decimals)' },
   { type: 'dropdown', label: 'Dropdown', description: 'Select one from a list' },
   { type: 'radio', label: 'Radio', description: 'Pick one from visible options' },
   { type: 'checkbox', label: 'Checkbox', description: 'One or more selections' },

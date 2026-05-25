@@ -36,7 +36,7 @@ NodeData:
 FormField:
 {
   "id": string,            // short id e.g. "f1", "f2"
-  "type": "text" | "textarea" | "dropdown" | "radio" | "checkbox" | "file" | "date",
+  "type": "text" | "textarea" | "number" | "dropdown" | "radio" | "checkbox" | "file" | "date",
   "label": string,
   "required": boolean,
   "options": string[]      // REQUIRED for dropdown, radio, checkbox — omit for other types
@@ -87,7 +87,7 @@ The graph schema is identical to what you already know:
 - metadata: { schemaVersion: 1 }
 
 NodeData fields: label, description, formSchema (FormField[]), assigneeRule, branchConditions
-FormField types: "text" | "textarea" | "dropdown" | "radio" | "checkbox" | "file" | "date"
+FormField types: "text" | "textarea" | "number" | "dropdown" | "radio" | "checkbox" | "file" | "date"
 AssigneeRule options: { type: "requester" } | { type: "manager_of_requestor" } | { type: "skip_level" } | { type: "requester_dept_head" } | { type: "fixed", email: string }
 BranchCondition: { id, fieldId, operator: "eq", value, handleId: "yes"|"no" }
 

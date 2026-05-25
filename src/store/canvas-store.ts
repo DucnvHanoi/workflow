@@ -19,6 +19,7 @@ import { saveDraftVersion, updateDraftGraph } from '@/lib/flows/actions'
 export type FormFieldType =
   | 'text'
   | 'textarea'
+  | 'number'
   | 'dropdown'
   | 'radio'
   | 'checkbox'

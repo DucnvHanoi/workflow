@@ -21,6 +21,7 @@ interface FormFieldRowProps {
 const FIELD_TYPE_LABELS: Record<FormField['type'], string> = {
   text: 'Text',
   textarea: 'Long Text',
+  number: 'Number',
   dropdown: 'Dropdown',
   radio: 'Radio',
   checkbox: 'Checkbox',
@@ -31,6 +32,7 @@ const FIELD_TYPE_LABELS: Record<FormField['type'], string> = {
 const FIELD_TYPE_COLORS: Record<FormField['type'], string> = {
   text: 'bg-sky-100 text-sky-700',
   textarea: 'bg-indigo-100 text-indigo-700',
+  number: 'bg-yellow-100 text-yellow-700',
   dropdown: 'bg-violet-100 text-violet-700',
   radio: 'bg-orange-100 text-orange-700',
   checkbox: 'bg-teal-100 text-teal-700',
