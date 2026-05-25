@@ -19,9 +19,9 @@ import {
 // import '@xyflow/react/dist/style.css'
 
 import { useCanvasStore } from '@/store/canvas-store'
-import type { TenantUser, TenantDepartment } from '@/store/canvas-store'
+import type { TenantUser, TenantDepartment, NodeData } from '@/store/canvas-store'
 import type { Node, Edge } from '@xyflow/react'
-import { deserializeGraph, type SerializedGraph } from '@/lib/flows/graph'
+import { deserializeGraph, serializeGraph, type SerializedGraph } from '@/lib/flows/graph'
 import { getLatestDraftGraph } from '@/lib/flows/actions'
 import { AiFlowGeneratorDialog } from './AiFlowGeneratorDialog'
 
@@ -256,6 +256,7 @@ export default function FlowCanvas({
           open={aiDialogOpen}
           onOpenChange={setAiDialogOpen}
           hasExistingNodes={nodes.length > 0}
+          currentGraph={serializeGraph(nodes as Node<NodeData>[], edges)}
           onGraphGenerated={handleGraphGenerated}
         />
 

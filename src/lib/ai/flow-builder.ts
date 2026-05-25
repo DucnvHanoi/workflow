@@ -79,40 +79,89 @@ STRICT RULES:
 
 IMPORTANT: Respond with ONLY the raw JSON object. Never write plain text, explanations, apologies, or questions — not even a single word outside the JSON. If the description is ambiguous, make reasonable assumptions and still output valid JSON.`
 
+const MODIFY_SYSTEM_PROMPT = `You are a workflow editor assistant. You will receive an existing workflow graph as JSON and a plain-English modification instruction. Apply the modification and return the complete updated graph JSON.
+
+The graph schema is identical to what you already know:
+- nodes: SerializedNode[] with types "trigger" | "action" | "branch" | "complete"
+- edges: SerializedEdge[]
+- metadata: { schemaVersion: 1 }
+
+NodeData fields: label, description, formSchema (FormField[]), assigneeRule, branchConditions
+FormField types: "text" | "textarea" | "dropdown" | "radio" | "checkbox" | "file" | "date"
+AssigneeRule options: { type: "requester" } | { type: "manager_of_requestor" } | { type: "skip_level" } | { type: "requester_dept_head" } | { type: "fixed", email: string }
+BranchCondition: { id, fieldId, operator: "eq", value, handleId: "yes"|"no" }
+
+MODIFICATION RULES:
+1. Preserve all existing node ids, edge ids, and data that are not affected by the modification.
+2. When adding new nodes, generate new short unique ids (e.g. "n5", "n6") that don't clash with existing ones.
+3. When adding new fields, generate new short unique field ids (e.g. "f5", "f6") that don't clash with existing ones.
+4. Always keep exactly one "trigger" node and at least one "complete" node.
+5. Maintain valid connectivity — no dangling nodes, no cycles.
+6. Adjust positions of downstream nodes if needed to keep the layout clean (y += 160 per step).
+7. Branch nodes must have exactly 2 outbound edges (yes/no) and at least one BranchCondition.
+
+IMPORTANT: Respond with ONLY the complete updated graph as raw JSON. No markdown, no explanation, not a single word outside the JSON.`
+
+async function callClaude(
+  systemPrompt: string,
+  userContent: string
+): Promise<{ graph: SerializedGraph | null; error: string | null }> {
+  const message = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [
+      { role: 'user', content: userContent },
+      { role: 'assistant', content: '{' },
+    ],
+  })
+
+  const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
+  const cleaned = '{' + raw.replace(/\s*```$/, '').trim()
+  const graph = JSON.parse(cleaned) as SerializedGraph
+
+  if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
+    return { graph: null, error: 'AI returned an unexpected format. Please try again.' }
+  }
+
+  return { graph, error: null }
+}
+
+async function requireAdmin(): Promise<{ ok: boolean; error: string | null }> {
+  const { user, claims } = await getSessionClaims()
+  if (!user || !claims?.tenant_id) return { ok: false, error: 'Unauthorized' }
+  if (claims.role !== 'admin') return { ok: false, error: 'Admin access required' }
+  return { ok: true, error: null }
+}
+
 export async function generateFlowFromDescription(
   description: string
 ): Promise<{ graph: SerializedGraph | null; error: string | null }> {
-  const { user, claims } = await getSessionClaims()
-  if (!user || !claims?.tenant_id) return { graph: null, error: 'Unauthorized' }
-  if (claims.role !== 'admin') return { graph: null, error: 'Admin access required' }
+  const { ok, error: authError } = await requireAdmin()
+  if (!ok) return { graph: null, error: authError }
   if (!description.trim()) return { graph: null, error: 'Description is required' }
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages: [
-        { role: 'user', content: description.trim() },
-        // Prefill the assistant turn with '{' — forces the model to continue
-        // with JSON and makes it impossible to respond with plain text.
-        { role: 'assistant', content: '{' },
-      ],
-    })
-
-    const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
-    // Re-attach the prefilled '{' since the API only returns what comes after it
-    const cleaned = '{' + raw.replace(/\s*```$/, '').trim()
-
-    const graph = JSON.parse(cleaned) as SerializedGraph
-
-    if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
-      return { graph: null, error: 'AI returned an unexpected format. Please try again.' }
-    }
-
-    return { graph, error: null }
+    return await callClaude(SYSTEM_PROMPT, description.trim())
   } catch (err) {
     console.error('AI flow generation error:', err)
     return { graph: null, error: 'Failed to generate flow. Please try again.' }
+  }
+}
+
+export async function modifyFlowFromDescription(
+  instruction: string,
+  currentGraph: SerializedGraph
+): Promise<{ graph: SerializedGraph | null; error: string | null }> {
+  const { ok, error: authError } = await requireAdmin()
+  if (!ok) return { graph: null, error: authError }
+  if (!instruction.trim()) return { graph: null, error: 'Instruction is required' }
+
+  try {
+    const userContent = `EXISTING GRAPH:\n${JSON.stringify(currentGraph, null, 2)}\n\nMODIFICATION INSTRUCTION:\n${instruction.trim()}`
+    return await callClaude(MODIFY_SYSTEM_PROMPT, userContent)
+  } catch (err) {
+    console.error('AI flow modification error:', err)
+    return { graph: null, error: 'Failed to modify flow. Please try again.' }
   }
 }
