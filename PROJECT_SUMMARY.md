@@ -506,3 +506,90 @@ M4 — Flow Trigger Restrictions by Department ✅ COMPLETE
 - "Trigger Restrictions" section in PublishPanel: toggle + per-dept checklist,
   auto-saves on every change, amber warning when restricted but no depts selected.
 - Prop-threaded: edit page → FlowCanvas → ConfigSidebar → IdlePanel → PublishPanel.
+
+26. PHASE 9 — AI INTEGRATION (ROADMAP)
+    Theme: embed Claude AI into the builder and runtime to reduce manual effort,
+    surface smarter defaults, and help non-technical users interact with workflows
+    more naturally. Requires ANTHROPIC_API_KEY in .env.local and Vercel env vars.
+    All AI calls must go through server actions or API routes — never from the browser.
+    Use claude-sonnet-4-6 as the default model (best price/quality balance).
+
+M1 — AI Flow Builder 🔜 PLANNED
+
+    Highest-impact feature. User types a plain-English description of the workflow
+    they need ("3-step expense approval: employee submits, manager approves, finance
+    confirms") and Claude generates a complete draft graph (nodes, edges, form fields,
+    assignee rules) ready to edit on the canvas.
+
+    Implementation sketch:
+    - "Generate with AI" button in NodeToolbar (or on the empty canvas state).
+    - Server action generateFlowFromDescription(description, flowId) in
+      src/lib/ai/flow-builder.ts — calls Claude API with a system prompt that
+      includes the NodeData + Edge schema and returns a SerializedGraph JSON.
+    - On success: deserializeGraph() the result and setState into the canvas store,
+      then triggerSave() to persist as a draft version.
+    - Model: claude-sonnet-4-6. Typical call: ~3k tokens (~$0.00002).
+
+M2 — Smart Form Field Suggestions 🔜 PLANNED
+
+    In FormBuilderPanel, a "Suggest fields" button appears when a step has a label
+    but no fields yet. Sends the step name + description to Claude; returns an
+    ordered list of recommended field types and labels (e.g. "Amount → number",
+    "Receipt → file", "Justification → textarea"). Admin clicks to accept individual
+    suggestions or all at once.
+
+    Implementation sketch:
+    - Server action suggestFormFields(stepLabel, stepDescription) in
+      src/lib/ai/form-suggestions.ts.
+    - Returns FieldSuggestion[] — each with type: FormFieldType and label: string.
+    - FormBuilderPanel renders a collapsible suggestion strip; each suggestion has
+      an "Add" button that calls the existing addField() store action.
+
+M3 — Natural-language Branch Conditions 🔜 PLANNED
+
+    In BranchConfigPanel, alongside the existing dropdown condition builder, add a
+    text input: "Describe the condition in plain English" (e.g. "if the requested
+    amount is more than 1000"). Claude parses it against the available upstream
+    field list and returns a BranchCondition object (fieldId, operator, value,
+    handleId). Falls back gracefully — if Claude cannot resolve the field, it
+    explains why and leaves the form for manual input.
+
+    Implementation sketch:
+    - Server action parseConditionFromText(text, availableFields, handleId) in
+      src/lib/ai/condition-parser.ts. availableFields passed as context so Claude
+      can map natural-language names to real fieldIds.
+    - On success: merges the returned condition into the branch config via the
+      existing updateNodeData() store action.
+
+M4 — Flow Trigger Assistant 🔜 PLANNED
+
+    On the "My Flows" / trigger page, a conversational input: "What do you need to
+    do today?" Claude matches the description against published flows available to
+    the user's department, suggests the best match with a confidence note, and
+    pre-fills any form fields it can infer from the description. User reviews and
+    confirms before the flow is triggered.
+
+    Implementation sketch:
+    - Server action suggestFlowForRequest(userText, availableFlows) in
+      src/lib/ai/trigger-assistant.ts. availableFlows is a lightweight list
+      (id, name, description, first-step field list) — not full graphs.
+    - Returns { flowId, confidence, prefillData: Record<fieldKey, value> }.
+    - UI: collapsible AI panel above the manual flow list on /my-flows.
+
+M5 — SLA Suggestions from History 🔜 PLANNED
+
+    When a builder configures a step SLA for the first time, Claude (augmented with
+    real step_instances data) suggests a value based on historical completion times
+    for similar steps across the tenant. Shown as a hint: "Steps like this have
+    historically taken 4–6 h — suggest 8 h SLA?"
+
+    Implementation sketch:
+    - Server action suggestSlaForStep(stepLabel, tenantId) in
+      src/lib/ai/sla-suggestions.ts. Queries avg/p90 completed_at - created_at
+      from step_instances grouped by a fuzzy label match, passes the stats to
+      Claude to produce a human-readable suggestion + recommended slaHours value.
+    - StepConfigPanel shows the hint below the SLA input when the field is empty
+      and a suggestion is available (lazy-loaded on first focus).
+
+    PREREQUISITE: meaningful step_instances history in the tenant (suggestion
+    skipped / hidden when fewer than 10 comparable historical steps exist).
