@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { updateAISettings, saveAPIKey, removeAPIKey } from '@/lib/ai/ai-settings-actions'
 import type { AISettingsData } from '@/lib/ai/ai-settings-actions'
+import { MODELS_BY_PROVIDER, DEFAULT_MODEL } from '@/lib/ai/pricing'
 
 interface Props {
   initial: AISettingsData
@@ -11,6 +12,7 @@ interface Props {
 export function AISettingsCard({ initial }: Props) {
   const [aiEnabled, setAiEnabled] = useState(initial.aiEnabled)
   const [provider, setProvider] = useState<'anthropic' | 'openai'>(initial.provider)
+  const [model, setModel] = useState(initial.model)
   const [useOwnKey, setUseOwnKey] = useState(initial.useOwnKey)
   const [hasOwnKey, setHasOwnKey] = useState(initial.hasOwnKey)
   const [apiKeyInput, setApiKeyInput] = useState('')
@@ -50,12 +52,28 @@ export function AISettingsCard({ initial }: Props) {
   }
 
   function handleProviderChange(p: 'anthropic' | 'openai') {
-    const prev = provider
+    const prevProvider = provider
+    const prevModel = model
+    const newModel = DEFAULT_MODEL[p]
     setProvider(p)
+    setModel(newModel)
     startTransition(async () => {
-      const { error: err } = await updateAISettings({ provider: p })
+      const { error: err } = await updateAISettings({ provider: p, model: newModel })
       if (err) {
-        setProvider(prev)
+        setProvider(prevProvider)
+        setModel(prevModel)
+        flash(err, 'error')
+      }
+    })
+  }
+
+  function handleModelChange(m: string) {
+    const prev = model
+    setModel(m)
+    startTransition(async () => {
+      const { error: err } = await updateAISettings({ model: m })
+      if (err) {
+        setModel(prev)
         flash(err, 'error')
       }
     })
@@ -104,6 +122,8 @@ export function AISettingsCard({ initial }: Props) {
     })
   }
 
+  const availableModels = MODELS_BY_PROVIDER[provider] ?? []
+
   return (
     <div className="space-y-5">
       {/* Enable / disable AI */}
@@ -148,6 +168,38 @@ export function AISettingsCard({ initial }: Props) {
               <option value="anthropic">Anthropic (Claude)</option>
               <option value="openai">OpenAI (GPT)</option>
             </select>
+          </div>
+
+          {/* Model selection */}
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground">Model</p>
+            <div className="rounded-lg border border-input overflow-hidden divide-y divide-border">
+              {availableModels.map((m) => (
+                <label
+                  key={m.id}
+                  className={`flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors ${
+                    model === m.id ? 'bg-primary/5' : 'hover:bg-muted/40'
+                  } ${isPending ? 'pointer-events-none opacity-60' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="ai-model"
+                    value={m.id}
+                    checked={model === m.id}
+                    onChange={() => handleModelChange(m.id)}
+                    disabled={isPending}
+                    className="mt-0.5 accent-primary shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">{m.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{m.description}</p>
+                  </div>
+                  <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap mt-0.5">
+                    {m.pricing}
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
 
           {/* Key source */}

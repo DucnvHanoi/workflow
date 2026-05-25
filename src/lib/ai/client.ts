@@ -33,6 +33,7 @@ interface TenantAIConfig {
   ai_enabled: boolean
   use_own_key: boolean
   provider: string
+  model: string | null
   api_key_encrypted: string | null
   credit_limit_usd: number
   credit_used_usd: number
@@ -48,7 +49,7 @@ export async function callAI(params: CallAIParams): Promise<CallAIResult> {
   const { data: config, error: configErr } = await db
     .from('tenant_ai_configs')
     .select(
-      'ai_enabled, use_own_key, provider, api_key_encrypted, credit_limit_usd, credit_used_usd'
+      'ai_enabled, use_own_key, provider, model, api_key_encrypted, credit_limit_usd, credit_used_usd'
     )
     .eq('tenant_id', tenantId)
     .maybeSingle()
@@ -74,7 +75,7 @@ export async function callAI(params: CallAIParams): Promise<CallAIResult> {
 
   // Resolve API key and model
   const provider = cfg.provider ?? 'anthropic'
-  const model = DEFAULT_MODEL[provider] ?? DEFAULT_MODEL['anthropic']
+  const model = cfg.model ?? DEFAULT_MODEL[provider] ?? DEFAULT_MODEL['anthropic']
 
   let apiKey: string | undefined
   if (cfg.use_own_key && cfg.api_key_encrypted) {

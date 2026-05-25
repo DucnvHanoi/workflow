@@ -106,6 +106,7 @@ export default async function SettingsPage() {
   const defaultAISettings = {
     aiEnabled: false,
     provider: 'anthropic' as const,
+    model: 'claude-sonnet-4-6',
     useOwnKey: false,
     hasOwnKey: false,
     creditUsedUsd: 0,

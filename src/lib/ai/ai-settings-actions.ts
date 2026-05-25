@@ -7,6 +7,7 @@ import { encryptApiKey } from './crypto'
 export interface AISettingsData {
   aiEnabled: boolean
   provider: 'anthropic' | 'openai'
+  model: string
   useOwnKey: boolean
   hasOwnKey: boolean
   creditUsedUsd: number
@@ -25,7 +26,7 @@ export async function getAISettings(): Promise<{
   const { data, error } = await db
     .from('tenant_ai_configs')
     .select(
-      'ai_enabled, provider, use_own_key, api_key_encrypted, credit_used_usd, credit_limit_usd'
+      'ai_enabled, provider, model, use_own_key, api_key_encrypted, credit_used_usd, credit_limit_usd'
     )
     .eq('tenant_id', claims.tenant_id)
     .maybeSingle()
@@ -37,6 +38,7 @@ export async function getAISettings(): Promise<{
       data: {
         aiEnabled: false,
         provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
         useOwnKey: false,
         hasOwnKey: false,
         creditUsedUsd: 0,
@@ -46,10 +48,18 @@ export async function getAISettings(): Promise<{
     }
   }
 
+  const provider = (data.provider as 'anthropic' | 'openai') ?? 'anthropic'
+  // Guard: if stored model doesn't match provider, fall back to provider default
+  const { MODELS_BY_PROVIDER, DEFAULT_MODEL } = await import('./pricing')
+  const validModels = MODELS_BY_PROVIDER[provider]?.map((m) => m.id) ?? []
+  const model =
+    data.model && validModels.includes(data.model) ? data.model : DEFAULT_MODEL[provider]
+
   return {
     data: {
       aiEnabled: data.ai_enabled,
-      provider: (data.provider as 'anthropic' | 'openai') ?? 'anthropic',
+      provider,
+      model,
       useOwnKey: data.use_own_key,
       hasOwnKey: !!data.api_key_encrypted,
       creditUsedUsd: Number(data.credit_used_usd),
@@ -62,6 +72,7 @@ export async function getAISettings(): Promise<{
 export async function updateAISettings(updates: {
   aiEnabled?: boolean
   provider?: 'anthropic' | 'openai'
+  model?: string
   useOwnKey?: boolean
 }): Promise<{ error: string | null }> {
   const { user, claims } = await getSessionClaims()
@@ -72,6 +83,7 @@ export async function updateAISettings(updates: {
   const patch: Record<string, unknown> = { tenant_id: claims.tenant_id }
   if (updates.aiEnabled !== undefined) patch.ai_enabled = updates.aiEnabled
   if (updates.provider !== undefined) patch.provider = updates.provider
+  if (updates.model !== undefined) patch.model = updates.model
   if (updates.useOwnKey !== undefined) patch.use_own_key = updates.useOwnKey
 
   const { error } = await db.from('tenant_ai_configs').upsert(patch, { onConflict: 'tenant_id' })
