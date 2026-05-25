@@ -518,20 +518,9 @@ M1 — AI Flow Builder ✅ COMPLETE
 
     See §27 for full implementation notes and bug-fix history.
 
-M2 — Smart Form Field Suggestions 🔜 PLANNED
+M2 — Smart Form Field Suggestions ✅ COMPLETE
 
-    In FormBuilderPanel, a "Suggest fields" button appears when a step has a label
-    but no fields yet. Sends the step name + description to Claude; returns an
-    ordered list of recommended field types and labels (e.g. "Amount → number",
-    "Receipt → file", "Justification → textarea"). Admin clicks to accept individual
-    suggestions or all at once.
-
-    Implementation sketch:
-    - Server action suggestFormFields(stepLabel, stepDescription) in
-      src/lib/ai/form-suggestions.ts.
-    - Returns FieldSuggestion[] — each with type: FormFieldType and label: string.
-    - FormBuilderPanel renders a collapsible suggestion strip; each suggestion has
-      an "Add" button that calls the existing addField() store action.
+    See §28 for full implementation notes.
 
 M3 — Natural-language Branch Conditions 🔜 PLANNED
 
@@ -640,8 +629,8 @@ src/components/canvas/FlowCanvas.tsx
 ─── Bug fixes encountered during M1 development ──────────────────────────────
 
 1. Markdown code fences in response (SyntaxError: Unexpected token '`'):
-   Model returned `json ... ` despite the system prompt instruction.
-   Fix: strip with /^`(?:json)?\s*/i ... /\s*`$/ before JSON.parse.
+Model returned `json ... ` despite the system prompt instruction.
+Fix: strip with /^`(?:json)?\s*/i ... /\s*`$/ before JSON.parse.
 
 2. Plain-text refusal (SyntaxError: Unexpected token 'I', "I don't se..."):
    Triggered when the prompt was judged ambiguous; model responded in English
@@ -680,3 +669,53 @@ requester | manager_of_requestor | skip_level | requester_dept_head
 | fixed (only when an email address is explicitly mentioned)
 Results are noticeably better when the description mentions roles explicitly
 (e.g. "assigned to the requester's manager") vs. generic "step 2 approval".
+
+28. PHASE 9 M2 — AI FORM FIELD SUGGESTIONS (COMPLETE ✅)
+    Build: clean. Bug fix committed separately (default-label guard).
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+"Suggest fields with AI" button in FormBuilderPanel — visible only when:
+
+1. The step has a custom label (not a default like "New Action" / "Branch")
+2. The step has zero fields (button hides once any field exists)
+
+Admin names the step, optionally adds a description, clicks the button.
+Claude returns 3–6 typed field suggestions in a dismissible strip. Each
+suggestion can be added individually; strip auto-closes when all are used.
+
+─── Files ────────────────────────────────────────────────────────────────────
+
+src/lib/ai/form-suggestions.ts (new — 'use server')
+
+- suggestFormFields(stepLabel, stepDescription, flowName, nodeType)
+- Admin-only auth gate. Sends 4-line context to claude-sonnet-4-6 (1024
+  output tokens — suggestions are short).
+- System prompt: 3-6 suggestions, specific types over generic text, no
+  options arrays for dropdown/radio/checkbox (admin sets those manually),
+  approval steps get radio (Approve/Reject) + textarea (Comments).
+- Response parsing: code-fence strip + startsWith('[') guard (array, not
+  object — same pattern as M1 but for JSON arrays).
+- Returns FieldSuggestion[]: { type: FormFieldType, label: string }
+
+src/components/canvas/panels/FormBuilderPanel.tsx
+
+- New prop: flowName: string (threaded from edit page).
+- hasCustomLabel: non-empty AND not in DEFAULT_LABELS set
+  {'New Action', 'Branch', 'New Step', 'Trigger', 'Complete'}.
+- handleSuggest(): useTransition wrapper → suggestFormFields() server action.
+- handleAddSuggestion(s): addFormField() + immediate Zustand getState() read
+  to find the new field id → updateFormField(label) → triggerSave() →
+  removes suggestion from strip (auto-dismisses when strip empties).
+- Suggestion strip: violet-tinted cards, type badge + label + Plus icon.
+  X button dismisses all remaining suggestions.
+- Error state: red alert inline below the empty-state box.
+
+Prop threading (flowName): edit page → FlowCanvas → ConfigSidebar → FormBuilderPanel
+
+─── KNOWN GOTCHA — default label guard ──────────────────────────────────────
+
+The button must check BOTH that the label is non-empty AND that it differs
+from the node's default label. Without the second check, "New Action" (the
+default for action nodes) triggers the button immediately on node creation,
+yielding meaningless generic suggestions before the admin has named the step.
