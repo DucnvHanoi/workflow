@@ -522,21 +522,9 @@ M2 — Smart Form Field Suggestions ✅ COMPLETE
 
     See §28 for full implementation notes.
 
-M3 — Natural-language Branch Conditions 🔜 PLANNED
+M3 — Natural-language Branch Conditions ✅ COMPLETE
 
-    In BranchConfigPanel, alongside the existing dropdown condition builder, add a
-    text input: "Describe the condition in plain English" (e.g. "if the requested
-    amount is more than 1000"). Claude parses it against the available upstream
-    field list and returns a BranchCondition object (fieldId, operator, value,
-    handleId). Falls back gracefully — if Claude cannot resolve the field, it
-    explains why and leaves the form for manual input.
-
-    Implementation sketch:
-    - Server action parseConditionFromText(text, availableFields, handleId) in
-      src/lib/ai/condition-parser.ts. availableFields passed as context so Claude
-      can map natural-language names to real fieldIds.
-    - On success: merges the returned condition into the branch config via the
-      existing updateNodeData() store action.
+    See §29 for full implementation notes.
 
 M4 — Flow Trigger Assistant 🔜 PLANNED
 
@@ -719,3 +707,67 @@ The button must check BOTH that the label is non-empty AND that it differs
 from the node's default label. Without the second check, "New Action" (the
 default for action nodes) triggers the button immediately on node creation,
 yielding meaningless generic suggestions before the admin has named the step.
+
+29. PHASE 9 M3 — NATURAL-LANGUAGE BRANCH CONDITIONS (COMPLETE ✅)
+    Build: clean. Committed as a single atomic commit on master.
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+Each Yes/No branch group in BranchConfigPanel now has an "Parse with AI"
+input strip at the bottom. The admin types a plain-English condition
+("amount is more than 1000", "decision equals Approve") and presses Enter
+or the Sparkles button. Claude maps it to a real fieldId + operator + value
+and appends the condition to that group. Falls back with an inline error if
+the field cannot be resolved.
+
+Operators expanded from just 'eq' to the full set:
+eq | neq | gt | lt | gte | lte | contains
+
+─── Files ────────────────────────────────────────────────────────────────────
+
+src/store/canvas-store.ts
+
+- BranchCondition.operator widened:
+  'eq' | 'neq' | 'gt' | 'lt' | 'gte' | 'lte' | 'contains'
+
+src/lib/flows/actions.ts (advanceFlow — condition evaluator)
+
+- switch on cond.operator replaces the single 'eq' check.
+- Numeric operators (gt/lt/gte/lte) use parseFloat; return false if either
+  side is NaN (safe for non-numeric field values).
+- contains: case-insensitive fieldValue.toLowerCase().includes(...).
+- neq: strict string inequality.
+
+src/lib/ai/condition-parser.ts (new — 'use server')
+
+- parseConditionFromText(text, availableFields, handleId)
+- Admin-only auth gate. Sends plain-English text + typed field list to
+  claude-sonnet-4-6 (512 output tokens — single JSON object).
+- System prompt: operator guide, strict JSON-only output, two shapes
+  (success object or { "error": string }).
+- Response parsing: code-fence strip + startsWith('{') guard.
+- Field validation: returned nodeId+fieldId pair is checked against
+  availableFields before accepting — prevents hallucinated field refs.
+- Returns { condition: Omit<BranchCondition, 'id'> | null, error: string | null }
+
+src/components/canvas/panels/BranchConfigPanel.tsx
+
+- availableFieldsForAI: useMemo that enriches FieldOption[] with fieldType
+  by looking up the FormField from allNodes — gives Claude type context
+  (e.g. knowing a field is 'number' triggers gt/lt operator selection).
+- addParsedCondition(partial): generates an id and calls persist().
+- BranchGroup: new props handleId, availableFields, onAddParsed.
+  Contains local useState(aiText) + useTransition(isParsing) + aiError.
+  AI input strip hidden when no fields available (nothing to reference).
+  Enter key submits the input.
+- ConditionRow: operator badge now reads from OPERATOR_LABELS map
+  { eq:'equals', neq:'≠', gt:'>', lt:'<', gte:'≥', lte:'≤', contains:'contains' }
+  instead of the previous hardcoded "equals".
+
+─── KNOWN GOTCHA — field type context ───────────────────────────────────────
+
+The AvailableField payload includes fieldType so Claude can pick the right
+operator class (numeric vs. text). Without it, "amount > 1000" on a text
+field would still parse correctly syntactically, but Claude might default to
+'eq' not knowing the field is numeric. Passing type gives Claude the hint it
+needs to select gt/lt/gte/lte for number fields automatically.
