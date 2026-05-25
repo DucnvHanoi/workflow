@@ -33,7 +33,9 @@
       "Bash(git commit *)",
       "Bash(npm install *)",
       "Bash(npm list *)",
-      "mcp__claude_ai_Supabase__list_projects"
+      "mcp__claude_ai_Supabase__list_projects",
+      "Bash(Select-String -Pattern \"openai|anthropic\")",
+      "Bash(npx playwright *)"
     ]
   }
 }

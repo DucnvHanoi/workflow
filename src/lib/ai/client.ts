@@ -11,6 +11,7 @@ export type AIFeature =
   | 'form_suggestions'
   | 'condition_parser'
   | 'trigger_assistant'
+  | 'text_assist'
 
 export interface CallAIParams {
   tenantId: string

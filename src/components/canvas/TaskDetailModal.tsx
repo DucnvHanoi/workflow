@@ -52,7 +52,9 @@ import {
   Loader2Icon,
   ClipboardIcon,
   ActivityIcon,
+  SparklesIcon,
 } from 'lucide-react'
+import { assistTextarea } from '@/lib/ai/text-assist'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -385,6 +387,8 @@ export function TaskDetailModal({
                     onFilesChange={(files) =>
                       setFilesByField((prev) => ({ ...prev, [field.id]: files }))
                     }
+                    stepLabel={stepLabel}
+                    flowName={flowName}
                   />
                 ))}
               </div>
@@ -658,6 +662,175 @@ function AutoTextarea({
   )
 }
 
+// ─── TextareaWithAI ───────────────────────────────────────────────────────────
+
+function TextareaWithAI({
+  id,
+  value,
+  onChange,
+  disabled,
+  className,
+  fieldLabel,
+  stepLabel,
+  flowName,
+}: {
+  id: string
+  value: string
+  onChange: (val: unknown) => void
+  disabled: boolean
+  className?: string
+  fieldLabel: string
+  stepLabel: string
+  flowName?: string
+}) {
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiInstruction, setAiInstruction] = useState('')
+  const [aiPreview, setAiPreview] = useState<string | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [isGenerating, startGenerating] = useTransition()
+
+  const hasContent = value.trim().length > 0
+  const mode = hasContent ? 'rewrite' : 'generate'
+
+  function handleClose() {
+    setAiOpen(false)
+    setAiInstruction('')
+    setAiPreview(null)
+    setAiError(null)
+  }
+
+  function handleGenerate() {
+    if (!aiInstruction.trim()) return
+    setAiError(null)
+    setAiPreview(null)
+    startGenerating(async () => {
+      const result = await assistTextarea({
+        fieldLabel,
+        stepLabel,
+        flowName,
+        instruction: aiInstruction,
+        currentText: hasContent ? value : undefined,
+      })
+      if (result.error) {
+        setAiError(result.error)
+      } else if (result.text) {
+        setAiPreview(result.text)
+      }
+    })
+  }
+
+  function handleAccept() {
+    if (aiPreview) {
+      onChange(aiPreview)
+      handleClose()
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <AutoTextarea
+        id={id}
+        value={value}
+        onChange={(v) => onChange(v)}
+        disabled={disabled}
+        className={className}
+      />
+      {!disabled && (
+        <div>
+          {!aiOpen ? (
+            <button
+              type="button"
+              onClick={() => setAiOpen(true)}
+              className="inline-flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 dark:text-violet-400 dark:hover:text-violet-300"
+            >
+              <SparklesIcon className="h-3 w-3" />
+              {mode === 'generate' ? 'Generate with AI' : 'Rewrite with AI'}
+            </button>
+          ) : (
+            <div className="space-y-2 rounded-md border border-violet-200 bg-violet-50 px-3 py-2.5 dark:border-violet-800 dark:bg-violet-950/30">
+              {/* Prompt row */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={aiInstruction}
+                  onChange={(e) => setAiInstruction(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleGenerate()
+                  }}
+                  placeholder={
+                    mode === 'generate' ? 'Describe what to write…' : 'How should it be rewritten?'
+                  }
+                  className="flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  disabled={isGenerating}
+                  autoFocus={!aiPreview}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleGenerate}
+                  disabled={isGenerating || !aiInstruction.trim()}
+                  className="h-7 border-violet-300 text-xs text-violet-700 hover:bg-violet-100 dark:border-violet-700 dark:text-violet-300"
+                >
+                  {isGenerating ? (
+                    <Loader2Icon className="h-3 w-3 animate-spin" />
+                  ) : aiPreview ? (
+                    'Regenerate'
+                  ) : mode === 'generate' ? (
+                    'Generate'
+                  ) : (
+                    'Rewrite'
+                  )}
+                </Button>
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  disabled={isGenerating}
+                >
+                  Cancel
+                </button>
+              </div>
+
+              {/* Error */}
+              {aiError && <p className="text-xs text-destructive">{aiError}</p>}
+
+              {/* Preview */}
+              {aiPreview && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-violet-700 dark:text-violet-400">
+                    AI suggestion — review before applying:
+                  </p>
+                  <div className="whitespace-pre-wrap rounded-md border border-violet-200 bg-white px-3 py-2 text-sm leading-relaxed dark:border-violet-700 dark:bg-zinc-900">
+                    {aiPreview}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleAccept}
+                      className="h-7 bg-violet-600 text-xs text-white hover:bg-violet-700"
+                    >
+                      Use this
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={handleClose}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── FieldRenderer ────────────────────────────────────────────────────────────
 
 function FieldRenderer({
@@ -670,6 +843,8 @@ function FieldRenderer({
   files,
   uploadProgress,
   onFilesChange,
+  stepLabel,
+  flowName,
 }: {
   field: FormField
   value: unknown
@@ -680,6 +855,8 @@ function FieldRenderer({
   files: File[]
   uploadProgress: string
   onFilesChange: (files: File[]) => void
+  stepLabel: string
+  flowName?: string
 }) {
   return (
     <div className="space-y-1.5">
@@ -700,12 +877,15 @@ function FieldRenderer({
       )}
 
       {field.type === 'textarea' && (
-        <AutoTextarea
+        <TextareaWithAI
           id={`field-${field.id}`}
           value={typeof value === 'string' ? value : ''}
           onChange={onChange}
           disabled={disabled}
           className={error ? 'border-destructive' : 'border-input'}
+          fieldLabel={field.label || 'Text'}
+          stepLabel={stepLabel}
+          flowName={flowName}
         />
       )}
 

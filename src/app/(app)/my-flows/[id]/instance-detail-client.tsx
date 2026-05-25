@@ -546,6 +546,7 @@ export function InstanceDetailClient({
           onSubmitted={handleSubmitted}
           stepInstanceId={modal.stepInstanceId}
           stepLabel={modal.stepLabel}
+          flowName={detail.flow_name}
           formSchema={modal.formSchema}
           initialData={modal.initialData}
           isReadOnly={modal.isReadOnly}
