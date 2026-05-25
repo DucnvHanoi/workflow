@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { SettingsForm } from './settings-form'
 import { MfaCard } from '@/components/settings/MfaCard'
 import { AvatarUpload } from '@/components/settings/AvatarUpload'
+import { AISettingsCard } from '@/components/settings/AISettingsCard'
+import { getAISettings } from '@/lib/ai/ai-settings-actions'
 
 function getInitials(fullName: string | null, email: string): string {
   if (fullName) {
@@ -17,13 +19,18 @@ export default async function SettingsPage() {
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
 
+  const isAdmin = claims?.role === 'admin'
+
   const supabase = createClient()
-  const { data: profile } = await supabase
-    .from('users')
-    .select('full_name, email, job_title, phone, avatar_url')
-    .eq('id', user.id)
-    .eq('tenant_id', claims.tenant_id)
-    .maybeSingle()
+  const [{ data: profile }, { data: aiSettings }] = await Promise.all([
+    supabase
+      .from('users')
+      .select('full_name, email, job_title, phone, avatar_url')
+      .eq('id', user.id)
+      .eq('tenant_id', claims.tenant_id)
+      .maybeSingle(),
+    isAdmin ? getAISettings() : Promise.resolve({ data: null, error: null }),
+  ])
 
   const email = profile?.email ?? user.email ?? ''
   const fullName = profile?.full_name ?? ''
@@ -31,6 +38,15 @@ export default async function SettingsPage() {
   const phone = profile?.phone ?? ''
   const avatarUrl = profile?.avatar_url ?? null
   const initials = getInitials(fullName || null, email)
+
+  const defaultAISettings = {
+    aiEnabled: false,
+    provider: 'anthropic' as const,
+    useOwnKey: false,
+    hasOwnKey: false,
+    creditUsedUsd: 0,
+    creditLimitUsd: 5.0,
+  }
 
   return (
     <main className="mx-auto max-w-lg px-4 py-10 space-y-8">
@@ -69,6 +85,18 @@ export default async function SettingsPage() {
         </h2>
         <MfaCard />
       </section>
+
+      {/* AI Settings (admin only) */}
+      {isAdmin && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+            AI Features
+          </h2>
+          <div className="rounded-xl border bg-card p-6">
+            <AISettingsCard initial={aiSettings ?? defaultAISettings} />
+          </div>
+        </section>
+      )}
     </main>
   )
 }
