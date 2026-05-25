@@ -4,42 +4,13 @@ import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface TenantRow {
-  id: string
-  name: string
-  plan: string
-}
-interface ConfigRow {
-  tenant_id: string
-  ai_enabled: boolean
-  provider: string
-  use_own_key: boolean
-  credit_limit_usd: number
-  credit_used_usd: number
-}
 interface LogRow {
-  tenant_id: string
   feature: string
   provider: string
   model: string
   cost_usd: number
   using_own_key: boolean
   created_at: string
-}
-
-interface TenantSummary {
-  tenantId: string
-  tenantName: string
-  plan: string
-  aiEnabled: boolean
-  provider: string
-  useOwnKey: boolean
-  creditLimitUsd: number
-  creditUsedUsd: number
-  totalCalls: number
-  totalCostUsd: number
-  platformCostUsd: number
-  thisMonthCostUsd: number
 }
 
 interface FeatureSummary {
@@ -73,61 +44,41 @@ function pct(part: number, total: number) {
   return Math.round((part / total) * 100)
 }
 
-// ─── Data fetching ────────────────────────────────────────────────────────────
+// ─── Data fetching (scoped to one tenant) ─────────────────────────────────────
 
-async function getPlatformAIData() {
+async function getTenantAIData(tenantId: string) {
   const db = createAdminClient()
 
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 
-  const [{ data: tenants }, { data: configs }, { data: logs }] = await Promise.all([
-    db.from('tenants').select('id, name, plan').order('name'),
+  const [{ data: config }, { data: logs }] = await Promise.all([
     db
       .from('tenant_ai_configs')
-      .select('tenant_id, ai_enabled, provider, use_own_key, credit_limit_usd, credit_used_usd'),
+      .select('ai_enabled, provider, use_own_key, credit_limit_usd, credit_used_usd')
+      .eq('tenant_id', tenantId)
+      .maybeSingle(),
     db
       .from('ai_usage_logs')
-      .select('tenant_id, feature, provider, model, cost_usd, using_own_key, created_at')
+      .select('feature, provider, model, cost_usd, using_own_key, created_at')
+      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false }),
   ])
 
-  const allTenants = (tenants ?? []) as TenantRow[]
-  const allConfigs = (configs ?? []) as ConfigRow[]
   const allLogs = (logs ?? []) as LogRow[]
+  const monthLogs = allLogs.filter((l) => l.created_at >= monthStart)
 
-  // ── Index configs by tenant ──────────────────────────────────────────────
-  const configMap = new Map(allConfigs.map((c) => [c.tenant_id, c]))
+  // ── Global stats ─────────────────────────────────────────────────────────
+  const totalSpendAllTime = allLogs.reduce((s, l) => s + Number(l.cost_usd), 0)
+  const totalSpendThisMonth = monthLogs.reduce((s, l) => s + Number(l.cost_usd), 0)
+  const platformSpendThisMonth = monthLogs
+    .filter((l) => !l.using_own_key)
+    .reduce((s, l) => s + Number(l.cost_usd), 0)
+  const totalCalls = allLogs.length
+  const creditUsedUsd = Number(config?.credit_used_usd ?? 0)
+  const creditLimitUsd = Number(config?.credit_limit_usd ?? 5)
 
-  // ── Per-tenant summaries ─────────────────────────────────────────────────
-  const tenantSummaries: TenantSummary[] = allTenants.map((t) => {
-    const cfg = configMap.get(t.id)
-    const tLogs = allLogs.filter((l) => l.tenant_id === t.id)
-    const tMonthLogs = tLogs.filter((l) => l.created_at >= monthStart)
-
-    const totalCostUsd = tLogs.reduce((s, l) => s + Number(l.cost_usd), 0)
-    const platformCostUsd = tLogs
-      .filter((l) => !l.using_own_key)
-      .reduce((s, l) => s + Number(l.cost_usd), 0)
-    const thisMonthCostUsd = tMonthLogs.reduce((s, l) => s + Number(l.cost_usd), 0)
-
-    return {
-      tenantId: t.id,
-      tenantName: t.name,
-      plan: t.plan ?? '—',
-      aiEnabled: cfg?.ai_enabled ?? false,
-      provider: cfg?.provider ?? '—',
-      useOwnKey: cfg?.use_own_key ?? false,
-      creditLimitUsd: Number(cfg?.credit_limit_usd ?? 5),
-      creditUsedUsd: Number(cfg?.credit_used_usd ?? 0),
-      totalCalls: tLogs.length,
-      totalCostUsd,
-      platformCostUsd,
-      thisMonthCostUsd,
-    }
-  })
-
-  // ── Feature breakdown (all tenants) ─────────────────────────────────────
+  // ── Feature breakdown ────────────────────────────────────────────────────
   const featureMap = new Map<string, FeatureSummary>()
   for (const l of allLogs) {
     const existing = featureMap.get(l.feature) ?? { feature: l.feature, calls: 0, costUsd: 0 }
@@ -153,27 +104,16 @@ async function getPlatformAIData() {
   }
   const modelSummaries = Array.from(modelMap.values()).sort((a, b) => b.costUsd - a.costUsd)
 
-  // ── Global stats ─────────────────────────────────────────────────────────
-  const totalSpendAllTime = allLogs.reduce((s, l) => s + Number(l.cost_usd), 0)
-  const totalSpendThisMonth = allLogs
-    .filter((l) => l.created_at >= monthStart)
-    .reduce((s, l) => s + Number(l.cost_usd), 0)
-  const totalCalls = allLogs.length
-  const activeAITenants = allConfigs.filter((c) => c.ai_enabled).length
-  const platformSpendThisMonth = allLogs
-    .filter((l) => !l.using_own_key && l.created_at >= monthStart)
-    .reduce((s, l) => s + Number(l.cost_usd), 0)
-
   return {
-    tenantSummaries,
+    config,
     featureSummaries,
     modelSummaries,
     totalSpendAllTime,
     totalSpendThisMonth,
     platformSpendThisMonth,
     totalCalls,
-    activeAITenants,
-    totalTenants: allTenants.length,
+    creditUsedUsd,
+    creditLimitUsd,
   }
 }
 
@@ -188,13 +128,12 @@ function StatCard({
   label: string
   value: string
   sub?: string
-  accent?: 'red' | 'amber' | 'green' | 'blue'
+  accent?: 'red' | 'amber' | 'green'
 }) {
   const colors = {
     red: 'text-destructive',
     amber: 'text-yellow-600 dark:text-yellow-400',
     green: 'text-green-600 dark:text-green-400',
-    blue: 'text-blue-600 dark:text-blue-400',
   }
   return (
     <div className="rounded-xl border bg-card p-5 space-y-1">
@@ -224,189 +163,83 @@ export default async function AIUsagePage() {
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
   if (claims?.role !== 'admin') redirect('/tasks')
+  if (!claims?.tenant_id) redirect('/tasks')
+
+  const tenantId = claims.tenant_id as string
 
   const {
-    tenantSummaries,
+    config,
     featureSummaries,
     modelSummaries,
     totalSpendAllTime,
     totalSpendThisMonth,
     platformSpendThisMonth,
     totalCalls,
-    activeAITenants,
-    totalTenants,
-  } = await getPlatformAIData()
+    creditUsedUsd,
+    creditLimitUsd,
+  } = await getTenantAIData(tenantId)
 
   const currentMonth = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' })
-  const maxTenantCost = Math.max(...tenantSummaries.map((t) => t.totalCostUsd), 0)
   const maxFeatureCost = Math.max(...featureSummaries.map((f) => f.costUsd), 0)
+  const creditPct = creditLimitUsd > 0 ? Math.min((creditUsedUsd / creditLimitUsd) * 100, 100) : 0
+  const useOwnKey = config?.use_own_key ?? false
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10 space-y-8">
+    <main className="mx-auto max-w-4xl px-4 py-10 space-y-8">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">AI Spend Dashboard</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">AI Usage</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Cross-tenant AI usage and cost breakdown for the platform.
+          AI feature usage and cost breakdown for your organisation.
         </p>
       </div>
 
       {/* ── Stat cards ──────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="All-time spend" value={fmt(totalSpendAllTime)} sub="across all tenants" />
+        <StatCard
+          label="All-time spend"
+          value={fmt(totalSpendAllTime)}
+          sub="across all AI features"
+        />
         <StatCard
           label={`Spend — ${currentMonth}`}
           value={fmt(totalSpendThisMonth)}
-          sub={`Platform key: ${fmt(platformSpendThisMonth)}`}
+          sub={useOwnKey ? 'Your own API key' : `Platform key: ${fmt(platformSpendThisMonth)}`}
           accent={totalSpendThisMonth > 10 ? 'amber' : undefined}
         />
         <StatCard label="Total API calls" value={totalCalls.toLocaleString()} sub="all time" />
-        <StatCard
-          label="AI-enabled tenants"
-          value={`${activeAITenants} / ${totalTenants}`}
-          sub="with AI turned on"
-          accent={activeAITenants > 0 ? 'green' : undefined}
-        />
+        {!useOwnKey ? (
+          <StatCard
+            label="Credit used"
+            value={fmt(creditUsedUsd)}
+            sub={`of ${fmt(creditLimitUsd)} limit`}
+            accent={creditPct >= 90 ? 'red' : creditPct >= 70 ? 'amber' : undefined}
+          />
+        ) : (
+          <StatCard label="Key type" value="BYOK" sub="your own API key" accent="green" />
+        )}
       </div>
 
-      {/* ── Per-tenant table ─────────────────────────────────────────────────── */}
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-          Per-Tenant Breakdown
-        </h2>
-        <div className="rounded-xl border bg-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 text-muted-foreground text-xs uppercase tracking-wide">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium">Tenant</th>
-                  <th className="px-4 py-3 text-left font-medium">Plan</th>
-                  <th className="px-4 py-3 text-left font-medium">AI</th>
-                  <th className="px-4 py-3 text-left font-medium">Provider</th>
-                  <th className="px-4 py-3 text-left font-medium">Key</th>
-                  <th className="px-4 py-3 text-right font-medium">Credit used / limit</th>
-                  <th className="px-4 py-3 text-right font-medium">Calls</th>
-                  <th className="px-4 py-3 text-right font-medium">This month</th>
-                  <th className="px-4 py-3 text-right font-medium">All-time</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {tenantSummaries.map((t) => {
-                  const creditPct =
-                    t.creditLimitUsd > 0
-                      ? Math.min((t.creditUsedUsd / t.creditLimitUsd) * 100, 100)
-                      : 0
-                  return (
-                    <tr key={t.tenantId} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">
-                        {t.tenantName}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground capitalize whitespace-nowrap">
-                        {t.plan}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                            t.aiEnabled
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                              : 'bg-muted text-muted-foreground'
-                          }`}
-                        >
-                          {t.aiEnabled ? 'On' : 'Off'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground capitalize whitespace-nowrap">
-                        {t.aiEnabled ? t.provider : '—'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {t.aiEnabled ? (
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                              t.useOwnKey
-                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                                : 'bg-muted text-muted-foreground'
-                            }`}
-                          >
-                            {t.useOwnKey ? 'BYOK' : 'Platform'}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        {t.aiEnabled && !t.useOwnKey ? (
-                          <div className="flex flex-col items-end gap-1">
-                            <span className="tabular-nums text-xs">
-                              {fmt(t.creditUsedUsd)}{' '}
-                              <span className="text-muted-foreground">
-                                / {fmt(t.creditLimitUsd)}
-                              </span>
-                            </span>
-                            <div className="h-1.5 w-20 rounded-full bg-muted overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${
-                                  creditPct >= 90
-                                    ? 'bg-destructive'
-                                    : creditPct >= 70
-                                      ? 'bg-yellow-500'
-                                      : 'bg-primary'
-                                }`}
-                                style={{ width: `${creditPct}%` }}
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                        {t.totalCalls > 0 ? t.totalCalls.toLocaleString() : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">
-                        {t.thisMonthCostUsd > 0 ? (
-                          <span className="font-medium">{fmt(t.thisMonthCostUsd)}</span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        {t.totalCostUsd > 0 ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <MiniBar value={t.totalCostUsd} max={maxTenantCost} />
-                            <span className="font-semibold tabular-nums">
-                              {fmt(t.totalCostUsd)}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-                {tenantSummaries.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                      No tenants found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+      {/* ── No data state ────────────────────────────────────────────────────── */}
+      {totalCalls === 0 && (
+        <div className="rounded-xl border bg-card px-6 py-12 text-center">
+          <p className="text-sm text-muted-foreground">
+            No AI calls recorded yet. Enable AI in{' '}
+            <a href="/settings" className="underline underline-offset-2">
+              Settings
+            </a>{' '}
+            to get started.
+          </p>
         </div>
-      </section>
+      )}
 
-      {/* ── Feature + Provider breakdown side by side ────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Feature breakdown */}
-        <section className="space-y-2">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            By Feature
-          </h2>
-          <div className="rounded-xl border bg-card overflow-hidden">
-            {featureSummaries.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-muted-foreground">No data yet.</p>
-            ) : (
+      {totalCalls > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* ── By Feature ──────────────────────────────────────────────────── */}
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              By Feature
+            </h2>
+            <div className="rounded-xl border bg-card overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-muted/40 text-muted-foreground text-xs uppercase tracking-wide">
                   <tr>
@@ -452,19 +285,15 @@ export default async function AIUsagePage() {
                   </tr>
                 </tfoot>
               </table>
-            )}
-          </div>
-        </section>
+            </div>
+          </section>
 
-        {/* Provider / model breakdown */}
-        <section className="space-y-2">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            By Provider / Model
-          </h2>
-          <div className="rounded-xl border bg-card overflow-hidden">
-            {modelSummaries.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-muted-foreground">No data yet.</p>
-            ) : (
+          {/* ── By Provider / Model ─────────────────────────────────────────── */}
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              By Provider / Model
+            </h2>
+            <div className="rounded-xl border bg-card overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-muted/40 text-muted-foreground text-xs uppercase tracking-wide">
                   <tr>
@@ -498,10 +327,10 @@ export default async function AIUsagePage() {
                   ))}
                 </tbody>
               </table>
-            )}
-          </div>
-        </section>
-      </div>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   )
 }
