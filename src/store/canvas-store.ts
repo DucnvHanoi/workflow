@@ -38,7 +38,7 @@ export interface BranchCondition {
   id: string
   fieldId: string
   nodeId?: string // which upstream node owns this field; undefined = use immediately preceding step (legacy)
-  operator: 'eq'
+  operator: 'eq' | 'neq' | 'gt' | 'lt' | 'gte' | 'lte' | 'contains'
   value: string
   handleId: 'yes' | 'no'
 }

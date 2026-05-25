@@ -1271,8 +1271,36 @@ async function advanceFlow(
         const fieldValue = Array.isArray(rawValue)
           ? rawValue.map(String).join(',') // checkbox multi-value: join for eq check
           : String(rawValue ?? '')
-        if (cond.operator === 'eq') return fieldValue === cond.value
-        return false
+        switch (cond.operator) {
+          case 'eq':
+            return fieldValue === cond.value
+          case 'neq':
+            return fieldValue !== cond.value
+          case 'contains':
+            return fieldValue.toLowerCase().includes(cond.value.toLowerCase())
+          case 'gt': {
+            const n = parseFloat(fieldValue)
+            const v = parseFloat(cond.value)
+            return !isNaN(n) && !isNaN(v) && n > v
+          }
+          case 'lt': {
+            const n = parseFloat(fieldValue)
+            const v = parseFloat(cond.value)
+            return !isNaN(n) && !isNaN(v) && n < v
+          }
+          case 'gte': {
+            const n = parseFloat(fieldValue)
+            const v = parseFloat(cond.value)
+            return !isNaN(n) && !isNaN(v) && n >= v
+          }
+          case 'lte': {
+            const n = parseFloat(fieldValue)
+            const v = parseFloat(cond.value)
+            return !isNaN(n) && !isNaN(v) && n <= v
+          }
+          default:
+            return false
+        }
       })
     }
 

@@ -10,9 +10,17 @@
 //
 //   BranchCondition now stores `nodeId` alongside `fieldId` so advanceFlow
 //   knows which step_instance.form_data to look the value up from.
+//
+// M3 — AI Condition Parser:
+//   Each branch group (Yes/No) has a plain-English input with a Sparkles
+//   button. Typing "amount is more than 1000" and pressing the button calls
+//   parseConditionFromText(), which maps it to a real fieldId + operator +
+//   value and appends the condition. Falls back gracefully with an error
+//   message if the field cannot be resolved.
+//   Operators expanded: eq | neq | gt | lt | gte | lte | contains.
 
-import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
+import { Plus, Trash2, Sparkles, Loader2, AlertTriangle } from 'lucide-react'
 import {
   useCanvasStore,
   type NodeData,
@@ -20,12 +28,25 @@ import {
   type FormField,
 } from '@/store/canvas-store'
 import { type Node, type Edge } from '@xyflow/react'
+import { parseConditionFromText, type AvailableField } from '@/lib/ai/condition-parser'
 
 interface Props {
   node: Node
 }
 
 const generateId = () => `cond_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+
+// ─── Operator display labels ──────────────────────────────────────────────────
+
+const OPERATOR_LABELS: Record<string, string> = {
+  eq: 'equals',
+  neq: '≠',
+  gt: '>',
+  lt: '<',
+  gte: '≥',
+  lte: '≤',
+  contains: 'contains',
+}
 
 // ─── Upstream field collection ────────────────────────────────────────────────
 // Walk graph edges backwards from the branch node (BFS), collecting every
@@ -112,6 +133,22 @@ export default function BranchConfigPanel({ node }: Props) {
     return [...own, ...upstreamOptions]
   }, [node.id, node.data, allNodes, allEdges, data.formSchema])
 
+  // Build AvailableField list for AI parsing — enriches FieldOption with fieldType
+  const availableFieldsForAI = useMemo<AvailableField[]>(() => {
+    return fieldOptions.map((opt) => {
+      const ownerNode = allNodes.find((n) => n.id === opt.nodeId)
+      const ownerData = ownerNode?.data as NodeData | undefined
+      const field = (ownerData?.formSchema ?? []).find((f: FormField) => f.id === opt.fieldId)
+      return {
+        nodeId: opt.nodeId,
+        nodeLabel: opt.nodeLabel,
+        fieldId: opt.fieldId,
+        fieldLabel: opt.fieldLabel,
+        fieldType: field?.type ?? 'text',
+      }
+    })
+  }, [fieldOptions, allNodes])
+
   const persist = (updated: BranchCondition[]) => {
     setConditions(updated)
     updateNodeData(node.id, { branchConditions: updated })
@@ -123,6 +160,10 @@ export default function BranchConfigPanel({ node }: Props) {
       ...conditions,
       { id: generateId(), fieldId: '', nodeId: undefined, operator: 'eq', value: '', handleId },
     ])
+  }
+
+  const addParsedCondition = (partial: Omit<BranchCondition, 'id'>) => {
+    persist([...conditions, { ...partial, id: generateId() }])
   }
 
   const updateCondition = (id: string, patch: Partial<BranchCondition>) => {
@@ -146,9 +187,12 @@ export default function BranchConfigPanel({ node }: Props) {
       <BranchGroup
         label="Yes path"
         color="emerald"
+        handleId="yes"
         conditions={yesConditions}
         fieldOptions={fieldOptions}
+        availableFields={availableFieldsForAI}
         onAdd={() => addCondition('yes')}
+        onAddParsed={addParsedCondition}
         onUpdate={updateCondition}
         onRemove={removeCondition}
       />
@@ -156,9 +200,12 @@ export default function BranchConfigPanel({ node }: Props) {
       <BranchGroup
         label="No path"
         color="rose"
+        handleId="no"
         conditions={noConditions}
         fieldOptions={fieldOptions}
+        availableFields={availableFieldsForAI}
         onAdd={() => addCondition('no')}
+        onAddParsed={addParsedCondition}
         onUpdate={updateCondition}
         onRemove={removeCondition}
       />
@@ -175,9 +222,12 @@ export default function BranchConfigPanel({ node }: Props) {
 interface GroupProps {
   label: string
   color: 'emerald' | 'rose'
-  conditions: BranchCondition[] // _conditions is unused parameter
-  fieldOptions: FieldOption[] // _fieldOptions is unused parameter
+  handleId: 'yes' | 'no'
+  conditions: BranchCondition[]
+  fieldOptions: FieldOption[]
+  availableFields: AvailableField[]
   onAdd: () => void
+  onAddParsed: (_partial: Omit<BranchCondition, 'id'>) => void
   onUpdate: (_id: string, _patch: Partial<BranchCondition>) => void
   onRemove: (_id: string) => void
 }
@@ -185,12 +235,19 @@ interface GroupProps {
 function BranchGroup({
   label,
   color,
+  handleId,
   conditions,
   fieldOptions,
+  availableFields,
   onAdd,
+  onAddParsed,
   onUpdate,
   onRemove,
 }: GroupProps) {
+  const [aiText, setAiText] = useState('')
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [isParsing, startParsing] = useTransition()
+
   const borderColor = color === 'emerald' ? 'border-emerald-200' : 'border-rose-200'
   const badgeColor =
     color === 'emerald' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
@@ -198,6 +255,19 @@ function BranchGroup({
     color === 'emerald'
       ? 'text-emerald-600 hover:bg-emerald-50 border-emerald-200'
       : 'text-rose-600 hover:bg-rose-50 border-rose-200'
+
+  function handleAiParse() {
+    setAiError(null)
+    startParsing(async () => {
+      const result = await parseConditionFromText(aiText.trim(), availableFields, handleId)
+      if (result.error || !result.condition) {
+        setAiError(result.error ?? 'Unknown error')
+      } else {
+        onAddParsed(result.condition)
+        setAiText('')
+      }
+    })
+  }
 
   return (
     <div className={`rounded-lg border-2 ${borderColor} p-3 space-y-3`}>
@@ -227,6 +297,48 @@ function BranchGroup({
               onRemove={() => onRemove(cond.id)}
             />
           ))}
+        </div>
+      )}
+
+      {/* AI condition input strip */}
+      {availableFields.length > 0 && (
+        <div className="border-t border-dashed border-border pt-2 space-y-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-500">
+            Parse with AI
+          </p>
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={aiText}
+              onChange={(e) => {
+                setAiText(e.target.value)
+                setAiError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && aiText.trim() && !isParsing) handleAiParse()
+              }}
+              placeholder={`e.g. "amount is more than 1000"`}
+              className="flex-1 rounded border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <button
+              onClick={handleAiParse}
+              disabled={!aiText.trim() || isParsing}
+              title="Parse condition with AI"
+              className="flex items-center gap-1 rounded border border-violet-200 bg-white px-2 py-1 text-xs font-medium text-violet-600 transition-colors hover:bg-violet-50 disabled:opacity-50"
+            >
+              {isParsing ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+            </button>
+          </div>
+          {aiError && (
+            <div className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5">
+              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
+              <p className="text-[11px] text-destructive">{aiError}</p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -299,7 +411,7 @@ function ConditionRow({ condition, fieldOptions, onUpdate, onRemove }: RowProps)
       {/* Operator + value + remove */}
       <div className="flex items-center gap-2">
         <span className="shrink-0 rounded border border-input bg-muted px-2 py-1 text-xs text-muted-foreground">
-          equals
+          {OPERATOR_LABELS[condition.operator] ?? condition.operator}
         </span>
         <input
           type="text"
