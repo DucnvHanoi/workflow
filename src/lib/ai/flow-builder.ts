@@ -92,28 +92,17 @@ export async function generateFlowFromDescription(
       model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: description.trim() }],
+      messages: [
+        { role: 'user', content: description.trim() },
+        // Prefill the assistant turn with '{' — forces the model to continue
+        // with JSON and makes it impossible to respond with plain text.
+        { role: 'assistant', content: '{' },
+      ],
     })
 
     const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
-    // Strip markdown code fences the model sometimes adds despite instructions
-    const cleaned = raw
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/, '')
-      .trim()
-
-    // Detect plain-text refusals before attempting JSON.parse
-    if (!cleaned.startsWith('{')) {
-      console.error(
-        'AI flow generation: model returned plain text instead of JSON:',
-        cleaned.slice(0, 200)
-      )
-      return {
-        graph: null,
-        error:
-          'The description was not specific enough to generate a flow. Try describing the steps, who handles each step, and what fields are needed.',
-      }
-    }
+    // Re-attach the prefilled '{' since the API only returns what comes after it
+    const cleaned = '{' + raw.replace(/\s*```$/, '').trim()
 
     const graph = JSON.parse(cleaned) as SerializedGraph
 
