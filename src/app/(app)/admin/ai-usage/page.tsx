@@ -61,6 +61,7 @@ const FEATURE_LABELS: Record<string, string> = {
   form_suggestions: 'Form Suggestions',
   condition_parser: 'Condition Parser',
   trigger_assistant: 'Trigger Assistant',
+  text_assist: 'Text Assist',
 }
 
 function fmt(usd: number) {
