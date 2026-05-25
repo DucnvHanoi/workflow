@@ -42,8 +42,12 @@ FormField:
   "options": string[]      // REQUIRED for dropdown, radio, checkbox — omit for other types
 }
 
-AssigneeRule (always use this exact value for action and branch nodes):
-{ "type": "requester" }
+AssigneeRule — pick the best match based on the description:
+{ "type": "requester" }                           // the person who triggered the flow
+{ "type": "manager_of_requestor" }               // direct manager of the requester
+{ "type": "skip_level" }                         // manager's manager of the requester
+{ "type": "requester_dept_head" }                // head of the requester's department
+{ "type": "fixed", "email": "someone@co.com" }  // a specific person — use ONLY when an email address is explicitly mentioned
 
 BranchCondition:
 {
@@ -66,7 +70,7 @@ SerializedEdge:
 STRICT RULES:
 1. Exactly one "trigger" node: formSchema=[], assigneeRule=null, branchConditions=[]
 2. Exactly one "complete" node: formSchema=[], assigneeRule=null, branchConditions=[]
-3. Every "action" and "branch" node MUST have at least one FormField and assigneeRule: {"type":"requester"}
+3. Every "action" and "branch" node MUST have at least one FormField and a non-null assigneeRule. Choose the assigneeRule type that best matches the description (requester, manager_of_requestor, skip_level, requester_dept_head, or fixed with email).
 4. Branch nodes MUST have at least one BranchCondition. The fieldId must reference a field id from that branch node's own formSchema.
 5. No cycles. Every node must be reachable from the trigger node.
 6. Trigger and action nodes: max 1 outbound edge. Branch nodes: exactly 2 outbound edges — one with sourceHandle "yes" and one with sourceHandle "no".
@@ -92,7 +96,12 @@ export async function generateFlowFromDescription(
     })
 
     const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
-    const graph = JSON.parse(raw) as SerializedGraph
+    // Strip markdown code fences the model sometimes adds despite instructions
+    const cleaned = raw
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim()
+    const graph = JSON.parse(cleaned) as SerializedGraph
 
     if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
       return { graph: null, error: 'AI returned an unexpected format. Please try again.' }
