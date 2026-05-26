@@ -126,7 +126,7 @@ export async function bulkImportUsers(rows: BulkImportRow[]): Promise<BulkImport
         user_id: inviteData.user.id,
       })
 
-      void sendInviteEmail({
+      await sendInviteEmail({
         tenantId: claims.tenant_id,
         inviteeEmail: email,
         inviterName: inviter?.full_name ?? inviter?.email ?? 'Your admin',
@@ -268,7 +268,7 @@ export async function inviteUser(email: string, role: 'admin' | 'user'): Promise
     }
   }
 
-  // Track in pending_invitations (non-fatal — invite was already sent)
+  // Track in pending_invitations (non-fatal)
   const { error: piError } = await adminClient.from('pending_invitations').insert({
     tenant_id: claims.tenant_id,
     email,
@@ -279,8 +279,7 @@ export async function inviteUser(email: string, role: 'admin' | 'user'): Promise
     console.error('Failed to record pending invitation:', piError.message)
   }
 
-  // Send invite email — fire-and-forget, never blocks the response
-  void sendInviteEmail({
+  await sendInviteEmail({
     tenantId: claims.tenant_id,
     inviteeEmail: email,
     inviterName: inviter?.full_name ?? inviter?.email ?? 'Your admin',
@@ -357,7 +356,7 @@ export async function resendInvitation(id: string): Promise<ActionResult> {
     adminClient.from('tenants').select('name').eq('id', claims.tenant_id).single(),
   ])
 
-  void sendInviteEmail({
+  await sendInviteEmail({
     tenantId: claims.tenant_id!,
     inviteeEmail: invitation.email,
     inviterName: inviter?.full_name ?? inviter?.email ?? 'Your admin',
