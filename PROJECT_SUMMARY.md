@@ -1298,3 +1298,284 @@ M4 — Executive Dashboard Enhancement ✅ COMPLETE
 deltas on Triggered/Completed/Cancelled stat cards, inline sparklines on the
 bottleneck table. Fixed pre-existing bug where SLA Breached and Due Soon always
 showed 0.
+
+─────────────────────────────────────────────────────────────────────────────────
+
+39. PHASE 12 — LANDING PAGE & MULTI-TENANCY / BILLING (ROADMAP)
+    Theme: public-facing marketing site + self-service tenant signup + plan
+    enforcement. Splits into two sub-tracks: 12-A (Landing Page) ships first
+    so prospects can discover and register; 12-B (Billing & Enforcement) wires
+    up Stripe and hard limits afterwards.
+
+PLAN TIERS (all limits must be configurable via platform admin panel — no
+hard-coded numbers in business logic; values stored in DB config):
+
+Free — $0 / month
+· 10 users (incl. admin)
+· 2 flows
+· 5 departments
+· Reports: 7-day window only
+· No AI in flow builder
+· AI usage cap: $1 all-time (no monthly reset)
+
+Pro — $5 / user / month (max 100 users)
+· Unlimited flows & departments
+· All report periods (7d / 30d / 90d / all-time)
+· AI in flow builder enabled
+· AI monthly credit cap: $50 / month ← internal only, NOT shown
+to tenants on pricing page or settings UI
+· Monthly AI credit resets on billing cycle date
+
+Enterprise — Contact us (custom contract)
+· Everything in Pro, no user-count ceiling
+· AI credit limit configured per-tenant by platform admin
+· Dedicated support / custom SLA
+
+CONFIGURABILITY REQUIREMENT:
+Every numeric limit (user cap, flow cap, dept cap, report window days, AI
+credit limit, price per seat) must be readable from a DB config table —
+NOT hard-coded in source. A platform admin panel (Phase 12-B or later) will
+expose CRUD for these values so they can change without a redeploy.
+
+─── PHASE 12-A: LANDING PAGE ────────────────────────────────────────────────
+
+M1 — Marketing homepage at /
+
+Replace the current redirect-only page.tsx with a full landing page.
+Add / and /signup to PUBLIC_ROUTES in middleware.ts. Logged-in visitors
+are still redirected to /tasks. Sections: sticky navbar (logo, Features,
+Pricing, FAQ anchors + Log in + Get Started CTA), hero (headline +
+"Your AI workflow magic" subheadline + Start Free / Log In buttons),
+6-feature grid (Flow Builder, AI Integration, SLA Tracking, Analytics,
+Department Management, Audit Trail), footer (links + copyright).
+
+M2 — Pricing section on the landing page
+
+3-column pricing table (Free / Pro / Enterprise) with per-tier feature
+checklist. "Get Started" → /signup, "Contact Us" → mailto. Pricing data
+lives in a static config constant (src/lib/plans.ts) so numbers are in
+one place and easy to edit before the platform admin panel is built.
+Pro AI cap is NOT listed — only surfaced as "AI-powered flow builder ✓".
+
+M3 — /signup page (self-service tenant registration)
+
+Public page: email + password fields only. On submit via server action: 1. createAdminClient().auth.admin.createUser() with email_confirm: true 2. INSERT into tenants (name = 'My Organization', plan = 'free') 3. INSERT into users (id, tenant_id, email, role = 'admin') 4. auth.admin.updateUserById() → set app_metadata { tenant_id, role } 5. Sign the user in and redirect to /tasks
+Error states: email already in use, weak password, server error.
+
+M4 — FAQ section + final polish
+
+5–6 collapsible FAQ items (accordion, no JS library needed — details/summary
+or Radix Collapsible). Mobile responsive throughout. Smooth-scroll anchors.
+OG meta tags (title, description, og:image placeholder) in layout.
+
+─── PHASE 12-B: BILLING & PLAN ENFORCEMENT ──────────────────────────────────
+
+M5 — Plan config DB table + limits helper
+
+Migration: create plan_configs table —
+plan TEXT PRIMARY KEY,
+max_users INT,
+max_flows INT,
+max_departments INT,
+report_window_days INT, -- NULL = unlimited
+ai_enabled BOOLEAN,
+ai_credit_limit_usd NUMERIC, -- NULL = unlimited; monthly for pro
+ai_credit_reset TEXT, -- 'monthly' | 'never' | 'none'
+price_per_user_cents INT, -- 0 for free/enterprise
+updated_at TIMESTAMPTZ
+Seed with Free / Pro / Enterprise rows matching the plan tiers above.
+Helper getLimits(plan): reads from this table (cached, 60s TTL).
+
+Also add to tenants table:
+status TEXT CHECK IN ('active','trial','suspended') DEFAULT 'active'
+trial_ends_at TIMESTAMPTZ
+stripe_customer_id TEXT
+stripe_subscription_id TEXT
+current_period_start TIMESTAMPTZ -- for monthly AI credit reset
+
+M6 — Usage enforcement gates
+
+Check limits before: invite user (user cap), create flow (flow cap),
+create department (dept cap), trigger AI (ai_enabled + credit cap).
+Reports period selector: hide 30d/90d/all-time tabs for free tenants
+(replace with upgrade prompt).
+UI: inline "You've reached your Free plan limit — upgrade to Pro" banner,
+not a generic error page.
+
+M7 — Stripe checkout + webhook
+
+/api/billing/create-checkout — POST, creates Stripe Checkout session for
+Pro upgrade (quantity = current active user count).
+/api/billing/webhook — POST, handles:
+customer.subscription.created → set plan='pro', status='active'
+customer.subscription.updated → update plan/status
+customer.subscription.deleted → downgrade to plan='free'
+/api/billing/portal — GET, creates Stripe Customer Portal session.
+Env vars: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRO_PRICE_ID.
+
+M8 — Billing tab in /settings
+
+New "Billing" tab (admin only). Shows: current plan badge, usage meters
+(users X/10, flows X/2 for free), upgrade CTA → Stripe checkout, or
+"Manage billing" → Stripe portal for Pro. Enterprise shows "Managed plan".
+
+M9 — Platform admin panel /platform
+
+Separate from /admin (tenant-scoped). Accessible only to a designated
+platform-owner account (checked via hardcoded email env var or a
+platform_admin boolean in app_metadata).
+Routes:
+/platform/tenants — table of all tenants: name, plan, status, users,
+created_at, MRR contribution. Manual plan/status override.
+/platform/plan-config — CRUD editor for plan_configs table: edit any
+limit or price without a redeploy.
+/platform/ai-overrides — per-enterprise-tenant AI credit limit editor.
+
+CROSS-CUTTING NOTES
+
+- plan_configs is the single source of truth for all limits. getLimits()
+  is called at enforcement points, never inline constants.
+- Pro AI monthly credit ($50) resets on current_period_start + 30 days,
+  tracked via tenant_ai_configs.credit_used_usd (reset to 0 on cycle).
+- Enterprise ai_credit_limit_usd is stored in tenant_ai_configs directly
+  (overrides plan_configs default) — set by platform admin.
+- Pricing page never mentions AI dollar amounts — only feature availability.
+- Recommended build order: M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9.
+
+40. PHASE 12-B — BILLING & PLAN ENFORCEMENT (COMPLETE ✅, M7 DEFERRED)
+    Build: clean. M5, M6, M8, M9 committed (commit 2af2b15). M7 (Stripe) explicitly
+    deferred — Stripe does not support Vietnam as a payout country. Upgrade buttons
+    show "Payment coming soon" state in the UI until a legal entity in a supported
+    country is established (Stripe Atlas / Singapore incorporation).
+
+M5 — Plan config DB table + limits helper ✅ COMPLETE
+
+    supabase/migrations/20260526100000_plan_configs_and_tenant_billing.sql:
+
+    - plan_configs table: plan TEXT PK, max_users INT, max_flows INT,
+      max_departments INT, report_window_days INT, ai_enabled BOOL,
+      ai_credit_limit_usd NUMERIC(10,4), ai_credit_reset TEXT, price_per_user_cents INT,
+      updated_at TIMESTAMPTZ. RLS: SELECT for authenticated (any role).
+    - Seeded with three rows: free (10/2/5/7d/false/$1/never/$0),
+      pro (100/∞/∞/∞/true/$50/monthly/$500/user), enterprise (∞/∞/∞/∞/true/∞/none/custom).
+    - ALTER TABLE tenants ADD COLUMN IF NOT EXISTS: status TEXT DEFAULT 'active'
+      CHECK (active|trial|suspended), trial_ends_at TIMESTAMPTZ,
+      stripe_customer_id TEXT, stripe_subscription_id TEXT,
+      current_period_start TIMESTAMPTZ.
+
+    src/lib/billing/limits.ts:
+
+    - PlanLimits type: { maxUsers, maxFlows, maxDepartments, reportWindowDays,
+      aiEnabled, aiCreditLimitUsd, aiCreditReset, pricePerUserCents } — all
+      nullable numeric fields use number | null (null = unlimited).
+    - FREE_FALLBACK: safe static fallback used if DB read fails.
+    - getLimits(plan): unstable_cache wrapper (60s TTL, tag 'plan-limits').
+      Reads from plan_configs; returns FREE_FALLBACK on error.
+    - getTenantLimits(tenantId): fetches tenant.plan → calls getLimits(plan).
+
+    CONFIGURABILITY REQUIREMENT SATISFIED: no numeric limits are hard-coded
+    in business logic. All enforcement points call getTenantLimits() at runtime.
+    revalidateTag('plan-limits') is called after any plan_configs mutation to
+    bust the cache within the 60s TTL.
+
+M6 — Usage enforcement gates ✅ COMPLETE
+
+    Invite (src/app/(app)/invite/actions.ts):
+    - inviteUser(): counts existing users, compares to limits.maxUsers, returns
+      { success: false, error: "plan limit" } if at cap.
+    - bulkImportUsers(): counts remaining slots, trims the batch to fit (partial
+      success allowed) or returns error if already at cap.
+
+    Flows (src/app/(app)/flows/flows-route-actions.ts):
+    - createFlow(): counts existing flows, throws an Error if at limits.maxFlows.
+
+    Departments (src/app/(app)/departments/actions.ts):
+    - createDepartment(): counts existing depts, returns { error: "..." } if at
+      limits.maxDepartments.
+
+    AI (src/lib/ai/client.ts):
+    - callAI(): plan-level gate added at top — if !planLimits.aiEnabled throws
+      "AI features are not available on the Free plan. Upgrade to Pro."
+
+    Reports — period selector lock (both /admin/reports/flows and /admin/reports/sla):
+    - Server page fetches getTenantLimits() → derives maxDays (reportWindowDays).
+    - isAllowed(period): caps the selected period to maxDays.
+    - Default period is forced to '7' when tenant is restricted.
+    - Both client components (flows-report-client.tsx, sla-report-client.tsx) accept
+      maxDays: number | null prop; locked tabs render with Lock icon + 50% opacity +
+      cursor-not-allowed + upgrade prompt below the tab bar.
+
+M7 — Stripe checkout + webhook ⏭ DEFERRED
+
+    Explicitly skipped. Stripe does not support Vietnam as a payout country.
+    Required setup when ready: Stripe Atlas or Singapore legal entity.
+    Env vars needed: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRO_PRICE_ID.
+
+M8 — Billing tab in /settings ✅ COMPLETE
+
+    src/app/(app)/settings/page.tsx rewritten with two tabs:
+    - Tab navigation via ?tab=ai (default) / ?tab=billing — Link-based, server-rendered.
+    - "Billing" tab fetches tenant plan/status, user/flow/dept counts, getTenantLimits().
+
+    UsageMeter component: progress bar (indigo → amber ≥70% → red ≥90%) for capped
+    resources; "Unlimited" text when max is null.
+
+    Billing tab content:
+    - Plan badge (PLAN_BADGE record: free/pro/enterprise colour classes).
+    - Usage meters: Users (X/max), Flows (X/max), Departments (X/max).
+    - Report history: plain text ("7 days" or "Unlimited") — not a progress meter.
+    - Upgrade CTA button (disabled, "Payment coming soon" — M7 deferred).
+    - Pro / Enterprise info cards.
+
+    "AI" tab is unchanged: AISettingsCard + AI Usage Log table.
+
+    TypeScript fix: conditional Promise.all that returned a union type was replaced
+    with explicit if block + typed variable declarations:
+      let aiSettings: Awaited<ReturnType<typeof getAISettings>>['data'] = null
+      let usageLogs: AIUsageLogEntry[] = []
+      if (tab === 'ai') { ... }
+
+M9 — Platform admin panel /platform ✅ COMPLETE
+
+    Middleware guard (src/middleware.ts):
+    - PLATFORM_ROUTES = ['/platform'], isPlatformRoute() helper.
+    - Step 4: if email !== PLATFORM_ADMIN_EMAIL → redirect /unauthorized.
+    - .env.local: PLATFORM_ADMIN_EMAIL=ducnv.hn@gmail.com
+
+    Server actions double-check assertPlatformAdmin() as defense-in-depth
+    (server actions can be called independently of middleware).
+
+    Layout (src/app/platform/layout.tsx):
+    - Completely separate from the (app) shell — no sidebar, no Topbar.
+    - Sticky top bar: "Platform Admin" branding, nav to 3 pages, user email right-aligned.
+    - Uses getSessionClaims() + redirect('/login') if no session.
+
+    /platform/page.tsx → redirect to /platform/tenants.
+
+    /platform/tenants (src/app/platform/tenants/page.tsx):
+    - Table of all tenants: name (+ truncated ID), plan badge, status badge,
+      user count, MRR ($5 × users for pro plan), created date.
+    - Total MRR in header.
+    - Inline plan override form (select + "Set plan" button) per row.
+    - Inline status override form (select + "Set status" button) per row.
+    - actions.ts: updateTenantPlan(), updateTenantStatus() — both call
+      assertPlatformAdmin(), use createAdminClient(), revalidatePath + revalidateTag('plan-limits').
+
+    /platform/plan-config (src/app/platform/plan-config/page.tsx):
+    - NullableInput component: blank = unlimited, placeholder "∞".
+    - 3 cards (free / pro / enterprise), each a form with all 8 limit fields,
+      per-card Save button, last-updated timestamp.
+    - actions.ts: updatePlanConfig(fd: FormData) — parses nullable ints/floats
+      (nullableInt, nullableFloat helpers), updates plan_configs, revalidates
+      path + plan-limits tag.
+
+    /platform/ai-overrides (src/app/platform/ai-overrides/page.tsx):
+    - Shows enterprise tenants only (joined with tenant_ai_configs).
+    - Columns: tenant name, AI enabled badge, credit used / limit, editable
+      credit_limit_usd input.
+    - actions.ts: updateAIOverride(fd: FormData) — upserts tenant_ai_configs
+      on tenant_id conflict.
+
+KNOWN GOTCHA — PowerShell git heredocs with (app) in paths:
+Paths containing (app) are parsed as PowerShell subexpressions when unquoted.
+Always quote staging paths: git add -- "src/app/(app)/..."
