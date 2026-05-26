@@ -1726,4 +1726,71 @@ M4 — Sentry error monitoring ✅ COMPLETE (commit b92e3a0)
 
     - Snyk: npx snyk test — scans package.json for CVEs in dependencies
     - GitHub Dependabot: Repo Settings → Security → Dependabot alerts → Enable
-    - OWASP ZAP: point at staging URL after deploy, run automated scan
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+POST-SECURITY — INVITE FLOW & SETTINGS FIXES (2026-05-26)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── Settings: Organisation Name ───────────────────────────────────────────────
+
+Added a "General" tab to /settings (now the default tab) where tenant admins
+can rename their organisation. Server action updateTenantName() validates and
+updates tenants.name via the admin client, then revalidates the page.
+
+New files: src/lib/settings/tenant-actions.ts
+src/components/settings/TenantNameForm.tsx
+
+── Invite Flow: Email Not Sending (Vercel) ───────────────────────────────────
+
+All three sendInviteEmail() call sites (inviteUser, bulkImportUsers,
+resendInvitation) used void (fire-and-forget). On Vercel serverless, the
+Lambda terminates when the server action returns, killing the HTTP call to
+Resend before it leaves the process. Fixed by awaiting all three calls.
+Nothing appeared in the Resend dashboard because the request never reached it.
+
+── Invite Flow: Pending Users Leaking Into App ───────────────────────────────
+
+Root cause: invited users were created with is_active=true (DB default),
+making them indistinguishable from active members.
+
+Fixes applied:
+
+1. Invited users now created with is_active=false in both inviteUser() and
+   bulkImportUsers(). The resolve-assignee edge function already filters
+   by is_active=true, so pending invitees are automatically excluded from
+   step assignment and manager dropdowns.
+
+2. New server action markInvitationAccepted() in src/lib/auth/invitation-actions.ts
+   — called at the end of account-setup-form.tsx after the user saves their
+   name and password. Sets is_active=true and pending_invitations.status='accepted'.
+
+3. getPendingInvitations() now filters .eq('status','pending') instead of
+   .neq('status','revoked'), so accepted invitations no longer appear in
+   the pending list.
+
+4. Org chart query now filters .eq('is_active', true) — pending invitees
+   are excluded until they complete setup.
+
+5. Users list distinguishes pending (is_active=false + no full_name → amber
+   "Pending" badge) from deliberately deactivated (is_active=false + has
+   name → grey "Inactive" badge).
+
+── Post-Setup Redirect Fix ───────────────────────────────────────────────────
+
+After completing account setup, invited users (role=user) were redirected to
+/dashboard, which immediately bounced them to /unauthorized (dashboard is
+admin-only). Fixed in three files:
+
+- src/components/auth/account-setup-form.tsx router.push('/tasks')
+- src/app/auth/confirm/page.tsx router.push('/tasks') (×2)
+- src/app/(app)/account-setup/page.tsx redirect('/tasks')
+
+/tasks is accessible to all authenticated users regardless of role.
+
+── Production URL Fix ────────────────────────────────────────────────────────
+
+Confirmation email links pointed to localhost:3000 because NEXT_PUBLIC_SITE_URL
+was only set in .env.local (not in Vercel). Fix: set NEXT_PUBLIC_SITE_URL to
+the production domain in Vercel environment variables, and add the production
+/auth/confirm URL to Supabase → Authentication → URL Configuration → Redirect
+URLs allowlist. - OWASP ZAP: point at staging URL after deploy, run automated scan
