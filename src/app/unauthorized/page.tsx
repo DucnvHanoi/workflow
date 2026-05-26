@@ -1,51 +1,30 @@
 import Link from 'next/link'
+import { ShieldX } from 'lucide-react'
 
 export default function UnauthorizedPage() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 text-center">
-      <div className="max-w-md space-y-6">
-        {/* Icon */}
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-destructive/10">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-10 w-10 text-destructive"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
-            />
-          </svg>
-        </div>
-
-        {/* Text */}
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Access Denied</h1>
-          <p className="text-muted-foreground">
-            You don&apos;t have permission to view this page. This area is restricted to
-            administrators only.
-          </p>
-        </div>
-
-        {/* Actions */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-          <Link
-            href="/dashboard"
-            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Go to Dashboard
-          </Link>
-          <Link
-            href="/tasks"
-            className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-6 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          >
-            My Tasks
-          </Link>
-        </div>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 px-4 text-center">
+      <div className="flex items-center justify-center w-14 h-14 rounded-full bg-red-100 mb-4">
+        <ShieldX className="w-7 h-7 text-red-500" />
+      </div>
+      <h1 className="text-xl font-semibold text-slate-800">Access denied</h1>
+      <p className="mt-2 text-sm text-slate-500 max-w-sm">
+        You do not have permission to view this page. Contact your administrator if you believe this
+        is a mistake.
+      </p>
+      <div className="mt-6 flex gap-3">
+        <Link
+          href="/tasks"
+          className="px-4 py-2 rounded-lg bg-indigo-600 text-sm text-white hover:bg-indigo-700 transition-colors"
+        >
+          Go to app
+        </Link>
+        <Link
+          href="/login"
+          className="px-4 py-2 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+        >
+          Sign in with different account
+        </Link>
       </div>
     </div>
   )

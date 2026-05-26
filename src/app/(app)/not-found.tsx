@@ -12,7 +12,7 @@ export default function AppNotFound() {
         </p>
       </div>
       <Button asChild variant="outline">
-        <Link href="/dashboard">Go to dashboard</Link>
+        <Link href="/tasks">Go to dashboard</Link>
       </Button>
     </div>
   )
