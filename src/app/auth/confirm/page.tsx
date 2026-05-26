@@ -50,7 +50,7 @@ export default function ConfirmPage() {
           return
         }
 
-        router.push('/dashboard')
+        router.push('/tasks')
         return
       }
 
@@ -69,7 +69,7 @@ export default function ConfirmPage() {
           router.push('/account-setup')
           return
         }
-        router.push('/dashboard')
+        router.push('/tasks')
         return
       }
 

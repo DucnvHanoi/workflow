@@ -66,8 +66,8 @@ export function AccountSetupForm({ email }: { email: string }) {
     // 3. Activate the account and mark the invitation as accepted
     await markInvitationAccepted()
 
-    // 4. Done — go to dashboard
-    router.push('/dashboard')
+    // 4. Done — redirect to tasks (works for both admin and user roles)
+    router.push('/tasks')
     router.refresh()
   }
 

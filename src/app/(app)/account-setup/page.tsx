@@ -18,7 +18,7 @@ export default async function AccountSetupPage() {
     .eq('id', user.id)
     .single()
 
-  if (profile?.full_name) redirect('/dashboard')
+  if (profile?.full_name) redirect('/tasks')
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-background px-4">
