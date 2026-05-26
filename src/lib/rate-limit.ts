@@ -1,38 +1,44 @@
-import { Ratelimit } from '@upstash/ratelimit'
-import { Redis } from '@upstash/redis'
+import { createAdminClient } from '@/lib/supabase/admin'
 
-function createRedis(): Redis | null {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    return null
-  }
-  return Redis.fromEnv()
+const HOUR_MS = 60 * 60 * 1000
+
+async function countRecent(key: string): Promise<number> {
+  const db = createAdminClient()
+  const since = new Date(Date.now() - HOUR_MS).toISOString()
+  const { count } = await db
+    .from('rate_limit_log')
+    .select('*', { count: 'exact', head: true })
+    .eq('key', key)
+    .gte('created_at', since)
+  return count ?? 0
 }
 
-const redis = createRedis()
-
-function makeLimiter(
-  prefix: string,
-  requests: number,
-  window: Parameters<typeof Ratelimit.slidingWindow>[1]
-) {
-  if (!redis) return null
-  return new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(requests, window), prefix })
+async function logAttempt(key: string): Promise<void> {
+  const db = createAdminClient()
+  const cutoff = new Date(Date.now() - 2 * HOUR_MS).toISOString()
+  await Promise.all([
+    db.from('rate_limit_log').insert({ key }),
+    db.from('rate_limit_log').delete().lt('created_at', cutoff),
+  ])
 }
 
 // 5 new tenant signups per hour per IP
-const signupLimiter = makeLimiter('rl:signup', 5, '1 h')
-
-// 30 invitations per hour per tenant
-const inviteLimiter = makeLimiter('rl:invite', 30, '1 h')
-
 export async function checkSignupRate(ip: string): Promise<boolean> {
-  if (!signupLimiter) return true
-  const { success } = await signupLimiter.limit(ip)
-  return success
+  const key = `signup:${ip}`
+  const count = await countRecent(key)
+  if (count >= 5) return false
+  await logAttempt(key)
+  return true
 }
 
+// 30 invitations per hour per tenant — reads pending_invitations directly
 export async function checkInviteRate(tenantId: string): Promise<boolean> {
-  if (!inviteLimiter) return true
-  const { success } = await inviteLimiter.limit(tenantId)
-  return success
+  const db = createAdminClient()
+  const since = new Date(Date.now() - HOUR_MS).toISOString()
+  const { count } = await db
+    .from('pending_invitations')
+    .select('*', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .gte('invited_at', since)
+  return (count ?? 0) < 30
 }
