@@ -3,6 +3,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getTenantLimits } from '@/lib/billing/limits'
 import { decryptApiKey } from './crypto'
 import { computeCost, DEFAULT_MODEL } from './pricing'
 
@@ -44,6 +45,14 @@ interface TenantAIConfig {
 export async function callAI(params: CallAIParams): Promise<CallAIResult> {
   const { tenantId, userId, feature, systemPrompt, userContent, maxTokens } = params
   const db = createAdminClient()
+
+  // Plan-level gate — free plan blocks AI entirely
+  const planLimits = await getTenantLimits(tenantId)
+  if (!planLimits.aiEnabled) {
+    throw new Error(
+      'AI features are not available on the Free plan. Upgrade to Pro to enable them.'
+    )
+  }
 
   // Load tenant AI config (upsert default row if not yet created)
   const { data: config, error: configErr } = await db

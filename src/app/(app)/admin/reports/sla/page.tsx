@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { getTenantLimits } from '@/lib/billing/limits'
 import SLAReportClient from './sla-report-client'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -306,8 +307,17 @@ export default async function SLAReportPage({
   if (!claims?.tenant_id) redirect('/tasks')
 
   const tenantId = claims.tenant_id as string
+  const limits = await getTenantLimits(tenantId)
+  const maxDays = limits.reportWindowDays
+
+  function isAllowed(p: string) {
+    if (maxDays === null) return true
+    if (p === 'all') return false
+    return parseInt(p, 10) <= maxDays
+  }
   const raw = searchParams.period
-  const period = ['7', '30', '90', 'all'].includes(raw ?? '') ? (raw as string) : '30'
+  const period =
+    ['7', '30', '90', 'all'].includes(raw ?? '') && isAllowed(raw ?? '') ? (raw as string) : '7'
 
   const flows = await getSLAData(tenantId, period)
 
@@ -319,7 +329,7 @@ export default async function SLAReportPage({
           On-time completion rates and breach analysis for SLA-configured workflow steps.
         </p>
       </div>
-      <SLAReportClient flows={flows} period={period} />
+      <SLAReportClient flows={flows} period={period} maxDays={maxDays} />
     </main>
   )
 }

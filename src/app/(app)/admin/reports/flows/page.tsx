@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { getTenantLimits } from '@/lib/billing/limits'
 import FlowsReportClient from './flows-report-client'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -245,8 +246,18 @@ export default async function FlowsReportPage({
   if (!claims?.tenant_id) redirect('/tasks')
 
   const tenantId = claims.tenant_id as string
+  const limits = await getTenantLimits(tenantId)
+  const maxDays = limits.reportWindowDays
+
+  // Cap requested period to what the plan allows
+  function isAllowed(p: string) {
+    if (maxDays === null) return true
+    if (p === 'all') return false
+    return parseInt(p, 10) <= maxDays
+  }
   const raw = searchParams.period
-  const period = ['7', '30', '90', 'all'].includes(raw ?? '') ? (raw as string) : '30'
+  const period =
+    ['7', '30', '90', 'all'].includes(raw ?? '') && isAllowed(raw ?? '') ? (raw as string) : '7'
 
   const flows = await getFlowPerformanceData(tenantId, period)
 
@@ -258,7 +269,7 @@ export default async function FlowsReportPage({
           Cycle times, completion rates, and step-level bottlenecks for your workflows.
         </p>
       </div>
-      <FlowsReportClient flows={flows} period={period} />
+      <FlowsReportClient flows={flows} period={period} maxDays={maxDays} />
     </main>
   )
 }

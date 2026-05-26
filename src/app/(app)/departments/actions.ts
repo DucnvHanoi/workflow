@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { getTenantLimits } from '@/lib/billing/limits'
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,20 @@ export async function createDepartment(
   if (trimmed.length > 100) return { error: 'Name must be 100 characters or fewer.' }
 
   const adminClient = createAdminClient()
+
+  // Plan enforcement — check department cap
+  const limits = await getTenantLimits(claims.tenant_id as string)
+  if (limits.maxDepartments !== null) {
+    const { count } = await adminClient
+      .from('departments')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', claims.tenant_id)
+    if ((count ?? 0) >= limits.maxDepartments) {
+      return {
+        error: `You've reached your plan limit of ${limits.maxDepartments} department${limits.maxDepartments !== 1 ? 's' : ''}. Upgrade to Pro to add more.`,
+      }
+    }
+  }
 
   // If a parent is specified, validate it exists in the tenant and check depth
   if (parentId) {

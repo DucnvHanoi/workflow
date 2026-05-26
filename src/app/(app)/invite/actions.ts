@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { getTenantLimits } from '@/lib/billing/limits'
 import { sendInviteEmail } from '@/lib/email/resend'
 import type { PendingInvitation } from './pending/pending-client'
 
@@ -36,6 +37,26 @@ export async function bulkImportUsers(rows: BulkImportRow[]): Promise<BulkImport
   const MAX_ROWS = 100
   const batch = rows.slice(0, MAX_ROWS)
   const adminClient = createAdminClient()
+
+  // Plan enforcement — cap batch to remaining user slots
+  const limits = await getTenantLimits(claims.tenant_id as string)
+  if (limits.maxUsers !== null) {
+    const { count: currentCount } = await adminClient
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', claims.tenant_id)
+    const remaining = limits.maxUsers - (currentCount ?? 0)
+    if (remaining <= 0) {
+      return rows.map((r) => ({
+        email: r.email,
+        success: false,
+        error: `You've reached your plan limit of ${limits.maxUsers} users. Upgrade to Pro to invite more.`,
+      }))
+    }
+    if (batch.length > remaining) {
+      batch.splice(remaining)
+    }
+  }
 
   // Fetch inviter + tenant name once for invite emails
   const [{ data: inviter }, { data: tenant }] = await Promise.all([
@@ -183,6 +204,21 @@ export async function inviteUser(email: string, role: 'admin' | 'user'): Promise
   }
 
   const adminClient = createAdminClient()
+
+  // Plan enforcement — check user cap
+  const limits = await getTenantLimits(claims.tenant_id as string)
+  if (limits.maxUsers !== null) {
+    const { count } = await adminClient
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', claims.tenant_id)
+    if ((count ?? 0) >= limits.maxUsers) {
+      return {
+        success: false,
+        error: `You've reached your plan limit of ${limits.maxUsers} users. Upgrade to Pro to invite more.`,
+      }
+    }
+  }
 
   // Fetch inviter name + tenant name for the email
   const [{ data: inviter }, { data: tenant }] = await Promise.all([

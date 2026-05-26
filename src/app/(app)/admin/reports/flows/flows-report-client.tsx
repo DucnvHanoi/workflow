@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Lock } from 'lucide-react'
 import type { FlowStat } from './page'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -95,9 +95,11 @@ const PERIODS = [
 export default function FlowsReportClient({
   flows,
   period,
+  maxDays,
 }: {
   flows: FlowStat[]
   period: string
+  maxDays: number | null
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
@@ -124,20 +126,49 @@ export default function FlowsReportClient({
   return (
     <div className="space-y-6">
       {/* ── Period selector ─────────────────────────────────────────────────── */}
-      <div className="flex gap-1 rounded-lg border bg-muted/40 p-1 w-fit">
-        {PERIODS.map((p) => (
-          <Link
-            key={p.value}
-            href={`?period=${p.value}`}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              period === p.value
-                ? 'bg-background shadow-sm text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {p.label}
-          </Link>
-        ))}
+      <div className="space-y-2">
+        <div className="flex gap-1 rounded-lg border bg-muted/40 p-1 w-fit">
+          {PERIODS.map((p) => {
+            const locked =
+              maxDays !== null && (p.value === 'all' || parseInt(p.value, 10) > maxDays)
+            if (locked) {
+              return (
+                <span
+                  key={p.value}
+                  title="Upgrade to Pro to unlock"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground/50 cursor-not-allowed select-none"
+                >
+                  <Lock className="h-3 w-3" />
+                  {p.label}
+                </span>
+              )
+            }
+            return (
+              <Link
+                key={p.value}
+                href={`?period=${p.value}`}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  period === p.value
+                    ? 'bg-background shadow-sm text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {p.label}
+              </Link>
+            )
+          })}
+        </div>
+        {maxDays !== null && (
+          <p className="text-xs text-muted-foreground">
+            30-day, 90-day, and all-time reports are available on Pro.{' '}
+            <Link
+              href="/settings?tab=billing"
+              className="text-indigo-600 hover:text-indigo-700 font-medium"
+            >
+              Upgrade →
+            </Link>
+          </p>
+        )}
       </div>
 
       {/* ── Summary stat cards ──────────────────────────────────────────────── */}
