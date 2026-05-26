@@ -13,6 +13,8 @@ import {
   Clock,
   Zap,
   Menu,
+  X,
+  Mail,
 } from 'lucide-react'
 
 // ── Navbar ────────────────────────────────────────────────────────────────────
@@ -312,6 +314,233 @@ function FeaturesSection() {
   )
 }
 
+// ── Pricing ───────────────────────────────────────────────────────────────────
+
+type PlanFeature = { label: string; included: boolean }
+
+type Plan = {
+  name: string
+  price: string
+  priceNote: string
+  description: string
+  cta: string
+  ctaHref: string
+  highlighted: boolean
+  badge?: string
+  features: PlanFeature[]
+}
+
+const PLANS: Plan[] = [
+  {
+    name: 'Free',
+    price: '$0',
+    priceNote: 'forever',
+    description: 'Perfect for small teams getting started with workflow automation.',
+    cta: 'Get started free',
+    ctaHref: '/signup',
+    highlighted: false,
+    features: [
+      { label: 'Up to 10 users', included: true },
+      { label: '2 active flows', included: true },
+      { label: '5 departments', included: true },
+      { label: '7-day report history', included: true },
+      { label: 'SLA tracking', included: true },
+      { label: 'Audit trail', included: true },
+      { label: 'AI-powered flow builder', included: false },
+      { label: 'Full analytics (30d / 90d / all-time)', included: false },
+      { label: 'Priority support', included: false },
+    ],
+  },
+  {
+    name: 'Pro',
+    price: '$5',
+    priceNote: 'per user / month',
+    description: 'For growing teams that need unlimited flows, AI, and deep analytics.',
+    cta: 'Start Pro',
+    ctaHref: '/signup',
+    highlighted: true,
+    badge: 'Most popular',
+    features: [
+      { label: 'Up to 100 users', included: true },
+      { label: 'Unlimited flows', included: true },
+      { label: 'Unlimited departments', included: true },
+      { label: 'Full report history (7d / 30d / 90d / all-time)', included: true },
+      { label: 'SLA tracking & escalation', included: true },
+      { label: 'Audit trail', included: true },
+      { label: 'AI-powered flow builder', included: true },
+      { label: 'Full analytics & bottleneck reports', included: true },
+      { label: 'Priority support', included: true },
+    ],
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    priceNote: 'contact us',
+    description: 'Unlimited scale, custom AI limits, and a dedicated support agreement.',
+    cta: 'Contact us',
+    ctaHref: 'mailto:hello@dragflow.io',
+    highlighted: false,
+    features: [
+      { label: 'Unlimited users', included: true },
+      { label: 'Unlimited flows', included: true },
+      { label: 'Unlimited departments', included: true },
+      { label: 'Full report history', included: true },
+      { label: 'SLA tracking & escalation', included: true },
+      { label: 'Audit trail', included: true },
+      { label: 'AI-powered flow builder', included: true },
+      { label: 'Custom AI usage limits per tenant', included: true },
+      { label: 'Dedicated support & custom SLA', included: true },
+    ],
+  },
+]
+
+function PricingSection() {
+  return (
+    <section id="pricing" className="bg-white py-24 border-t border-slate-100">
+      <div className="mx-auto max-w-6xl px-6">
+        {/* Header */}
+        <div className="text-center mb-16">
+          <p className="text-sm font-semibold text-indigo-600 uppercase tracking-widest mb-4">
+            Pricing
+          </p>
+          <h2 className="text-4xl md:text-5xl font-bold text-slate-900 mb-5 tracking-tight">
+            Simple, transparent pricing
+          </h2>
+          <p className="text-lg text-slate-500 max-w-xl mx-auto">
+            Start free. Upgrade when your team is ready. No hidden fees.
+          </p>
+        </div>
+
+        {/* Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+          {PLANS.map((plan) => (
+            <div
+              key={plan.name}
+              className={`relative rounded-2xl border p-8 flex flex-col gap-6 ${
+                plan.highlighted
+                  ? 'border-indigo-500 bg-indigo-600 shadow-2xl shadow-indigo-200/60 scale-[1.03]'
+                  : 'border-slate-200 bg-white'
+              }`}
+            >
+              {/* Badge */}
+              {plan.badge && (
+                <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-900 text-xs font-bold px-3 py-1 rounded-full">
+                  {plan.badge}
+                </span>
+              )}
+
+              {/* Name + price */}
+              <div>
+                <p
+                  className={`text-sm font-semibold uppercase tracking-widest mb-3 ${
+                    plan.highlighted ? 'text-indigo-200' : 'text-slate-500'
+                  }`}
+                >
+                  {plan.name}
+                </p>
+                <div className="flex items-end gap-1.5 mb-1">
+                  <span
+                    className={`text-4xl font-bold tracking-tight ${
+                      plan.highlighted ? 'text-white' : 'text-slate-900'
+                    }`}
+                  >
+                    {plan.price}
+                  </span>
+                  <span
+                    className={`text-sm mb-1.5 ${
+                      plan.highlighted ? 'text-indigo-200' : 'text-slate-400'
+                    }`}
+                  >
+                    {plan.priceNote}
+                  </span>
+                </div>
+                <p
+                  className={`text-sm leading-relaxed ${
+                    plan.highlighted ? 'text-indigo-100' : 'text-slate-500'
+                  }`}
+                >
+                  {plan.description}
+                </p>
+              </div>
+
+              {/* CTA */}
+              {plan.ctaHref.startsWith('mailto') ? (
+                <a
+                  href={plan.ctaHref}
+                  className={`inline-flex items-center justify-center gap-2 w-full py-3 rounded-xl font-semibold text-sm transition-colors ${
+                    plan.highlighted
+                      ? 'bg-white text-indigo-700 hover:bg-indigo-50'
+                      : 'bg-slate-900 text-white hover:bg-slate-700'
+                  }`}
+                >
+                  <Mail className="h-4 w-4" />
+                  {plan.cta}
+                </a>
+              ) : (
+                <Link
+                  href={plan.ctaHref}
+                  className={`inline-flex items-center justify-center gap-2 w-full py-3 rounded-xl font-semibold text-sm transition-colors ${
+                    plan.highlighted
+                      ? 'bg-white text-indigo-700 hover:bg-indigo-50'
+                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  }`}
+                >
+                  {plan.cta}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              )}
+
+              {/* Divider */}
+              <div
+                className={`border-t ${plan.highlighted ? 'border-indigo-500' : 'border-slate-100'}`}
+              />
+
+              {/* Feature list */}
+              <ul className="space-y-3">
+                {plan.features.map((f) => (
+                  <li key={f.label} className="flex items-start gap-3 text-sm">
+                    {f.included ? (
+                      <CheckCircle2
+                        className={`h-4 w-4 mt-0.5 shrink-0 ${
+                          plan.highlighted ? 'text-indigo-200' : 'text-emerald-500'
+                        }`}
+                      />
+                    ) : (
+                      <X className="h-4 w-4 mt-0.5 shrink-0 text-slate-300" />
+                    )}
+                    <span
+                      className={
+                        f.included
+                          ? plan.highlighted
+                            ? 'text-indigo-50'
+                            : 'text-slate-700'
+                          : 'text-slate-400'
+                      }
+                    >
+                      {f.label}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer note */}
+        <p className="text-center text-sm text-slate-400 mt-10">
+          All plans include unlimited team members on read-only tasks.{' '}
+          <a
+            href="mailto:hello@dragflow.io"
+            className="text-indigo-500 hover:text-indigo-600 underline underline-offset-2"
+          >
+            Questions? Contact us.
+          </a>
+        </p>
+      </div>
+    </section>
+  )
+}
+
 // ── CTA Banner ────────────────────────────────────────────────────────────────
 
 function CTASection() {
@@ -447,6 +676,7 @@ export default async function Home() {
       <main>
         <HeroSection />
         <FeaturesSection />
+        <PricingSection />
         <CTASection />
       </main>
       <LandingFooter />
