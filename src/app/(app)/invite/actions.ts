@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { getTenantLimits } from '@/lib/billing/limits'
 import { sendInviteEmail } from '@/lib/email/resend'
+import { checkInviteRate } from '@/lib/rate-limit'
 import type { PendingInvitation } from './pending/pending-client'
 
 type InviteResult = { success: true; email: string } | { success: false; error: string }
@@ -194,6 +195,15 @@ export async function inviteUser(email: string, role: 'admin' | 'user'): Promise
   if (!user) return { success: false, error: 'Not authenticated.' }
   if (claims.role !== 'admin') return { success: false, error: 'Only admins can invite users.' }
   if (!claims.tenant_id) return { success: false, error: 'Tenant not found.' }
+
+  // Rate limit — 30 invitations per hour per tenant
+  const allowed = await checkInviteRate(claims.tenant_id as string)
+  if (!allowed) {
+    return {
+      success: false,
+      error: 'Too many invitations sent recently. Please try again in an hour.',
+    }
+  }
 
   // Check if user already exists in this tenant
   const supabase = createClient()

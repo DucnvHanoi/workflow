@@ -1,7 +1,9 @@
 'use server'
 
+import { headers } from 'next/headers'
 import { Resend } from 'resend'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { checkSignupRate } from '@/lib/rate-limit'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
@@ -9,7 +11,21 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
 
 export type SignupResult = { success: true } | { error: string }
 
-export async function createTenantAccount(email: string, password: string): Promise<SignupResult> {
+export async function createTenantAccount(
+  email: string,
+  password: string,
+  honeypot?: string
+): Promise<SignupResult> {
+  // Honeypot — bots fill hidden fields, humans don't
+  if (honeypot) return { success: true }
+
+  // Rate limit by IP — 5 signups per hour
+  const headersList = await headers()
+  const ip = headersList.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const allowed = await checkSignupRate(ip)
+  if (!allowed) {
+    return { error: 'Too many signup attempts. Please try again in an hour.' }
+  }
   const admin = createAdminClient()
 
   // 1. Create auth user — unconfirmed so user must click the confirmation email

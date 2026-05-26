@@ -36,6 +36,7 @@ function PasswordStrength({ password }: { password: string }) {
 export default function SignupPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [website, setWebsite] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -52,7 +53,7 @@ export default function SignupPage() {
 
     setLoading(true)
     try {
-      const result = await createTenantAccount(email.trim().toLowerCase(), password)
+      const result = await createTenantAccount(email.trim().toLowerCase(), password, website)
       if ('error' in result) {
         setError(result.error)
         return
@@ -123,6 +124,23 @@ export default function SignupPage() {
         {/* Card */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-7 space-y-5">
           <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Honeypot — hidden from humans, traps bots */}
+            <input
+              type="text"
+              name="website"
+              autoComplete="off"
+              tabIndex={-1}
+              aria-hidden="true"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              style={{
+                position: 'absolute',
+                left: '-9999px',
+                width: '1px',
+                height: '1px',
+                overflow: 'hidden',
+              }}
+            />
             {/* Email */}
             <div className="space-y-1.5">
               <label htmlFor="email" className="block text-sm font-medium text-slate-700">
