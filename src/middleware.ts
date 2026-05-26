@@ -5,13 +5,10 @@ import { NextResponse, type NextRequest } from 'next/server'
 const PUBLIC_ROUTES = ['/', '/login', '/signup', '/auth/callback', '/auth/confirm', '/auth/mfa']
 
 // Routes that require the 'admin' role
-const ADMIN_ONLY_ROUTES = [
-  '/dashboard', // ← added: admin dashboard
-  '/invite',
-  '/users',
-  '/departments',
-  '/admin',
-]
+const ADMIN_ONLY_ROUTES = ['/dashboard', '/invite', '/users', '/departments', '/admin']
+
+// Routes that require platform-owner email (PLATFORM_ADMIN_EMAIL env var)
+const PLATFORM_ROUTES = ['/platform']
 
 function isPublicRoute(pathname: string): boolean {
   return PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(route + '/'))
@@ -19,6 +16,10 @@ function isPublicRoute(pathname: string): boolean {
 
 function isAdminOnlyRoute(pathname: string): boolean {
   return ADMIN_ONLY_ROUTES.some((route) => pathname === route || pathname.startsWith(route + '/'))
+}
+
+function isPlatformRoute(pathname: string): boolean {
+  return PLATFORM_ROUTES.some((route) => pathname === route || pathname.startsWith(route + '/'))
 }
 
 export async function middleware(request: NextRequest) {
@@ -97,7 +98,17 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 4. All checks passed
+  // 4. Platform admin routes — email must match PLATFORM_ADMIN_EMAIL
+  if (isPlatformRoute(pathname)) {
+    const platformEmail = process.env.PLATFORM_ADMIN_EMAIL
+    if (!platformEmail || user.email !== platformEmail) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/unauthorized'
+      return NextResponse.redirect(url)
+    }
+  }
+
+  // 5. All checks passed
   return supabaseResponse
 }
 
