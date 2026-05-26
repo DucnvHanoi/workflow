@@ -1579,3 +1579,151 @@ M9 — Platform admin panel /platform ✅ COMPLETE
 KNOWN GOTCHA — PowerShell git heredocs with (app) in paths:
 Paths containing (app) are parsed as PowerShell subexpressions when unquoted.
 Always quote staging paths: git add -- "src/app/(app)/..."
+
+41. PHASE 13 — PRODUCTION HARDENING (COMPLETE ✅)
+    Theme: close gaps that real users will hit before onboarding. No new features —
+    purely stability, security, and operational visibility.
+    Build: clean throughout. All commits on master.
+
+M1 — Error pages ✅ COMPLETE (commit fa53113)
+
+    Created/fixed:
+    - src/app/not-found.tsx: global 404 for routes outside (app) shell (login,
+      platform, signup, etc.). Two CTAs: "Go home" + "Go to app".
+    - src/app/error.tsx: global error boundary with error digest ID shown for
+      debugging. "Try again" + "Go to app" buttons.
+    - src/app/global-error.tsx: catches crashes in the root layout itself. Uses
+      inline styles (Tailwind not available at root layout level).
+    - src/app/unauthorized/page.tsx: rewritten with ShieldX icon, consistent
+      styling, fixed stale /dashboard link → /tasks, "Sign in with different
+      account" CTA.
+    - src/app/(app)/not-found.tsx: fixed stale /dashboard link → /tasks.
+
+    KNOWN GOTCHA — global-error.tsx must include its own <html> and <body> tags
+    because it replaces the root layout entirely when the root layout itself crashes.
+    Tailwind classes are unavailable there — use inline styles.
+
+M2 — Vercel env var audit ✅ COMPLETE (commit 19011b7)
+
+    - .env.example created: documents all required env vars with generation
+      instructions, production vs local guidance, and "do NOT set in production"
+      notes for dev-only vars.
+    - .env.local fixed: RESEND_FROM_EMAIL corrected to noreply@bizflow.id.vn
+      (was onboarding@resend.dev); CRON_SECRET generated and added.
+
+    Vercel production vars required:
+      NEXT_PUBLIC_SITE_URL=https://bizflow.id.vn
+      RESEND_FROM_EMAIL=noreply@bizflow.id.vn
+      CRON_SECRET=<64-char hex, copy from .env.local>
+      NEXT_PUBLIC_SENTRY_DSN=<from sentry.io>
+      SENTRY_AUTH_TOKEN=<optional, for readable stack traces>
+      + all others matching .env.local values
+
+M3 — Rate limiting on public endpoints ✅ COMPLETE (commits 61db32d, f2693be)
+
+    Initially implemented with Upstash Redis, then replaced with Supabase-based
+    approach (no new service required).
+
+    src/lib/rate-limit.ts:
+    - checkSignupRate(ip): 5 signups/hour/IP via rate_limit_log table.
+      logAttempt() self-cleans rows older than 2h on every write.
+    - checkInviteRate(tenantId): 30 invitations/hour/tenant — reads directly
+      from pending_invitations table (count rows in last hour), no extra writes.
+
+    Migration 20260526200000_add_rate_limit_log.sql:
+    - rate_limit_log(key TEXT, created_at TIMESTAMPTZ) with index on (key, created_at).
+      No RLS — service-role only. Self-cleaning via logAttempt() deletes on write.
+
+    Honeypot field added to src/app/signup/page.tsx:
+    - Hidden input (position: absolute, off-screen) named "website".
+    - If populated (by bots), createTenantAccount() returns { success: true }
+      silently without creating any account.
+
+    Enforcement points:
+    - signup-actions.ts: honeypot check → IP rate limit → proceed.
+    - invite/actions.ts: tenant rate limit in inviteUser() before email is sent.
+    - Login: untouched — Supabase Auth handles login rate limiting natively.
+
+    KNOWN GOTCHA — Supabase rate limiter has a small race window (non-atomic
+    check-then-insert). Under normal traffic this is acceptable. If abuse is
+    observed in production, replace with Upstash Redis (one-file change in
+    rate-limit.ts) for atomic sliding-window counters.
+
+M4 — Sentry error monitoring ✅ COMPLETE (commit b92e3a0)
+
+    - sentry.client.config.ts: client-side init, disabled in development,
+      10% traces sample rate, 5% session replay, 100% replay on error.
+    - sentry.server.config.ts: server-side init, 10% traces.
+    - sentry.edge.config.ts: edge runtime init, 10% traces.
+    - src/instrumentation.ts: Next.js instrumentation hook — registers server
+      or edge Sentry config based on NEXT_RUNTIME env var.
+    - next.config.mjs: wrapped with withSentryConfig (silent build output,
+      source map upload, hideSourceMaps, disableLogger for smaller bundle).
+    - NEXT_PUBLIC_SENTRY_DSN: empty in .env.local (Sentry inactive locally),
+      must be set in Vercel for production error capture.
+
+    KNOWN GOTCHA — Sentry adds ~110KB to the shared JS bundle (includes replay
+    integration). If bundle size becomes a concern, remove the replayIntegration()
+    from sentry.client.config.ts and drop replaysSessionSampleRate/
+    replaysOnErrorSampleRate.
+
+42. PHASE 14 — SECURITY ASSESSMENT (COMPLETE ✅)
+
+    Full automated security review of the entire codebase using a multi-agent
+    approach: one agent identified 21 candidate findings; three parallel agents
+    applied false-positive filtering; findings below confidence 8/10 were dropped.
+
+─── Assessment Result ────────────────────────────────────────────────────────
+
+    NO high-confidence (≥8/10) exploitable vulnerabilities found.
+
+    Key items confirmed as FALSE POSITIVES (with reasoning):
+    - Platform admin actions (plan/status/ai-override): all gated by
+      assertPlatformAdmin() + PostgREST parameterized queries; unrecognized
+      plan values fall back to FREE_FALLBACK (most restrictive).
+    - callAI() caller-supplied tenantId/userId: all call sites (flow-builder,
+      form-suggestions, condition-parser, trigger-assistant, text-assist) derive
+      tenantId/userId from getSessionClaims(), never from user input.
+    - Role claim from getSession() JWT: getUser() already server-validates the
+      token; forged JWTs impossible without the server-side signing secret.
+    - avatar_url without URL validation: no server-side fetch of the URL (no
+      SSRF); no dangerouslySetInnerHTML anywhere in codebase (no XSS).
+    - Cron cross-tenant step_instances fetch: intentional system-wide background
+      job; per-assignee digest emails never mix tenant data.
+
+─── Defense-in-depth fixes applied (commit b1d96e1) ─────────────────────────
+
+    1. invite/actions.ts — inviteUser() duplicate-email check:
+       Replaced createClient() (RLS-scoped, no explicit tenant filter) with
+       adminClient + .eq('tenant_id', claims.tenant_id).maybeSingle().
+       Matches the correct pattern already used in bulkImportUsers().
+       Removed now-unused createClient import.
+
+    2. users/actions.ts — getUsersDeleteImpact():
+       Added tenant membership pre-validation: fetches valid user IDs scoped to
+       claims.tenant_id before running the four impact count queries. All four
+       queries now use validIds instead of raw caller-supplied userIds.
+       Mirrors the validation pattern in deleteUsers().
+
+    3. api/test/tenant-isolation/route.ts:
+       Added claims.role !== 'admin' check alongside existing NODE_ENV guard.
+       Non-admin authenticated users now receive 403 instead of being able to
+       run the isolation test and view hardcoded fixture tenant UUIDs.
+
+─── What is working well (security positives) ────────────────────────────────
+
+    - All platform admin server actions double-gated: middleware + assertPlatformAdmin()
+    - All AI call sites derive tenantId/userId from getSessionClaims() only
+    - Admin client writes always include explicit tenant_id filters
+    - AES-256-GCM for BYOK key encryption (authenticated, tamper-evident)
+    - JWT role claims server-signed; cannot be forged without Supabase secret
+    - No dangerouslySetInnerHTML anywhere in the codebase
+    - Rate limiting on signup (honeypot + DB counter) and invite (pending_invitations)
+    - CRON_SECRET guards SLA cron route correctly
+    - Proper error/unauthorized pages — no raw Next.js error screens exposed
+
+─── Recommended next steps for Option C ─────────────────────────────────────
+
+    - Snyk: npx snyk test — scans package.json for CVEs in dependencies
+    - GitHub Dependabot: Repo Settings → Security → Dependabot alerts → Enable
+    - OWASP ZAP: point at staging URL after deploy, run automated scan
