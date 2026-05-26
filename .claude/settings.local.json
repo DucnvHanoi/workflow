@@ -35,7 +35,17 @@
       "Bash(npm list *)",
       "mcp__claude_ai_Supabase__list_projects",
       "Bash(Select-String -Pattern \"openai|anthropic\")",
-      "Bash(npx playwright *)"
+      "Bash(npx playwright *)",
+      "Bash(git -C \"C:/PPrj/workflow\" status)",
+      "Bash(git -C \"C:/PPrj/workflow\" diff HEAD)",
+      "Bash(git *)",
+      "mcp__claude_ai_Supabase__list_tables",
+      "WebFetch(domain:www.saasframe.io)",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(npx tsc *)",
+      "Bash(New-Item -ItemType Directory -Force \"src/app/unauthorized\")",
+      "Bash(Out-Null)",
+      "Bash(npm uninstall *)"
     ]
   }
 }
