@@ -169,7 +169,12 @@ export function UsersTable({ rows, currentUserId, allUsers, allDepartments }: Us
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{name}</span>
-                  {!user.is_active && (
+                  {!user.is_active && !user.full_name && (
+                    <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
+                      Pending
+                    </Badge>
+                  )}
+                  {!user.is_active && user.full_name && (
                     <Badge variant="outline" className="text-xs text-muted-foreground">
                       Inactive
                     </Badge>

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { markInvitationAccepted } from '@/lib/auth/invitation-actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -62,7 +63,10 @@ export function AccountSetupForm({ email }: { email: string }) {
       return
     }
 
-    // 3. Done — go to dashboard
+    // 3. Activate the account and mark the invitation as accepted
+    await markInvitationAccepted()
+
+    // 4. Done — go to dashboard
     router.push('/dashboard')
     router.refresh()
   }

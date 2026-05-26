@@ -14,7 +14,8 @@ export default async function OrgChartPage() {
     db
       .from('users')
       .select('id, full_name, email, role, manager_id, department_id, avatar_url')
-      .eq('tenant_id', claims.tenant_id!),
+      .eq('tenant_id', claims.tenant_id!)
+      .eq('is_active', true),
     db
       .from('departments')
       .select('id, name, parent_id, head_user_id')

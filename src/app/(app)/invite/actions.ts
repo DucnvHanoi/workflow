@@ -106,6 +106,7 @@ export async function bulkImportUsers(rows: BulkImportRow[]): Promise<BulkImport
         tenant_id: claims.tenant_id,
         email,
         role,
+        is_active: false,
         ...(fullName ? { full_name: fullName } : {}),
       })
 
@@ -253,12 +254,14 @@ export async function inviteUser(email: string, role: 'admin' | 'user'): Promise
     }
   }
 
-  // Pre-insert public.users row so JWT hook works on first login
+  // Pre-insert public.users row so JWT hook works on first login.
+  // is_active=false until the invitee completes account setup.
   const { error: insertError } = await adminClient.from('users').insert({
     id: inviteData.user.id,
     tenant_id: claims.tenant_id,
     email,
     role,
+    is_active: false,
   })
 
   if (insertError) {
@@ -301,7 +304,7 @@ export async function getPendingInvitations(): Promise<PendingInvitation[]> {
       'id, email, invited_at, resend_count, last_resent_at, inviter:users!invited_by(full_name), invitee:users!user_id(full_name)'
     )
     .eq('tenant_id', claims.tenant_id)
-    .neq('status', 'revoked')
+    .eq('status', 'pending')
     .order('invited_at', { ascending: false })
 
   if (error || !data) return []
