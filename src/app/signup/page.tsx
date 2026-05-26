@@ -2,9 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { GitBranch, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { GitBranch, Eye, EyeOff, ArrowRight, Loader2, MailCheck } from 'lucide-react'
 import { createTenantAccount } from '@/lib/auth/signup-actions'
 
 function PasswordStrength({ password }: { password: string }) {
@@ -36,12 +34,12 @@ function PasswordStrength({ password }: { password: string }) {
 }
 
 export default function SignupPage() {
-  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -54,33 +52,55 @@ export default function SignupPage() {
 
     setLoading(true)
     try {
-      // Server action: create auth user + tenant + user row + app_metadata
       const result = await createTenantAccount(email.trim().toLowerCase(), password)
-
       if ('error' in result) {
         setError(result.error)
         return
       }
-
-      // Sign in from the browser so the SSR client can set session cookies
-      const supabase = createClient()
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      })
-
-      if (signInError) {
-        setError('Account created but sign-in failed. Please log in.')
-        router.replace('/login')
-        return
-      }
-
-      router.replace('/tasks')
+      setConfirmed(true)
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
+  }
+
+  if (confirmed) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-50 to-white px-4 py-12">
+        <div className="w-full max-w-sm text-center">
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-indigo-50 border border-indigo-100 mb-6">
+            <MailCheck className="h-8 w-8 text-indigo-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-3">Check your inbox</h1>
+          <p className="text-sm text-slate-500 leading-relaxed mb-2">
+            We sent a confirmation link to
+          </p>
+          <p className="text-sm font-semibold text-slate-800 mb-6">{email}</p>
+          <p className="text-sm text-slate-500 leading-relaxed mb-8">
+            Click the link in the email to activate your account. The link expires in 24 hours.
+          </p>
+          <p className="text-xs text-slate-400">
+            Didn&apos;t receive it? Check your spam folder or{' '}
+            <button
+              onClick={() => setConfirmed(false)}
+              className="text-indigo-600 hover:text-indigo-700 font-medium underline underline-offset-2"
+            >
+              try again
+            </button>
+            .
+          </p>
+          <div className="mt-8">
+            <Link
+              href="/login"
+              className="text-sm text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              ← Back to log in
+            </Link>
+          </div>
+        </div>
+      </main>
+    )
   }
 
   return (
