@@ -7,6 +7,7 @@ import { AISettingsCard } from '@/components/settings/AISettingsCard'
 import { getAISettings, getAIUsageLogs } from '@/lib/ai/ai-settings-actions'
 import type { AIUsageLogEntry } from '@/lib/ai/ai-settings-actions'
 import { Users, GitBranch, Building2, Zap, ArrowRight } from 'lucide-react'
+import { TenantNameForm } from '@/components/settings/TenantNameForm'
 
 // ─── AI tab helpers ───────────────────────────────────────────────────────────
 
@@ -179,7 +180,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
   if (claims?.role !== 'admin') redirect('/tasks')
 
   const tenantId = claims.tenant_id as string
-  const tab = searchParams.tab === 'billing' ? 'billing' : 'ai'
+  const tab =
+    searchParams.tab === 'billing' ? 'billing' : searchParams.tab === 'ai' ? 'ai' : 'general'
+
+  // General tab — tenant name
+  let tenantName = ''
+  if (tab === 'general') {
+    const db = createAdminClient()
+    const { data } = await db.from('tenants').select('name').eq('id', tenantId).single()
+    tenantName = data?.name ?? ''
+  }
 
   // Fetch data for active tab only
   let aiSettings: Awaited<ReturnType<typeof getAISettings>>['data'] = null
@@ -230,6 +240,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
   const limits = tab === 'billing' && billingData ? await getTenantLimits(tenantId) : null
 
   const tabs = [
+    { label: 'General', value: 'general' },
     { label: 'AI', value: 'ai' },
     { label: 'Billing', value: 'billing' },
   ]
@@ -259,6 +270,18 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
           </Link>
         ))}
       </div>
+
+      {/* ── General tab ── */}
+      {tab === 'general' && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+            Organisation
+          </h2>
+          <div className="rounded-xl border bg-card p-6">
+            <TenantNameForm currentName={tenantName} />
+          </div>
+        </section>
+      )}
 
       {/* ── AI tab ── */}
       {tab === 'ai' && (
