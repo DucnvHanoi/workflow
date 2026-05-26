@@ -1,3 +1,4 @@
+import { type Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
@@ -16,6 +17,25 @@ import {
   X,
   Mail,
 } from 'lucide-react'
+
+export const metadata: Metadata = {
+  title: 'DragFlow — Build smarter approval workflows with AI',
+  description:
+    'Design multi-step workflows visually, automate routing, track SLAs, and let AI help you build faster. No code required. Free plan available.',
+  openGraph: {
+    title: 'DragFlow — Build smarter approval workflows with AI',
+    description:
+      'Design multi-step workflows visually, automate routing, track SLAs, and let AI help you build faster.',
+    type: 'website',
+    siteName: 'DragFlow',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'DragFlow — Build smarter approval workflows with AI',
+    description:
+      'Design multi-step workflows visually, automate routing, track SLAs, and let AI help you build faster.',
+  },
+}
 
 // ── Navbar ────────────────────────────────────────────────────────────────────
 
@@ -541,6 +561,94 @@ function PricingSection() {
   )
 }
 
+// ── FAQ ───────────────────────────────────────────────────────────────────────
+
+const FAQ_ITEMS = [
+  {
+    q: 'Is there really a free plan — forever?',
+    a: 'Yes. The Free plan has no time limit and requires no credit card. You get 10 users, 2 active flows, 5 departments, 7-day report history, and basic SLA tracking. Upgrade to Pro only when your team outgrows it.',
+  },
+  {
+    q: 'How does Pro billing work?',
+    a: 'Pro is $5 per active user per month, billed monthly. You only pay for users who have accepted their invitation and can log in. You can cancel or downgrade at any time — your data stays intact.',
+  },
+  {
+    q: 'Can I upgrade or downgrade my plan anytime?',
+    a: 'Absolutely. Upgrades take effect immediately. Downgrades apply at the end of your current billing cycle, so you keep Pro features until the period you paid for ends.',
+  },
+  {
+    q: 'What does the AI assistant actually do?',
+    a: 'The AI helps you build flows faster. It can suggest form field names and types based on your step description, write branch conditions from plain English ("if department is HR"), and draft step instructions. It does not execute flows or make routing decisions — it only assists during the building phase.',
+  },
+  {
+    q: "How is my organisation's data kept private?",
+    a: 'Each organisation (tenant) is fully isolated — your flows, users, and submissions are never visible to other tenants. All data is stored in a dedicated partition enforced at the database level. We never use your data to train AI models.',
+  },
+  {
+    q: 'Can I bring in my existing team?',
+    a: 'Yes. Invite teammates one by one via email, or use the Bulk CSV Import to onboard your entire team at once. Each invited user receives an email with a link to set up their account.',
+  },
+]
+
+function FAQSection() {
+  return (
+    <section id="faq" className="bg-slate-50 py-24 border-t border-slate-100">
+      <div className="mx-auto max-w-3xl px-6">
+        {/* Header */}
+        <div className="text-center mb-14">
+          <p className="text-sm font-semibold text-indigo-600 uppercase tracking-widest mb-4">
+            FAQ
+          </p>
+          <h2 className="text-4xl md:text-5xl font-bold text-slate-900 mb-5 tracking-tight">
+            Common questions
+          </h2>
+          <p className="text-lg text-slate-500">
+            Can&apos;t find what you&apos;re looking for?{' '}
+            <a
+              href="mailto:hello@dragflow.io"
+              className="text-indigo-600 hover:text-indigo-700 font-medium"
+            >
+              Ask us directly.
+            </a>
+          </p>
+        </div>
+
+        {/* Accordion */}
+        <div className="space-y-3">
+          {FAQ_ITEMS.map((item) => (
+            <details
+              key={item.q}
+              className="group rounded-xl border border-slate-200 bg-white overflow-hidden"
+            >
+              <summary className="flex items-center justify-between gap-4 px-6 py-5 cursor-pointer list-none select-none hover:bg-slate-50 transition-colors">
+                <span className="font-medium text-slate-900 text-sm leading-snug">{item.q}</span>
+                <span className="shrink-0 text-slate-400 transition-transform duration-200 group-open:rotate-180">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </span>
+              </summary>
+              <div className="px-6 pb-5 pt-1 text-sm text-slate-500 leading-relaxed border-t border-slate-100">
+                {item.a}
+              </div>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 // ── CTA Banner ────────────────────────────────────────────────────────────────
 
 function CTASection() {
@@ -677,6 +785,7 @@ export default async function Home() {
         <HeroSection />
         <FeaturesSection />
         <PricingSection />
+        <FAQSection />
         <CTASection />
       </main>
       <LandingFooter />
