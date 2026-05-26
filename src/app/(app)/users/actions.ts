@@ -285,8 +285,19 @@ export async function getUsersDeleteImpact(userIds: string[]): Promise<{
 }> {
   const { user, claims } = await getSessionClaims()
   if (!user || claims.role !== 'admin') throw new Error('Unauthorized')
+  if (!claims.tenant_id) throw new Error('Unauthorized')
 
   const adminClient = createAdminClient()
+
+  // Validate all userIds belong to this tenant before running impact queries
+  const { data: tenantUsers } = await adminClient
+    .from('users')
+    .select('id')
+    .in('id', userIds)
+    .eq('tenant_id', claims.tenant_id)
+  const validIds = (tenantUsers ?? []).map((u) => u.id)
+  if (validIds.length === 0)
+    return { pendingTasks: 0, directReports: 0, deptHeadRoles: 0, activeFlows: 0 }
 
   const [
     { count: pendingTasks },
@@ -297,22 +308,22 @@ export async function getUsersDeleteImpact(userIds: string[]): Promise<{
     adminClient
       .from('step_instances')
       .select('id', { count: 'exact', head: true })
-      .in('assigned_to', userIds)
+      .in('assigned_to', validIds)
       .eq('status', 'pending'),
     adminClient
       .from('users')
       .select('id', { count: 'exact', head: true })
-      .in('manager_id', userIds)
+      .in('manager_id', validIds)
       .eq('tenant_id', claims.tenant_id),
     adminClient
       .from('departments')
       .select('id', { count: 'exact', head: true })
-      .in('head_user_id', userIds)
+      .in('head_user_id', validIds)
       .eq('tenant_id', claims.tenant_id),
     adminClient
       .from('flow_instances')
       .select('id', { count: 'exact', head: true })
-      .in('triggered_by', userIds)
+      .in('triggered_by', validIds)
       .eq('status', 'pending'),
   ])
 

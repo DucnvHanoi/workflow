@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { getTenantLimits } from '@/lib/billing/limits'
@@ -205,15 +204,19 @@ export async function inviteUser(email: string, role: 'admin' | 'user'): Promise
     }
   }
 
-  // Check if user already exists in this tenant
-  const supabase = createClient()
-  const { data: existing } = await supabase.from('users').select('id').eq('email', email).single()
+  const adminClient = createAdminClient()
+
+  // Check if user already exists in this tenant (admin client + explicit tenant scope)
+  const { data: existing } = await adminClient
+    .from('users')
+    .select('id')
+    .eq('email', email)
+    .eq('tenant_id', claims.tenant_id)
+    .maybeSingle()
 
   if (existing) {
     return { success: false, error: 'A user with this email already exists.' }
   }
-
-  const adminClient = createAdminClient()
 
   // Plan enforcement — check user cap
   const limits = await getTenantLimits(claims.tenant_id as string)

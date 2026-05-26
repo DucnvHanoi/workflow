@@ -21,6 +21,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 
 const TENANT_B_EMAIL = process.env.TENANT_ISOLATION_TEST_EMAIL ?? 'wf_user_01@gmail.com'
 const TENANT_B_PASSWORD = process.env.TENANT_ISOLATION_TEST_PASSWORD ?? ''
@@ -41,6 +42,12 @@ type TableResult = {
 export async function GET() {
   if (process.env.NODE_ENV === 'production') {
     return NextResponse.json({ error: 'Not available in production' }, { status: 403 })
+  }
+
+  // Restrict to platform admin or tenant admins only
+  const { claims } = await getSessionClaims()
+  if (claims.role !== 'admin') {
+    return NextResponse.json({ error: 'Admin only' }, { status: 403 })
   }
 
   if (!TENANT_B_PASSWORD) {
