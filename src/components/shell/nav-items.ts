@@ -17,6 +17,8 @@ import {
   BarChart2,
   Settings,
   Bot,
+  TrendingUp,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -84,6 +86,21 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Bulk Import', href: '/invite/import', icon: Upload, adminOnly: true, group: 'Users' },
   { label: 'Directory', href: '/directory', icon: BookUser, adminOnly: false, group: 'Users' },
   { label: 'Org Chart', href: '/org-chart', icon: Network, adminOnly: false, group: 'Users' },
+  // Reports group (admin only)
+  {
+    label: 'Flow Performance',
+    href: '/admin/reports/flows',
+    icon: TrendingUp,
+    adminOnly: true,
+    group: 'Reports',
+  },
+  {
+    label: 'SLA Adherence',
+    href: '/admin/reports/sla',
+    icon: ShieldCheck,
+    adminOnly: true,
+    group: 'Reports',
+  },
   // Settings group (admin only)
   { label: 'Settings', href: '/settings', icon: Settings, adminOnly: true, group: 'Settings' },
 ]

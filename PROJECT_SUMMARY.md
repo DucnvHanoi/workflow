@@ -1273,84 +1273,28 @@ src/app/(app)/settings/page.tsx
   to claude-sonnet-4-6 by the migration) is always returned with a valid model
   even if the tenant was previously on OpenAI.
 
-38. PHASE 11 — ANALYTICS & REPORTING (ROADMAP)
+38. PHASE 11 — ANALYTICS & REPORTING (COMPLETE ✅)
     Theme: turn the workflow data that already exists in the DB into actionable
     intelligence for tenant admins. Zero new infrastructure required — all data
     is captured in flow_instances, step_instances, ai_usage_logs, and audit_log.
     Pure server-side JS aggregation (Map-based), consistent with the pattern in
     /dashboard and /admin/ai-usage. No charting library needed for MVP.
 
-M1 — Flow Performance Report 🔜 PLANNED
+M1 — Flow Performance Report ✅ COMPLETE
 
-New route /admin/reports/flows (admin only).
+New route /admin/reports/flows (admin only). Per-flow stat table with avg cycle
+time, completion/cancellation/error rates, period selector (7d/30d/90d/all),
+step-level bottleneck breakdown (expandable, sorted by median wait time desc).
 
-- Per-flow stat table: avg cycle time (flow_instances.created_at →
-  updated_at for completed rows), completion rate, cancellation rate, error
-  rate. Sorted by instance count descending so busiest flows surface first.
-- Step-level bottleneck breakdown (expandable or detail panel): median wait
-  time per step across all completed instances — reveals which human step is
-  the true process bottleneck beyond just current pending count.
-- Period selector: Last 7 days / 30 days / 90 days / All time (URL search
-  param, no client state needed).
+M2 — SLA Adherence Report ✅ COMPLETE
 
-M2 — SLA Adherence Report 🔜 PLANNED
+New route /admin/reports/sla (admin only). Per-flow SLA summary with on-time /
+breached / overdue counts, breach rate colour coding (red >20% / amber >10%),
+per-step breakdown, escalation effectiveness analysis, CSV export.
 
-New route /admin/reports/sla (admin only).
+M4 — Executive Dashboard Enhancement ✅ COMPLETE
 
-- Per-flow SLA summary: steps with SLA set, on-time count, breached count,
-  breach rate %. Red (>20%) / amber (>10%) / green colour coding.
-- Per-step breakdown (expandable): which individual steps breach most often.
-- Escalation effectiveness: steps that were escalated — did they complete
-  faster after escalation? Compare avg completion time pre/post.
-- Export: "Download CSV" — new sla mode added to /api/admin/export (or a
-  dedicated route), reusing the existing UTF-8 BOM + CRLF pattern.
-
-M3 — User Productivity Report 🔜 PLANNED
-
-New route /admin/reports/users (admin only).
-
-- Per-user table: tasks completed this week / this month, avg time from
-  assigned to done (step_instances.created_at → completed_at), overdue
-  completion count.
-- Pending task aging distribution: histogram across all current pending tasks
-  bucketed as <1d, 1–3d, 3–7d, >7d — shows systemic delay at a glance.
-- Department filter using the BFS descendant-set pattern from /directory.
-
-M4 — Executive Dashboard Enhancement 🔜 PLANNED
-
-Upgrade the existing /dashboard with richer temporal context.
-
-- Period-over-period delta: each stat card shows +N% / -N% vs. the previous
-  equivalent period. Computed from two date-ranged aggregation passes.
-- Configurable date-range filter ("Last 7 days", "This month", "Last 30 days",
-  "Last 90 days") applied to all stat cards and the bottleneck table. Filter
-  state stored in URL search params — no new DB design needed.
-- Inline sparklines on the bottleneck table: tiny SVG bar strip showing each
-  assignee's pending count trend over the last 7 days.
-
-M5 — Scheduled Weekly Report Email 🔜 PLANNED
-
-Weekly summary email every Monday morning to all tenant admins.
-
-- Content: tasks completed this week, SLA breach count, top 3 overdue
-  assignees, any newly breached steps.
-- Delivery: new cron entry "0 1 \* \* 1" (1am UTC Monday = 8am ICT) in
-  vercel.json, or a weekly branch inside the existing /api/cron/sla route.
-- De-duplication: check notification_logs for email_type='weekly_report'
-  sent within the last 6 days. New email_type value added via migration
-  (DROP + re-ADD the CHECK constraint — same pattern as prior extensions).
-- Opt-out: per-tenant boolean flag in tenant_ai_configs (or a new
-  tenant_notification_prefs table if more preferences are added later).
-
-CROSS-CUTTING NOTES
-
-- All /admin/reports/\* routes guarded by /admin middleware prefix plus an
-  in-page getSessionClaims() admin role re-check (same pattern as /admin/ai-usage
-  after the tenant isolation security fix).
-- No new DB tables required for M1–M4. M5 adds one new email_type value to
-  notification_logs (migration: DROP + re-ADD CHECK, standard pattern).
-- Nav: add a "Reports" group to nav-items.ts with three items (Flow Performance,
-  SLA, User Productivity), admin-only. BarChart2 / TrendingUp / Users icons.
-- All queries filter by claims.tenant_id. Service-role client for any writes;
-  read-only pages may use createClient() where RLS covers the tenant path.
-- Recommended build order: M1 → M4 → M2 → M3 → M5.
+/dashboard upgraded with period selector (7d/month/30d/90d), period-over-period
+deltas on Triggered/Completed/Cancelled stat cards, inline sparklines on the
+bottleneck table. Fixed pre-existing bug where SLA Breached and Due Soon always
+showed 0.

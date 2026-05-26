@@ -8,25 +8,18 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { Badge } from '@/components/ui/badge'
 import {
-  Activity,
   CheckCircle2,
   XCircle,
   GitBranch,
   Clock,
   AlertCircle,
   TrendingUp,
+  PlayCircle,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type StatCard = {
-  label: string
-  value: number
-  icon: React.ElementType
-  color: string // Tailwind text colour class
-  bgColor: string // Tailwind bg colour class
-  description: string
-}
+type PeriodCounts = { triggered: number; completed: number; cancelled: number }
 
 type FlowRow = {
   id: string
@@ -44,33 +37,65 @@ type PendingUserRow = {
   userName: string
   email: string
   pendingCount: number
-  oldestPendingDate: string | null // ISO string
+  oldestPendingDate: string | null
   overdueCount: number
   dueSoonCount: number
+  sparkline: number[] // 7 values: index 0 = 6 days ago, index 6 = today
+}
+
+// ─── Period helpers ───────────────────────────────────────────────────────────
+
+function getPeriodBounds(now: Date, period: string) {
+  if (period === '7d') {
+    const start = new Date(now.getTime() - 7 * 86_400_000)
+    return {
+      periodStart: start,
+      prevStart: new Date(now.getTime() - 14 * 86_400_000),
+      prevEnd: start,
+      label: 'Last 7 days',
+    }
+  }
+  if (period === '30d') {
+    const start = new Date(now.getTime() - 30 * 86_400_000)
+    return {
+      periodStart: start,
+      prevStart: new Date(now.getTime() - 60 * 86_400_000),
+      prevEnd: start,
+      label: 'Last 30 days',
+    }
+  }
+  if (period === '90d') {
+    const start = new Date(now.getTime() - 90 * 86_400_000)
+    return {
+      periodStart: start,
+      prevStart: new Date(now.getTime() - 180 * 86_400_000),
+      prevEnd: start,
+      label: 'Last 90 days',
+    }
+  }
+  // 'month' (default) — current calendar month
+  const start = new Date(now.getFullYear(), now.getMonth(), 1)
+  const prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  return {
+    periodStart: start,
+    prevStart,
+    prevEnd: start,
+    label: now.toLocaleString('en-GB', { month: 'long', year: 'numeric' }),
+  }
 }
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
 
-async function getDashboardData(tenantId: string) {
+async function getDashboardData(tenantId: string, period: string) {
   const db = createAdminClient()
+  const now = new Date()
+  const { periodStart, prevStart, prevEnd, label } = getPeriodBounds(now, period)
 
-  // ── 1. All flow instances for this tenant (via flow_versions → flows) ──────
-  // We join: flow_instances → flow_versions → flows
-  // The join goes through flow_versions.flow_id → flows.id
-  const { data: instanceRows, error: instanceError } = await db.from('flow_instances').select(
-    `
-      id,
-      status,
-      created_at,
-      flow_versions!flow_version_id (
-        flows!flow_id ( id, name, status, tenant_id )
-      )
-    `
-  )
+  const periodStartIso = periodStart.toISOString()
+  const prevStartIso = prevStart.toISOString()
+  const prevEndIso = prevEnd.toISOString()
 
-  if (instanceError) throw new Error(instanceError.message)
-
-  // Filter to this tenant only — tenant isolation via join
+  // ── 1. Flow instances from prevStart → now (covers both periods) ──────────
   type RawInstance = {
     id: string
     status: string
@@ -90,191 +115,6 @@ async function getDashboardData(tenantId: string) {
         }[]
       | null
   }
-
-  const instances = ((instanceRows ?? []) as RawInstance[]).filter((inst) => {
-    const fv = Array.isArray(inst.flow_versions) ? inst.flow_versions[0] : inst.flow_versions
-    if (!fv) return false
-    const flow = Array.isArray(fv.flows) ? fv.flows[0] : fv.flows
-    return flow?.tenant_id === tenantId
-  })
-
-  // ── 2. Compute stat card totals ───────────────────────────────────────────
-  const now = new Date()
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-
-  let totalFlowsSet = new Set<string>()
-  let activePending = 0
-  let completedThisMonth = 0
-  let cancelledTotal = 0
-  let totalOverdue = 0
-  let totalDueSoon = 0
-
-  // Also build per-flow breakdown map
-  const flowMap = new Map<
-    string,
-    {
-      name: string
-      status: string
-      total: number
-      pending: number
-      completed: number
-      cancelled: number
-      error: number
-    }
-  >()
-
-  for (const inst of instances) {
-    const fv = Array.isArray(inst.flow_versions) ? inst.flow_versions[0] : inst.flow_versions
-    if (!fv) continue
-    const flow = Array.isArray(fv.flows) ? fv.flows[0] : fv.flows
-    if (!flow) continue
-
-    totalFlowsSet.add(flow.id)
-
-    // Per-flow map
-    if (!flowMap.has(flow.id)) {
-      flowMap.set(flow.id, {
-        name: flow.name,
-        status: flow.status,
-        total: 0,
-        pending: 0,
-        completed: 0,
-        cancelled: 0,
-        error: 0,
-      })
-    }
-    const entry = flowMap.get(flow.id)!
-    entry.total++
-
-    switch (inst.status) {
-      case 'pending':
-        entry.pending++
-        activePending++
-        break
-      case 'completed':
-        entry.completed++
-        if (inst.created_at >= startOfMonth) completedThisMonth++
-        break
-      case 'cancelled':
-        entry.cancelled++
-        cancelledTotal++
-        break
-      case 'error':
-        entry.error++
-        break
-    }
-  }
-
-  // Total distinct published flows for this tenant
-  const { data: allFlows } = await db
-    .from('flows')
-    .select('id, name, status')
-    .eq('tenant_id', tenantId)
-    .order('name', { ascending: true })
-
-  // Merge: flows that have never been triggered still appear in the table
-  for (const f of allFlows ?? []) {
-    if (!flowMap.has(f.id)) {
-      flowMap.set(f.id, {
-        name: f.name,
-        status: f.status,
-        total: 0,
-        pending: 0,
-        completed: 0,
-        cancelled: 0,
-        error: 0,
-      })
-    }
-  }
-
-  const totalFlowCount = (allFlows ?? []).length
-
-  const statCards: StatCard[] = [
-    {
-      label: 'Total Flows',
-      value: totalFlowCount,
-      icon: GitBranch,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-50',
-      description: 'Flows created in your workspace',
-    },
-    {
-      label: 'Active Instances',
-      value: activePending,
-      icon: Activity,
-      color: 'text-amber-600',
-      bgColor: 'bg-amber-50',
-      description: 'Instances currently in progress',
-    },
-    {
-      label: 'Completed This Month',
-      value: completedThisMonth,
-      icon: CheckCircle2,
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-50',
-      description: `Since ${now.toLocaleString('default', { month: 'long' })} 1`,
-    },
-    {
-      label: 'Cancelled',
-      value: cancelledTotal,
-      icon: XCircle,
-      color: 'text-red-500',
-      bgColor: 'bg-red-50',
-      description: 'Total cancelled all time',
-    },
-    {
-      label: 'SLA Breached',
-      value: totalOverdue,
-      icon: AlertCircle,
-      color: 'text-red-500',
-      bgColor: 'bg-red-50',
-      description: 'Pending steps past their due date',
-    },
-    {
-      label: 'Due Soon',
-      value: totalDueSoon,
-      icon: Clock,
-      color: 'text-amber-600',
-      bgColor: 'bg-amber-50',
-      description: 'Pending steps due within 24 hours',
-    },
-  ]
-
-  const flowBreakdown: FlowRow[] = Array.from(flowMap.entries()).map(([id, v]) => ({
-    id,
-    name: v.name,
-    status: v.status as 'draft' | 'published',
-    total: v.total,
-    pending: v.pending,
-    completed: v.completed,
-    cancelled: v.cancelled,
-    error: v.error,
-  }))
-  // Sort: most instances first
-  flowBreakdown.sort((a, b) => b.total - a.total)
-
-  // ── 3. Pending-at-who: step_instances that are pending for this tenant ─────
-  // Join: step_instances → flow_instances → flow_versions → flows(tenant_id)
-  // We only want pending steps where the flow instance is also still pending.
-  const { data: pendingSteps, error: pendingError } = await db
-    .from('step_instances')
-    .select(
-      `
-      id,
-      assigned_to,
-      created_at,
-      due_at,
-      flow_instances!instance_id (
-        status,
-        flow_versions!flow_version_id (
-          flows!flow_id ( tenant_id )
-        )
-      )
-    `
-    )
-    .eq('status', 'pending')
-
-  if (pendingError) throw new Error(pendingError.message)
 
   type RawPendingStep = {
     id: string
@@ -299,29 +139,153 @@ async function getDashboardData(tenantId: string) {
       | null
   }
 
-  // Filter to this tenant + only instances still pending
-  const tenantPendingSteps = ((pendingSteps ?? []) as RawPendingStep[]).filter((step) => {
-    const fi = Array.isArray(step.flow_instances) ? step.flow_instances[0] : step.flow_instances
-    if (!fi || fi.status !== 'pending') return false
-    const fv = Array.isArray(fi.flow_versions) ? fi.flow_versions[0] : fi.flow_versions
-    if (!fv) return false
-    const flow = Array.isArray(fv.flows) ? fv.flows[0] : fv.flows
-    return flow?.tenant_id === tenantId
-  })
+  const [
+    { data: rawInstances, error: instanceError },
+    { data: allFlows },
+    { data: pendingSteps, error: pendingError },
+  ] = await Promise.all([
+    db
+      .from('flow_instances')
+      .select(
+        `id, status, created_at,
+        flow_versions!flow_version_id (
+          flows!flow_id ( id, name, status, tenant_id )
+        )`
+      )
+      .gte('created_at', prevStartIso),
 
-  // Aggregate by assigned_to — track SLA breach and due-soon per user
-  const nowMs = Date.now()
-  const dueSoonThresholdMs = 24 * 60 * 60 * 1000
+    db.from('flows').select('id, name, status').eq('tenant_id', tenantId).order('name'),
+
+    db
+      .from('step_instances')
+      .select(
+        `id, assigned_to, created_at, due_at,
+        flow_instances!instance_id (
+          status,
+          flow_versions!flow_version_id (
+            flows!flow_id ( tenant_id )
+          )
+        )`
+      )
+      .eq('status', 'pending'),
+  ])
+
+  if (instanceError) throw new Error(instanceError.message)
+  if (pendingError) throw new Error(pendingError.message)
+
+  // ── 2. Filter instances to this tenant ───────────────────────────────────
+  function getFlow(inst: RawInstance) {
+    const fv = Array.isArray(inst.flow_versions) ? inst.flow_versions[0] : inst.flow_versions
+    if (!fv) return null
+    return Array.isArray(fv.flows) ? fv.flows[0] : fv.flows
+  }
+
+  const allTenantInstances = ((rawInstances ?? []) as RawInstance[]).filter(
+    (i) => getFlow(i)?.tenant_id === tenantId
+  )
+
+  // ── 3. Split into current vs previous period ─────────────────────────────
+  const currentInstances = allTenantInstances.filter((i) => i.created_at >= periodStartIso)
+  const prevInstances = allTenantInstances.filter(
+    (i) => i.created_at >= prevStartIso && i.created_at < prevEndIso
+  )
+
+  function countPeriod(insts: RawInstance[]): PeriodCounts {
+    let triggered = 0,
+      completed = 0,
+      cancelled = 0
+    for (const i of insts) {
+      triggered++
+      if (i.status === 'completed') completed++
+      else if (i.status === 'cancelled') cancelled++
+    }
+    return { triggered, completed, cancelled }
+  }
+
+  const current = countPeriod(currentInstances)
+  const previous = countPeriod(prevInstances)
+
+  // ── 4. Period-filtered flow breakdown ─────────────────────────────────────
+  const flowMap = new Map<
+    string,
+    {
+      name: string
+      status: string
+      total: number
+      pending: number
+      completed: number
+      cancelled: number
+      error: number
+    }
+  >()
+
+  for (const inst of currentInstances) {
+    const flow = getFlow(inst)
+    if (!flow) continue
+    if (!flowMap.has(flow.id)) {
+      flowMap.set(flow.id, {
+        name: flow.name,
+        status: flow.status,
+        total: 0,
+        pending: 0,
+        completed: 0,
+        cancelled: 0,
+        error: 0,
+      })
+    }
+    const entry = flowMap.get(flow.id)!
+    entry.total++
+    if (inst.status === 'pending') entry.pending++
+    else if (inst.status === 'completed') entry.completed++
+    else if (inst.status === 'cancelled') entry.cancelled++
+    else if (inst.status === 'error') entry.error++
+  }
+  for (const f of allFlows ?? []) {
+    if (!flowMap.has(f.id)) {
+      flowMap.set(f.id, {
+        name: f.name,
+        status: f.status,
+        total: 0,
+        pending: 0,
+        completed: 0,
+        cancelled: 0,
+        error: 0,
+      })
+    }
+  }
+  const flowBreakdown: FlowRow[] = Array.from(flowMap.entries())
+    .map(([id, v]) => ({ id, ...v, status: v.status as 'draft' | 'published' }))
+    .sort((a, b) => b.total - a.total)
+
+  // ── 5. Pending step stats (live) — computes SLA overdue/due-soon ──────────
+  const nowMs = now.getTime()
+  const dueSoonMs = 24 * 60 * 60 * 1000
+  let totalOverdue = 0
+  let totalDueSoon = 0
+
+  function getPendingStepTenantId(step: RawPendingStep): string | null {
+    const fi = Array.isArray(step.flow_instances) ? step.flow_instances[0] : step.flow_instances
+    if (!fi || fi.status !== 'pending') return null
+    const fv = Array.isArray(fi.flow_versions) ? fi.flow_versions[0] : fi.flow_versions
+    if (!fv) return null
+    const flow = Array.isArray(fv.flows) ? fv.flows[0] : fv.flows
+    return flow?.tenant_id ?? null
+  }
+
+  const tenantPendingSteps = ((pendingSteps ?? []) as RawPendingStep[]).filter(
+    (s) => getPendingStepTenantId(s) === tenantId
+  )
 
   const userPendingMap = new Map<
     string,
     { count: number; oldest: string; overdueCount: number; dueSoonCount: number }
   >()
+
   for (const step of tenantPendingSteps) {
     if (!step.assigned_to) continue
-    const dueAt = step.due_at ? new Date(step.due_at).getTime() : null
-    const isOverdue = dueAt !== null && dueAt < nowMs
-    const isDueSoon = dueAt !== null && !isOverdue && dueAt - nowMs < dueSoonThresholdMs
+    const dueMs = step.due_at ? new Date(step.due_at).getTime() : null
+    const isOverdue = dueMs !== null && dueMs < nowMs
+    const isDueSoon = dueMs !== null && !isOverdue && dueMs - nowMs < dueSoonMs
     if (isOverdue) totalOverdue++
     if (isDueSoon) totalDueSoon++
     const existing = userPendingMap.get(step.assigned_to)
@@ -340,7 +304,31 @@ async function getDashboardData(tenantId: string) {
     }
   }
 
-  // Resolve user names
+  // ── 6. Sparklines: daily step assignments over last 7 days ───────────────
+  const sparklineStart = new Date(nowMs - 6 * 86_400_000).toISOString()
+  const allInstanceIds = Array.from(new Set(allTenantInstances.map((i) => i.id)))
+  const sparklineMap = new Map<string, number[]>()
+
+  if (allInstanceIds.length > 0) {
+    const { data: recentSteps } = await db
+      .from('step_instances')
+      .select('assigned_to, created_at')
+      .in('instance_id', allInstanceIds)
+      .gte('created_at', sparklineStart)
+      .not('assigned_to', 'is', null)
+
+    for (const step of recentSteps ?? []) {
+      if (!step.assigned_to) continue
+      const dayDiff = Math.floor((nowMs - new Date(step.created_at).getTime()) / 86_400_000)
+      const idx = 6 - dayDiff
+      if (idx < 0 || idx > 6) continue
+      if (!sparklineMap.has(step.assigned_to))
+        sparklineMap.set(step.assigned_to, [0, 0, 0, 0, 0, 0, 0])
+      sparklineMap.get(step.assigned_to)![idx]++
+    }
+  }
+
+  // ── 7. Resolve assignee names + build final bottleneck rows ───────────────
   const assigneeIds = Array.from(userPendingMap.keys())
   let userNameMap: Record<string, { name: string; email: string }> = {}
   if (assigneeIds.length > 0) {
@@ -365,66 +353,219 @@ async function getDashboardData(tenantId: string) {
       oldestPendingDate: oldest,
       overdueCount,
       dueSoonCount,
+      sparkline: sparklineMap.get(userId) ?? [0, 0, 0, 0, 0, 0, 0],
     }))
     .sort((a, b) => b.pendingCount - a.pendingCount)
 
-  return { statCards, flowBreakdown, pendingByUser }
+  return {
+    totalFlows: (allFlows ?? []).length,
+    totalOverdue,
+    totalDueSoon,
+    current,
+    previous,
+    periodLabel: label,
+    flowBreakdown,
+    pendingByUser,
+  }
 }
 
-// ─── Helper: format relative time ────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function relativeAge(isoDate: string | null): string {
   if (!isoDate) return '—'
-  const diffMs = Date.now() - new Date(isoDate).getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  const diffDays = Math.floor((Date.now() - new Date(isoDate).getTime()) / 86_400_000)
   if (diffDays === 0) return 'Today'
   if (diffDays === 1) return '1 day ago'
   if (diffDays < 30) return `${diffDays} days ago`
-  const diffMonths = Math.floor(diffDays / 30)
-  return diffMonths === 1 ? '1 month ago' : `${diffMonths} months ago`
+  const months = Math.floor(diffDays / 30)
+  return months === 1 ? '1 month ago' : `${months} months ago`
 }
+
+function deltaPct(current: number, previous: number): { label: string; positive: boolean } | null {
+  if (previous === 0 && current === 0) return null
+  if (previous === 0) return { label: `+${current} new`, positive: true }
+  const pct = Math.round(((current - previous) / previous) * 100)
+  return { label: `${pct >= 0 ? '+' : ''}${pct}%`, positive: pct >= 0 }
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function Sparkline({ data }: { data: number[] }) {
+  const allZero = data.every((v) => v === 0)
+  if (allZero) return <span className="text-xs text-muted-foreground/40">—</span>
+  const max = Math.max(...data, 1)
+  const W = 56
+  const H = 18
+  const step = W / (data.length - 1)
+  const points = data
+    .map((v, i) => `${(i * step).toFixed(1)},${(H - 2 - (v / max) * (H - 4)).toFixed(1)}`)
+    .join(' ')
+  return (
+    <svg
+      width={W}
+      height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      className="inline-block align-middle text-muted-foreground"
+      aria-hidden
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: React.ElementType
+  title: string
+  description: string
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card px-6 py-12 text-center">
+      <div className="rounded-full bg-muted p-3">
+        <Icon className="h-6 w-6 text-muted-foreground" />
+      </div>
+      <p className="mt-3 text-sm font-medium text-foreground">{title}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+    </div>
+  )
+}
+
+// ─── Period selector ──────────────────────────────────────────────────────────
+
+const PERIOD_OPTIONS = [
+  { label: '7 days', value: '7d' },
+  { label: 'This month', value: 'month' },
+  { label: '30 days', value: '30d' },
+  { label: '90 days', value: '90d' },
+]
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: { period?: string }
+}) {
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
   if (claims.role !== 'admin') redirect('/unauthorized')
   if (!claims.tenant_id) redirect('/login')
 
-  const { statCards, flowBreakdown, pendingByUser } = await getDashboardData(claims.tenant_id)
+  const raw = searchParams.period
+  const period = ['7d', 'month', '30d', '90d'].includes(raw ?? '') ? (raw as string) : 'month'
+
+  const {
+    totalFlows,
+    totalOverdue,
+    totalDueSoon,
+    current,
+    previous,
+    periodLabel,
+    flowBreakdown,
+    pendingByUser,
+  } = await getDashboardData(claims.tenant_id, period)
 
   return (
     <div className="flex-1 space-y-8 p-6 md:p-8">
-      {/* ── Page header ── */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Dashboard</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Overview of flows and activity in your workspace.
-        </p>
+      {/* ── Header + period selector ── */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Overview of flows and activity in your workspace.
+          </p>
+        </div>
+        <div className="flex gap-1 rounded-lg border bg-muted/40 p-1 w-fit shrink-0">
+          {PERIOD_OPTIONS.map(({ label, value }) => (
+            <a
+              key={value}
+              href={`?period=${value}`}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                period === value
+                  ? 'bg-background shadow-sm text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {label}
+            </a>
+          ))}
+        </div>
       </div>
 
       {/* ── Stat cards ── */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {statCards.map((card) => {
-          const Icon = card.icon
-          return (
-            <div key={card.label} className="rounded-lg border border-border bg-card p-5 shadow-sm">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">{card.label}</p>
-                  <p className="mt-1 text-3xl font-bold tracking-tight text-foreground">
-                    {card.value.toLocaleString()}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">{card.description}</p>
-                </div>
-                <div className={`rounded-lg p-2.5 ${card.bgColor}`}>
-                  <Icon className={`h-5 w-5 ${card.color}`} />
-                </div>
-              </div>
-            </div>
-          )
-        })}
+        {/* Total Flows — workspace total, no period filter */}
+        <StatCard
+          label="Total Flows"
+          value={totalFlows}
+          icon={GitBranch}
+          color="text-blue-600"
+          bgColor="bg-blue-50"
+          description="Flows created in your workspace"
+        />
+
+        {/* Triggered — period-filtered with delta */}
+        <StatCard
+          label="Triggered"
+          value={current.triggered}
+          icon={PlayCircle}
+          color="text-amber-600"
+          bgColor="bg-amber-50"
+          description={`New runs — ${periodLabel}`}
+          delta={deltaPct(current.triggered, previous.triggered)}
+        />
+
+        {/* Completed — period-filtered with delta */}
+        <StatCard
+          label="Completed"
+          value={current.completed}
+          icon={CheckCircle2}
+          color="text-emerald-600"
+          bgColor="bg-emerald-50"
+          description={`Completed runs — ${periodLabel}`}
+          delta={deltaPct(current.completed, previous.completed)}
+        />
+
+        {/* Cancelled — period-filtered with delta */}
+        <StatCard
+          label="Cancelled"
+          value={current.cancelled}
+          icon={XCircle}
+          color="text-red-500"
+          bgColor="bg-red-50"
+          description={`Cancelled runs — ${periodLabel}`}
+          delta={deltaPct(current.cancelled, previous.cancelled)}
+        />
+
+        {/* SLA Breached — live snapshot */}
+        <StatCard
+          label="SLA Breached"
+          value={totalOverdue}
+          icon={AlertCircle}
+          color="text-red-500"
+          bgColor="bg-red-50"
+          description="Pending steps past their due date"
+        />
+
+        {/* Due Soon — live snapshot */}
+        <StatCard
+          label="Due Soon"
+          value={totalDueSoon}
+          icon={Clock}
+          color="text-amber-600"
+          bgColor="bg-amber-50"
+          description="Pending steps due within 24 hours"
+        />
       </div>
 
       {/* ── Per-flow breakdown table ── */}
@@ -432,7 +573,7 @@ export default async function DashboardPage() {
         <div className="mb-4 flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-base font-semibold text-foreground">Flow Breakdown</h2>
-          <span className="text-sm text-muted-foreground">— all instances by flow</span>
+          <span className="text-sm text-muted-foreground">— {periodLabel}</span>
         </div>
 
         {flowBreakdown.length === 0 ? (
@@ -500,11 +641,7 @@ export default async function DashboardPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {row.cancelled > 0 ? (
-                        <span className="text-muted-foreground">{row.cancelled}</span>
-                      ) : (
-                        <span className="text-muted-foreground">0</span>
-                      )}
+                      <span className="text-muted-foreground">{row.cancelled || 0}</span>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {row.error > 0 ? (
@@ -545,7 +682,7 @@ export default async function DashboardPage() {
                   </th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Email</th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">
-                    Pending Steps
+                    Pending
                   </th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">
                     Overdue
@@ -553,8 +690,9 @@ export default async function DashboardPage() {
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">
                     Due Soon
                   </th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Oldest</th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">
-                    Oldest Pending
+                    7-day trend
                   </th>
                 </tr>
               </thead>
@@ -563,7 +701,7 @@ export default async function DashboardPage() {
                   const age = relativeAge(row.oldestPendingDate)
                   const isOld =
                     row.oldestPendingDate !== null &&
-                    Date.now() - new Date(row.oldestPendingDate).getTime() > 7 * 24 * 60 * 60 * 1000 // > 7 days
+                    Date.now() - new Date(row.oldestPendingDate).getTime() > 7 * 86_400_000
                   return (
                     <tr key={row.userId} className="hover:bg-muted/30 transition-colors">
                       <td className="px-4 py-3 font-medium text-foreground">{row.userName}</td>
@@ -603,6 +741,9 @@ export default async function DashboardPage() {
                           {age}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-right">
+                        <Sparkline data={row.sparkline} />
+                      </td>
                     </tr>
                   )
                 })}
@@ -615,24 +756,46 @@ export default async function DashboardPage() {
   )
 }
 
-// ─── Empty state component ────────────────────────────────────────────────────
+// ─── Stat card component ──────────────────────────────────────────────────────
 
-function EmptyState({
+function StatCard({
+  label,
+  value,
   icon: Icon,
-  title,
+  color,
+  bgColor,
   description,
+  delta,
 }: {
+  label: string
+  value: number
   icon: React.ElementType
-  title: string
+  color: string
+  bgColor: string
   description: string
+  delta?: { label: string; positive: boolean } | null
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card px-6 py-12 text-center">
-      <div className="rounded-full bg-muted p-3">
-        <Icon className="h-6 w-6 text-muted-foreground" />
+    <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-start justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
+          <p className="mt-1 text-3xl font-bold tracking-tight text-foreground">
+            {value.toLocaleString()}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+          {delta && (
+            <p
+              className={`mt-1.5 text-xs font-medium ${delta.positive ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}
+            >
+              {delta.label} vs prev period
+            </p>
+          )}
+        </div>
+        <div className={`rounded-lg p-2.5 ${bgColor} shrink-0 ml-3`}>
+          <Icon className={`h-5 w-5 ${color}`} />
+        </div>
       </div>
-      <p className="mt-3 text-sm font-medium text-foreground">{title}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{description}</p>
     </div>
   )
 }
