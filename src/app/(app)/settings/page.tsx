@@ -1,8 +1,14 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { getTenantLimits } from '@/lib/billing/limits'
 import { AISettingsCard } from '@/components/settings/AISettingsCard'
 import { getAISettings, getAIUsageLogs } from '@/lib/ai/ai-settings-actions'
 import type { AIUsageLogEntry } from '@/lib/ai/ai-settings-actions'
+import { Users, GitBranch, Building2, Zap, ArrowRight } from 'lucide-react'
+
+// ─── AI tab helpers ───────────────────────────────────────────────────────────
 
 const FEATURE_LABELS: Record<string, string> = {
   flow_builder: 'Flow Builder',
@@ -98,10 +104,92 @@ function UsageLogTable({ entries }: { entries: AIUsageLogEntry[] }) {
   )
 }
 
-export default async function SettingsPage() {
+// ─── Billing tab helpers ──────────────────────────────────────────────────────
+
+interface UsageMeterProps {
+  icon: React.ReactNode
+  label: string
+  used: number
+  max: number | null
+}
+
+function UsageMeter({ icon, label, used, max }: UsageMeterProps) {
+  if (max === null) {
+    return (
+      <div className="flex items-center justify-between py-3">
+        <div className="flex items-center gap-2.5 text-sm text-foreground">
+          {icon}
+          {label}
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm tabular-nums text-foreground font-medium">
+            {used.toLocaleString()}
+          </span>
+          <span className="text-xs text-muted-foreground w-20 text-right">Unlimited</span>
+        </div>
+      </div>
+    )
+  }
+
+  const pct = max > 0 ? Math.min((used / max) * 100, 100) : 0
+  const barColor = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-indigo-500'
+  const textColor = pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-amber-600' : 'text-foreground'
+
+  return (
+    <div className="space-y-1.5 py-2">
+      <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center gap-2.5 text-foreground">
+          {icon}
+          {label}
+        </div>
+        <span className={`tabular-nums font-medium ${textColor}`}>
+          {used} / {max}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${barColor}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+const PLAN_BADGE: Record<string, { label: string; className: string }> = {
+  free: {
+    label: 'Free',
+    className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  },
+  pro: {
+    label: 'Pro',
+    className: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
+  },
+  enterprise: {
+    label: 'Enterprise',
+    className: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  },
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default async function SettingsPage({ searchParams }: { searchParams: { tab?: string } }) {
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
   if (claims?.role !== 'admin') redirect('/tasks')
+
+  const tenantId = claims.tenant_id as string
+  const tab = searchParams.tab === 'billing' ? 'billing' : 'ai'
+
+  // Fetch data for active tab only
+  let aiSettings: Awaited<ReturnType<typeof getAISettings>>['data'] = null
+  let usageLogs: AIUsageLogEntry[] = []
+
+  if (tab === 'ai') {
+    const [aiRes, logsRes] = await Promise.all([getAISettings(), getAIUsageLogs(100)])
+    aiSettings = aiRes.data
+    usageLogs = (logsRes.data as AIUsageLogEntry[]) ?? []
+  }
 
   const defaultAISettings = {
     aiEnabled: false,
@@ -113,37 +201,233 @@ export default async function SettingsPage() {
     creditLimitUsd: 5.0,
   }
 
-  const [{ data: aiSettings }, { data: usageLogs }] = await Promise.all([
-    getAISettings(),
-    getAIUsageLogs(100),
-  ])
+  // Billing data
+  let billingData: {
+    plan: string
+    status: string
+    userCount: number
+    flowCount: number
+    deptCount: number
+  } | null = null
+
+  if (tab === 'billing') {
+    const db = createAdminClient()
+    const [{ data: tenant }, userRes, flowRes, deptRes] = await Promise.all([
+      db.from('tenants').select('plan, status').eq('id', tenantId).single(),
+      db.from('users').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId),
+      db.from('flows').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId),
+      db.from('departments').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId),
+    ])
+    billingData = {
+      plan: tenant?.plan ?? 'free',
+      status: tenant?.status ?? 'active',
+      userCount: userRes.count ?? 0,
+      flowCount: flowRes.count ?? 0,
+      deptCount: deptRes.count ?? 0,
+    }
+  }
+
+  const limits = tab === 'billing' && billingData ? await getTenantLimits(tenantId) : null
+
+  const tabs = [
+    { label: 'AI', value: 'ai' },
+    { label: 'Billing', value: 'billing' },
+  ]
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10 space-y-8">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-foreground">Settings</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage AI features and review usage across your organisation.
+          Manage your organisation&apos;s plan, AI features, and usage.
         </p>
       </div>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-          AI Configuration
-        </h2>
-        <div className="rounded-xl border bg-card p-6">
-          <AISettingsCard initial={aiSettings ?? defaultAISettings} />
-        </div>
-      </section>
+      {/* ── Tab nav ── */}
+      <div className="flex gap-1 rounded-lg border bg-muted/40 p-1 w-fit">
+        {tabs.map((t) => (
+          <Link
+            key={t.value}
+            href={`?tab=${t.value}`}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tab === t.value
+                ? 'bg-background shadow-sm text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </div>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-          AI Usage Log
-        </h2>
-        <div className="rounded-xl border bg-card p-6">
-          <UsageLogTable entries={usageLogs ?? []} />
-        </div>
-      </section>
+      {/* ── AI tab ── */}
+      {tab === 'ai' && (
+        <>
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              AI Configuration
+            </h2>
+            <div className="rounded-xl border bg-card p-6">
+              <AISettingsCard initial={aiSettings ?? defaultAISettings} />
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              AI Usage Log
+            </h2>
+            <div className="rounded-xl border bg-card p-6">
+              <UsageLogTable entries={usageLogs} />
+            </div>
+          </section>
+        </>
+      )}
+
+      {/* ── Billing tab ── */}
+      {tab === 'billing' && billingData && limits && (
+        <>
+          {/* Plan card */}
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              Current Plan
+            </h2>
+            <div className="rounded-xl border bg-card p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        PLAN_BADGE[billingData.plan]?.className ?? PLAN_BADGE.free.className
+                      }`}
+                    >
+                      {PLAN_BADGE[billingData.plan]?.label ?? billingData.plan}
+                    </span>
+                    {billingData.status !== 'active' && (
+                      <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700">
+                        {billingData.status}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {billingData.plan === 'free' &&
+                      'Limited to 10 users, 2 flows, and 5 departments.'}
+                    {billingData.plan === 'pro' &&
+                      '$5 per user / month · Up to 100 users · Full feature access.'}
+                    {billingData.plan === 'enterprise' &&
+                      'Custom limits and AI configuration managed by your account team.'}
+                  </p>
+                </div>
+                {billingData.plan === 'free' && (
+                  <div className="text-right space-y-1">
+                    <button
+                      disabled
+                      className="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
+                    >
+                      Upgrade to Pro
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                    <p className="text-xs text-muted-foreground">Payment coming soon</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* Usage meters */}
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              Usage
+            </h2>
+            <div className="rounded-xl border bg-card px-6 divide-y divide-border">
+              <UsageMeter
+                icon={<Users className="h-4 w-4 text-muted-foreground" />}
+                label="Users"
+                used={billingData.userCount}
+                max={limits.maxUsers}
+              />
+              <UsageMeter
+                icon={<GitBranch className="h-4 w-4 text-muted-foreground" />}
+                label="Flows"
+                used={billingData.flowCount}
+                max={limits.maxFlows}
+              />
+              <UsageMeter
+                icon={<Building2 className="h-4 w-4 text-muted-foreground" />}
+                label="Departments"
+                used={billingData.deptCount}
+                max={limits.maxDepartments}
+              />
+              <div className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-2.5 text-sm text-foreground">
+                  <Zap className="h-4 w-4 text-muted-foreground" />
+                  Report history
+                </div>
+                <span className="text-sm font-medium text-foreground">
+                  {limits.reportWindowDays !== null
+                    ? `${limits.reportWindowDays} days`
+                    : 'Unlimited'}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          {/* Free plan upgrade nudge */}
+          {billingData.plan === 'free' && (
+            <section className="rounded-xl border border-indigo-200 bg-indigo-50 dark:bg-indigo-950/20 dark:border-indigo-900 p-6">
+              <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-200 mb-1">
+                Unlock Pro features
+              </h3>
+              <p className="text-sm text-indigo-700 dark:text-indigo-300 mb-4">
+                Upgrade to Pro for up to 100 users, unlimited flows and departments, full report
+                history, and AI-powered flow building.
+              </p>
+              <ul className="text-sm text-indigo-700 dark:text-indigo-300 space-y-1 mb-4">
+                {[
+                  '100 users (vs 10 on Free)',
+                  'Unlimited flows and departments',
+                  'Full report history (30d, 90d, all-time)',
+                  'AI integration in flow builder',
+                ].map((f) => (
+                  <li key={f} className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 shrink-0" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <button
+                disabled
+                className="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
+              >
+                Upgrade to Pro — $5 / user / month
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              <p className="text-xs text-indigo-500 mt-2">
+                Online payment coming soon. Contact us to upgrade manually.
+              </p>
+            </section>
+          )}
+
+          {/* Pro / Enterprise info */}
+          {billingData.plan === 'pro' && (
+            <section className="rounded-xl border bg-card p-6 space-y-2">
+              <h3 className="text-sm font-semibold text-foreground">Manage subscription</h3>
+              <p className="text-sm text-muted-foreground">
+                Billing portal and invoice management coming soon. Contact us for any billing
+                queries.
+              </p>
+            </section>
+          )}
+
+          {billingData.plan === 'enterprise' && (
+            <section className="rounded-xl border bg-card p-6 space-y-2">
+              <h3 className="text-sm font-semibold text-foreground">Enterprise plan</h3>
+              <p className="text-sm text-muted-foreground">
+                Your plan and limits are managed by your account team. Contact us for any changes.
+              </p>
+            </section>
+          )}
+        </>
+      )}
     </main>
   )
 }
