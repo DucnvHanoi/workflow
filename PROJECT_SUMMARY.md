@@ -1973,13 +1973,12 @@ confirm-guarded destructive actions.
     All support tables are platform-level (no tenant_id) — this is BizFlow's own
     customer support, not a tenant-facing feature.
 
-    Planned milestones:
+    Milestones:
     M1 — Database schema ✅ COMPLETE
-    M2 — Inbound email webhook ✅ COMPLETE
+    M2 — Inbound email webhook ✅ COMPLETE (Postmark, deployed)
     M3 — AI response engine 🔜 NEXT
     M4 — Admin support inbox UI (/platform/support) 🔜 PLANNED
     M5 — Knowledge base management UI (/platform/support/knowledge) 🔜 PLANNED
-    M6 — Resend inbound wiring & DNS 🔜 PLANNED (in progress)
 
 ─── M1 — Database Schema (COMPLETE) ─────────────────────────────────────────
 
@@ -2009,12 +2008,23 @@ Nav: 'Support' item (Headphones icon) added to /platform layout nav.
 
 ─── M2 — Inbound Email Webhook (COMPLETE) ────────────────────────────────────
 
-src/lib/support/inbound.ts ('use server'):
+INBOUND PROVIDER: Postmark (not Resend).
+Resend was evaluated first but dropped — its inbound webhook intentionally
+omits text/html body and its Emails API is restricted to outbound retrieval.
+Postmark includes TextBody + HtmlBody directly in the webhook payload.
 
+DNS: bizflow.id.vn MX 10 inbound.postmarkapp.com
+Postmark dashboard → Server → Settings → Inbound → Webhook URL:
+https://www.bizflow.id.vn/api/webhooks/email-inbound?secret=<SUPPORT_INBOUND_SECRET>
+
+src/lib/support/inbound.ts:
+
+- ResendInboundPayload type updated to actual Resend envelope shape
+  { type, created_at, data: { from, to, subject, message_id, email_id, ... } }
+  (kept for reference; active processor uses PostmarkInboundPayload).
 - parseEmailAddress(): handles "Name <email>" and plain address formats.
 - normaliseSubject(): strips Re:/Fwd: prefixes for subject-based threading.
-- getHeader(): handles both header formats Resend may send — object map
-  or [{name, value}] array.
+- getHeader(): handles both header formats — object map or [{name,value}] array.
 - processInboundEmail(payload): core processor.
   Threading detection (priority order):
   1. Match In-Reply-To / References headers against email_message_id in
@@ -2028,26 +2038,23 @@ src/app/api/webhooks/email-inbound/route.ts:
 
 POST /api/webhooks/email-inbound?secret=<SUPPORT_INBOUND_SECRET>
 
-- Validates shared secret from query param (Resend inbound has no built-in
-  signing for inbound routes; secret is embedded in the webhook URL).
-- Parses Resend inbound payload (from, subject, text, html, headers).
+- Validates shared secret from query param (embedded in Postmark webhook URL).
 - Calls processInboundEmail() and returns { ok, ticketId, messageId, isNewTicket }.
-- GET returns { ok: true } so Resend health-checks do not log errors.
+- GET returns { ok: true } for health checks.
 
-─── Resend Inbound Wiring (IN PROGRESS) ──────────────────────────────────────
+Bug fixes applied during M2 testing (commits 830a936, 42e3d10):
 
-Resend dashboard → Domains → bizflow.id.vn → Enable Receiving → adds MX record:
-inbound-smtp.ap-northeast-1.amazonaws.com (priority 10)
-
-DNS MX record must be added at the domain registrar / DNS provider pointing
-bizflow.id.vn MX → inbound-smtp.ap-northeast-1.amazonaws.com.
-After MX verifies, create a Resend inbound route (Webhooks nav):
-contact@bizflow.id.vn → https://bizflow.id.vn/api/webhooks/email-inbound?secret=<SUPPORT_INBOUND_SECRET>
+1. Middleware blocked the webhook — /api/webhooks added to PUBLIC_ROUTES in
+   src/middleware.ts so Postmark's POST reaches the handler without a session.
+2. Vercel www-redirect — bizflow.id.vn issues a 307 to www.bizflow.id.vn;
+   Postmark/Resend do not follow 307s. Webhook URL must use www.bizflow.id.vn.
+3. Resend payload envelope — Resend wraps fields in { type, data: {...} };
+   ResendInboundPayload type and processInboundEmail updated to match.
 
 ─── Environment Variables ────────────────────────────────────────────────────
 
-SUPPORT_INBOUND_SECRET — 64-char hex shared secret embedded in the Resend
-inbound webhook URL. Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+SUPPORT_INBOUND_SECRET — 64-char hex shared secret embedded in the webhook URL.
+Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 Set in .env.local and in Vercel → Environment Variables → Production.
 
 ─── Architecture Decisions ───────────────────────────────────────────────────
@@ -2055,6 +2062,7 @@ Set in .env.local and in Vercel → Environment Variables → Production.
 - All support tables are platform-level (no tenant_id). The /platform
   middleware email guard is the primary auth layer; all DB writes use
   createAdminClient() (service role).
+- Inbound provider: Postmark. Outbound (notifications, invites) remains Resend.
 - AI response (M3): Claude reads relevant knowledge_base articles via
   Postgres full-text search (tsvector), generates a reply with confidence
   rating and category. High-confidence → auto-send via Resend and mark
@@ -2064,3 +2072,7 @@ Set in .env.local and in Vercel → Environment Variables → Production.
   thread view. Agent reply sends via Resend and logs to support_messages.
 - Knowledge base (M5): CRUD markdown articles in /platform/support/knowledge.
   Full-text search via GIN index on search_vector (auto-updated by trigger).
+
+KNOWN GOTCHA — Webhook URL must be www.bizflow.id.vn (not bare domain).
+Vercel redirects the bare domain to www; webhook providers do not follow
+the redirect and log the 307 body ("Redirecting...") as a failed delivery.
