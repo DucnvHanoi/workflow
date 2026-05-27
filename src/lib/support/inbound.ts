@@ -3,6 +3,28 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // ---------------------------------------------------------------------------
+// Resend body fetch — inbound webhook payloads omit text/html body
+// ---------------------------------------------------------------------------
+
+async function fetchEmailBody(
+  emailId: string
+): Promise<{ text: string | null; html: string | null }> {
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) return { text: null, html: null }
+  try {
+    const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: 'no-store',
+    })
+    if (!res.ok) return { text: null, html: null }
+    const data = (await res.json()) as { text?: string; html?: string }
+    return { text: data.text ?? null, html: data.html ?? null }
+  } catch {
+    return { text: null, html: null }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -177,6 +199,12 @@ export async function processInboundEmail(payload: ResendInboundPayload): Promis
   // ------------------------------------------------------------------
   // 3. Log the inbound message
   // ------------------------------------------------------------------
+  // Resend inbound webhooks omit body — fetch it separately via the Emails API
+  const body =
+    emailData.text || emailData.html
+      ? { text: emailData.text ?? null, html: emailData.html ?? null }
+      : await fetchEmailBody(emailData.email_id)
+
   const { data: msg, error: msgError } = await db
     .from('support_messages')
     .insert({
@@ -184,8 +212,8 @@ export async function processInboundEmail(payload: ResendInboundPayload): Promis
       direction: 'inbound',
       from_email: sender.email,
       from_name: sender.name,
-      body_text: emailData.text ?? null,
-      body_html: emailData.html ?? null,
+      body_text: body.text,
+      body_html: body.html,
       is_ai_generated: false,
       email_message_id: messageId ?? null,
       in_reply_to: inReplyTo ?? null,
