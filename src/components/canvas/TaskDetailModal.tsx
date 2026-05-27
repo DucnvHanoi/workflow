@@ -116,11 +116,11 @@ export function TaskDetailModal({
     setContextLoading(true)
     setActiveTab('context')
 
-    // For date fields with no saved value, default to today at 23:59:59
+    // For date fields with no saved value, default to today
     const dateDefaults: Record<string, unknown> = {}
     for (const field of formSchema) {
       if (field.type === 'date' && !initialData?.[field.id]) {
-        dateDefaults[field.id] = defaultDateValueTDM()
+        dateDefaults[field.id] = field.includeTime ? defaultDateValueTDM() : todayDateStr()
       }
     }
     setValues({ ...dateDefaults, ...(initialData ?? {}) })
@@ -1021,24 +1021,33 @@ function FieldRenderer({
         </div>
       )}
 
-      {/* ── Date & Time field ── */}
+      {/* ── Date / Date+Time field ── */}
       {field.type === 'date' && (
         <div className="space-y-1">
           {disabled ? (
             <p className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm text-foreground">
               {value ? (
-                formatDateFieldDisplay(String(value))
+                formatDateFieldDisplay(String(value), field.includeTime)
               ) : (
                 <span className="text-muted-foreground">(no date set)</span>
               )}
             </p>
-          ) : (
+          ) : field.includeTime ? (
             <input
               id={`field-${field.id}`}
               type="datetime-local"
               value={toDatetimeLocalStr(String(value ?? ''))}
               disabled={disabled}
               onChange={(e) => onChange(fromDatetimeLocalStr(e.target.value))}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          ) : (
+            <input
+              id={`field-${field.id}`}
+              type="date"
+              value={toDateStr(String(value ?? ''))}
+              disabled={disabled}
+              onChange={(e) => onChange(e.target.value)}
               className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             />
           )}
@@ -1081,12 +1090,31 @@ function defaultDateValueTDM(): string {
   return d.toISOString()
 }
 
+function todayDateStr(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 function toDatetimeLocalStr(iso: string): string {
   if (!iso) return ''
   try {
     const d = new Date(iso)
     const pad = (n: number) => String(n).padStart(2, '0')
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  } catch {
+    return ''
+  }
+}
+
+// Extracts YYYY-MM-DD from an ISO string or returns the value as-is if already in that format.
+function toDateStr(value: string): string {
+  if (!value) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  try {
+    const d = new Date(value)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
   } catch {
     return ''
   }
@@ -1103,10 +1131,19 @@ function fromDatetimeLocalStr(localStr: string): string {
   }
 }
 
-function formatDateFieldDisplay(iso: string): string {
-  if (!iso) return ''
+function formatDateFieldDisplay(value: string, includeTime?: boolean): string {
+  if (!value) return ''
   try {
-    return new Date(iso).toLocaleString('en-GB', {
+    if (!includeTime) {
+      // value is YYYY-MM-DD — parse as local date to avoid UTC offset shifting the day
+      const [y, m, d] = value.split('-').map(Number)
+      return new Date(y, m - 1, d).toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })
+    }
+    return new Date(value).toLocaleString('en-GB', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
@@ -1115,7 +1152,7 @@ function formatDateFieldDisplay(iso: string): string {
       hour12: true,
     })
   } catch {
-    return iso
+    return value
   }
 }
 

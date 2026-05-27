@@ -32,6 +32,7 @@ export interface FormField {
   label: string
   required: boolean
   options?: string[] // for dropdown, radio, and checkbox
+  includeTime?: boolean // for date: true = datetime-local, false/undefined = date-only
 }
 
 export interface BranchCondition {

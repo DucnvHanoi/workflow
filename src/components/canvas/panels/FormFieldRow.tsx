@@ -59,6 +59,7 @@ export default function FormFieldRow({ field, onUpdate, onRemove }: FormFieldRow
 
   const hasOptions =
     field.type === 'dropdown' || field.type === 'radio' || field.type === 'checkbox'
+  const isDate = field.type === 'date'
 
   function addOption() {
     onUpdate(field.id, { options: [...(field.options ?? []), ''] })
@@ -132,6 +133,21 @@ export default function FormFieldRow({ field, onUpdate, onRemove }: FormFieldRow
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {/* ── Date options ─────────────────────────────────────────────── */}
+      {isDate && (
+        <div className="border-t border-border px-2 pb-2 pt-1.5">
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none">
+            <input
+              type="checkbox"
+              checked={field.includeTime ?? false}
+              onChange={(e) => onUpdate(field.id, { includeTime: e.target.checked })}
+              className="h-3 w-3 rounded accent-primary"
+            />
+            Include time
+          </label>
+        </div>
+      )}
 
       {/* ── Options editor (dropdown / radio only) ───────────────────── */}
       {hasOptions && (
