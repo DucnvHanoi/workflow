@@ -41,9 +41,7 @@ export function AccountSetupForm({ email }: { email: string }) {
     setLoading(true)
 
     // 1. Set their password via Supabase Auth
-    const { error: passwordError } = await supabase.auth.updateUser({
-      password,
-    })
+    const { error: passwordError } = await supabase.auth.updateUser({ password })
 
     if (passwordError) {
       setError(passwordError.message)
@@ -51,22 +49,12 @@ export function AccountSetupForm({ email }: { email: string }) {
       return
     }
 
-    // 2. Save their full name to public.users
-    const { error: profileError } = await supabase
-      .from('users')
-      .update({ full_name: fullName.trim() })
-      .eq('id', (await supabase.auth.getUser()).data.user?.id ?? '')
+    // 2. Save full name, activate account, and stamp app_metadata — all via
+    //    admin client in the server action (browser client would be silently
+    //    blocked by RLS because the invited user's JWT has no tenant_id claim yet)
+    await markInvitationAccepted(fullName.trim())
 
-    if (profileError) {
-      setError('Failed to save your name. Please try again.')
-      setLoading(false)
-      return
-    }
-
-    // 3. Activate the account and mark the invitation as accepted
-    await markInvitationAccepted()
-
-    // 4. Done — redirect to tasks (works for both admin and user roles)
+    // 3. Done — redirect to tasks (works for both admin and user roles)
     router.push('/tasks')
     router.refresh()
   }
