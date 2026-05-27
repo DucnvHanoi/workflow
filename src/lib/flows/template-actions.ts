@@ -92,14 +92,22 @@ export async function createFlowFromTemplate(templateId: string): Promise<void> 
 
   if (flowErr || !flow) throw new Error('Failed to create flow')
 
-  // Create initial version if template has a graph
+  // Create initial version and point the flow at it
   if (graph) {
-    await db.from('flow_versions').insert({
-      flow_id: flow.id,
-      graph,
-      version_number: 1,
-      is_draft: true,
-    })
+    const { data: version, error: versionErr } = await db
+      .from('flow_versions')
+      .insert({
+        flow_id: flow.id,
+        graph: graph as unknown as Record<string, unknown>,
+        version_number: 1,
+        published_at: null,
+      })
+      .select('id')
+      .single()
+
+    if (versionErr || !version) throw new Error('Failed to create version')
+
+    await db.from('flows').update({ latest_version_id: version.id }).eq('id', flow.id)
   }
 
   redirect(`/flows/${flow.id}/edit`)
