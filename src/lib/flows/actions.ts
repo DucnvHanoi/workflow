@@ -209,6 +209,23 @@ async function resolveUserName(db: AdminDb, userId: string): Promise<string> {
   }
 }
 
+async function resolveUserEmailAndName(
+  db: AdminDb,
+  userId: string
+): Promise<{ email: string; name: string } | null> {
+  try {
+    const { data } = await db
+      .from('users')
+      .select('email, full_name')
+      .eq('id', userId)
+      .maybeSingle()
+    if (!data?.email) return null
+    return { email: data.email, name: data.full_name ?? data.email }
+  } catch {
+    return null
+  }
+}
+
 // ─── Save a draft version ─────────────────────────────────────────────────────────
 
 export async function saveDraftVersion(
@@ -687,7 +704,7 @@ export async function triggerFlow(
 
   const { data: flow, error: flowError } = await db
     .from('flows')
-    .select('id, status, latest_version_id, allowed_department_ids')
+    .select('id, name, status, latest_version_id, allowed_department_ids')
     .eq('id', flowId)
     .eq('tenant_id', tenantId)
     .maybeSingle()
@@ -858,6 +875,21 @@ export async function triggerFlow(
       title: `New task: ${stepLabel}`,
       body: `You've been assigned a step. Open My Tasks to complete it.`,
       link: '/tasks',
+    })
+
+    void resolveUserEmailAndName(db, assignedTo).then((assignee) => {
+      if (assignee) {
+        void sendAssignmentEmail({
+          tenantId,
+          instanceId: instance.id,
+          stepInstanceId: stepInstance.id,
+          recipientEmail: assignee.email,
+          recipientName: assignee.name,
+          flowName: (flow.name as string) ?? 'Flow',
+          stepName: stepLabel,
+          triggeredByName: triggererName,
+        })
+      }
     })
   }
 
@@ -1094,7 +1126,7 @@ export async function submitStep(
         flow_version_id,
         flow_versions!flow_version_id (
           graph,
-          flows!flow_id ( tenant_id )
+          flows!flow_id ( tenant_id, name )
         )
       )
     `
@@ -1146,6 +1178,7 @@ export async function submitStep(
   })
 
   if (fi?.id && fv?.graph) {
+    const flowName = ((fl as Record<string, unknown> | null)?.name as string | undefined) ?? 'Flow'
     await advanceFlow(
       fi.id,
       si.step_id,
@@ -1156,7 +1189,8 @@ export async function submitStep(
       db,
       // ── NEW: pass actor info through to advanceFlow for logging
       userId,
-      actorName
+      actorName,
+      flowName
     )
   }
 
@@ -1190,7 +1224,8 @@ async function advanceFlow(
   db: ReturnType<typeof createAdminClient>,
   // ── NEW params (actorName is not used in this function, only actorId)
   actorId: string,
-  _actorName: string
+  _actorName: string,
+  flowName: string = 'Flow'
 ): Promise<void> {
   // 1. Find the completed node
   const completedNode = graph.nodes.find((n) => n.id === completedStepNodeId)
@@ -1484,6 +1519,22 @@ async function advanceFlow(
       title: `New task: ${nextStepLabel}`,
       body: `You've been assigned a step. Open My Tasks to complete it.`,
       link: '/tasks',
+    })
+
+    const triggererName = await resolveUserName(db, triggeredByUserId)
+    void resolveUserEmailAndName(db, assignedTo).then((assignee) => {
+      if (assignee) {
+        void sendAssignmentEmail({
+          tenantId,
+          instanceId,
+          stepInstanceId: nextStep.id,
+          recipientEmail: assignee.email,
+          recipientName: assignee.name,
+          flowName,
+          stepName: nextStepLabel,
+          triggeredByName: triggererName,
+        })
+      }
     })
   }
 }
