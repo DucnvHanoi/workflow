@@ -344,8 +344,10 @@ export async function resendInvitation(id: string): Promise<ActionResult> {
     return { success: false, error: 'This invitation has already been accepted or revoked.' }
   }
 
+  // Auth user already exists — use magiclink (not invite) to generate a fresh link
+  // without attempting to create a new user.
   const { data: inviteData, error: inviteError } = await adminClient.auth.admin.generateLink({
-    type: 'invite',
+    type: 'magiclink',
     email: invitation.email,
     options: { redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/confirm` },
   })
