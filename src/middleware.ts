@@ -2,7 +2,15 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // Routes that require NO authentication
-const PUBLIC_ROUTES = ['/', '/login', '/signup', '/auth/callback', '/auth/confirm', '/auth/mfa']
+const PUBLIC_ROUTES = [
+  '/',
+  '/login',
+  '/signup',
+  '/auth/callback',
+  '/auth/confirm',
+  '/auth/mfa',
+  '/api/webhooks',
+]
 
 // Routes that require the 'admin' role
 const ADMIN_ONLY_ROUTES = ['/dashboard', '/invite', '/users', '/departments', '/admin']

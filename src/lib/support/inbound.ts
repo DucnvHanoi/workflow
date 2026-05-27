@@ -7,13 +7,21 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // ---------------------------------------------------------------------------
 
 export interface ResendInboundPayload {
-  from: string
-  to: string | string[]
-  subject: string
-  text?: string
-  html?: string
-  // Resend sends headers as either an object map or an array of {name,value}
-  headers?: Record<string, string> | Array<{ name: string; value: string }>
+  type: string // "email.received"
+  created_at: string
+  data: {
+    from: string
+    to: string[]
+    subject: string
+    text?: string
+    html?: string
+    message_id: string // the RFC Message-ID header, provided directly by Resend
+    email_id: string
+    headers?: Record<string, string> | Array<{ name: string; value: string }>
+    attachments?: unknown[]
+    bcc?: string[]
+    cc?: string[]
+  }
 }
 
 interface ParsedEmail {
@@ -75,12 +83,14 @@ export async function processInboundEmail(payload: ResendInboundPayload): Promis
 }> {
   const db = createAdminClient()
 
-  const sender = parseEmailAddress(payload.from)
-  const subject = payload.subject?.trim() ?? '(no subject)'
+  const { data: emailData } = payload
+  const sender = parseEmailAddress(emailData.from)
+  const subject = emailData.subject?.trim() ?? '(no subject)'
 
-  const inReplyTo = getHeader(payload.headers, 'in-reply-to')
-  const references = getHeader(payload.headers, 'references')
-  const messageId = getHeader(payload.headers, 'message-id')
+  // Resend provides message_id directly; fall back to header extraction for in-reply-to / references
+  const messageId = emailData.message_id ?? null
+  const inReplyTo = getHeader(emailData.headers, 'in-reply-to')
+  const references = getHeader(emailData.headers, 'references')
 
   // ------------------------------------------------------------------
   // 1. Threading: find existing ticket
@@ -174,8 +184,8 @@ export async function processInboundEmail(payload: ResendInboundPayload): Promis
       direction: 'inbound',
       from_email: sender.email,
       from_name: sender.name,
-      body_text: payload.text ?? null,
-      body_html: payload.html ?? null,
+      body_text: emailData.text ?? null,
+      body_html: emailData.html ?? null,
       is_ai_generated: false,
       email_message_id: messageId ?? null,
       in_reply_to: inReplyTo ?? null,

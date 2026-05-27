@@ -29,8 +29,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  if (!payload.from || !payload.subject) {
-    return NextResponse.json({ error: 'Missing required fields: from, subject' }, { status: 400 })
+  if (!payload.data?.from || !payload.data?.subject) {
+    return NextResponse.json(
+      { error: 'Missing required fields: data.from, data.subject' },
+      { status: 400 }
+    )
   }
 
   // --- Process ---------------------------------------------------------------
