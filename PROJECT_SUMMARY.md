@@ -1964,3 +1964,103 @@ in the server page compiles without error but crashes at runtime with a
 serialization failure. Use a Server Action inside a <form action={...}> for
 zero-JS interactions, or a 'use client' component with useTransition for
 confirm-guarded destructive actions.
+
+44. PHASE 16 — AI CUSTOMER SUPPORT SYSTEM (IN PROGRESS)
+    Theme: handle inbound customer email to contact@bizflow.id.vn automatically.
+    Emails are logged as tickets in Supabase, Claude AI drafts a reply using a
+    markdown knowledge base, and a human agent can review / reply / close tickets
+    from a dedicated inbox inside the /platform admin area.
+    All support tables are platform-level (no tenant_id) — this is BizFlow's own
+    customer support, not a tenant-facing feature.
+
+    Planned milestones:
+    M1 — Database schema ✅ COMPLETE
+    M2 — Inbound email webhook ✅ COMPLETE
+    M3 — AI response engine 🔜 NEXT
+    M4 — Admin support inbox UI (/platform/support) 🔜 PLANNED
+    M5 — Knowledge base management UI (/platform/support/knowledge) 🔜 PLANNED
+    M6 — Resend inbound wiring & DNS 🔜 PLANNED (in progress)
+
+─── M1 — Database Schema (COMPLETE) ─────────────────────────────────────────
+
+supabase/migrations/20260527200000_support_system.sql:
+
+support_tickets: id, subject, sender_email, sender_name,
+status CHECK (open|pending_human|ai_replied|closed) DEFAULT 'open',
+priority CHECK (low|normal|high|urgent) DEFAULT 'normal',
+category (ai-inferred: billing|how-to|account|technical|general),
+ai_confidence CHECK (high|low), assigned_to FK→users ON DELETE SET NULL,
+last_message_at, created_at, updated_at (auto-updated by trigger).
+RLS enabled, no public policies — all access via service-role admin client.
+
+support_messages: id, ticket_id FK→support_tickets CASCADE, direction
+CHECK (inbound|outbound), from_email, from_name, body_text, body_html,
+is_ai_generated BOOL, email_message_id (Message-ID header), in_reply_to
+(In-Reply-To header), resend_id (outbound Resend delivery ID), created_at.
+
+knowledge_base: id, title, slug UNIQUE, content_markdown, category CHECK
+(general|billing|how-to|account|technical), is_active BOOL,
+search_vector TSVECTOR (auto-updated by trigger using setweight A=title,
+B=content_markdown for Postgres full-text search), created_at, updated_at.
+Seeded with 5 starter articles: What is BizFlow, Pricing & Plans,
+How to Invite Users, How to Create a Workflow, Resetting Your Password.
+
+Nav: 'Support' item (Headphones icon) added to /platform layout nav.
+
+─── M2 — Inbound Email Webhook (COMPLETE) ────────────────────────────────────
+
+src/lib/support/inbound.ts ('use server'):
+
+- parseEmailAddress(): handles "Name <email>" and plain address formats.
+- normaliseSubject(): strips Re:/Fwd: prefixes for subject-based threading.
+- getHeader(): handles both header formats Resend may send — object map
+  or [{name, value}] array.
+- processInboundEmail(payload): core processor.
+  Threading detection (priority order):
+  1. Match In-Reply-To / References headers against email_message_id in
+     support_messages (exact header match).
+  2. Fallback: same sender_email + normalised subject in a non-closed ticket
+     (scans last 20 open/ai_replied tickets from the sender).
+     Reopens 'closed' or 'ai_replied' tickets when a new reply arrives.
+     Returns { ticketId, messageId, isNewTicket }.
+
+src/app/api/webhooks/email-inbound/route.ts:
+
+POST /api/webhooks/email-inbound?secret=<SUPPORT_INBOUND_SECRET>
+
+- Validates shared secret from query param (Resend inbound has no built-in
+  signing for inbound routes; secret is embedded in the webhook URL).
+- Parses Resend inbound payload (from, subject, text, html, headers).
+- Calls processInboundEmail() and returns { ok, ticketId, messageId, isNewTicket }.
+- GET returns { ok: true } so Resend health-checks do not log errors.
+
+─── Resend Inbound Wiring (IN PROGRESS) ──────────────────────────────────────
+
+Resend dashboard → Domains → bizflow.id.vn → Enable Receiving → adds MX record:
+inbound-smtp.ap-northeast-1.amazonaws.com (priority 10)
+
+DNS MX record must be added at the domain registrar / DNS provider pointing
+bizflow.id.vn MX → inbound-smtp.ap-northeast-1.amazonaws.com.
+After MX verifies, create a Resend inbound route (Webhooks nav):
+contact@bizflow.id.vn → https://bizflow.id.vn/api/webhooks/email-inbound?secret=<SUPPORT_INBOUND_SECRET>
+
+─── Environment Variables ────────────────────────────────────────────────────
+
+SUPPORT_INBOUND_SECRET — 64-char hex shared secret embedded in the Resend
+inbound webhook URL. Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+Set in .env.local and in Vercel → Environment Variables → Production.
+
+─── Architecture Decisions ───────────────────────────────────────────────────
+
+- All support tables are platform-level (no tenant_id). The /platform
+  middleware email guard is the primary auth layer; all DB writes use
+  createAdminClient() (service role).
+- AI response (M3): Claude reads relevant knowledge_base articles via
+  Postgres full-text search (tsvector), generates a reply with confidence
+  rating and category. High-confidence → auto-send via Resend and mark
+  'ai_replied'. Low-confidence / billing / complaint → email-notify agent,
+  mark 'pending_human'.
+- Human inbox (M4): /platform/support ticket list + /platform/support/[id]
+  thread view. Agent reply sends via Resend and logs to support_messages.
+- Knowledge base (M5): CRUD markdown articles in /platform/support/knowledge.
+  Full-text search via GIN index on search_vector (auto-updated by trigger).
