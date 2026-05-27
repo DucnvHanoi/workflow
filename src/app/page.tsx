@@ -1,5 +1,6 @@
 import { type Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
+import { getLimits, type PlanLimits } from '@/lib/billing/limits'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -350,71 +351,119 @@ type Plan = {
   features: PlanFeature[]
 }
 
-const PLANS: Plan[] = [
+const PLAN_META: Record<
+  string,
   {
+    name: string
+    priceNote: string
+    description: string
+    cta: string
+    ctaHref: string
+    highlighted: boolean
+    badge?: string
+  }
+> = {
+  free: {
     name: 'Free',
-    price: '$0',
     priceNote: 'forever',
     description: 'Perfect for small teams getting started with workflow automation.',
     cta: 'Get started free',
     ctaHref: '/signup',
     highlighted: false,
-    features: [
-      { label: 'Up to 10 users', included: true },
-      { label: '2 active flows', included: true },
-      { label: '5 departments', included: true },
-      { label: '7-day report history', included: true },
-      { label: 'SLA tracking', included: true },
-      { label: 'Audit trail', included: true },
-      { label: 'AI-powered flow builder', included: false },
-      { label: 'Full analytics (30d / 90d / all-time)', included: false },
-      { label: 'Priority support', included: false },
-    ],
   },
-  {
+  pro: {
     name: 'Pro',
-    price: '$5',
     priceNote: 'per user / month',
     description: 'For growing teams that need unlimited flows, AI, and deep analytics.',
     cta: 'Start Pro',
     ctaHref: '/signup',
     highlighted: true,
     badge: 'Most popular',
-    features: [
-      { label: 'Up to 100 users', included: true },
-      { label: 'Unlimited flows', included: true },
-      { label: 'Unlimited departments', included: true },
-      { label: 'Full report history (7d / 30d / 90d / all-time)', included: true },
-      { label: 'SLA tracking & escalation', included: true },
-      { label: 'Audit trail', included: true },
-      { label: 'AI-powered flow builder', included: true },
-      { label: 'Full analytics & bottleneck reports', included: true },
-      { label: 'Priority support', included: true },
-    ],
   },
-  {
+  enterprise: {
     name: 'Enterprise',
-    price: 'Custom',
     priceNote: 'contact us',
     description: 'Unlimited scale, custom AI limits, and a dedicated support agreement.',
     cta: 'Contact us',
     ctaHref: 'mailto:hello@dragflow.io',
     highlighted: false,
-    features: [
-      { label: 'Unlimited users', included: true },
-      { label: 'Unlimited flows', included: true },
-      { label: 'Unlimited departments', included: true },
-      { label: 'Full report history', included: true },
+  },
+}
+
+function buildFeatures(slug: string, limits: PlanLimits): PlanFeature[] {
+  const qty: PlanFeature[] = [
+    {
+      label: limits.maxUsers ? `Up to ${limits.maxUsers} users` : 'Unlimited users',
+      included: true,
+    },
+    {
+      label: limits.maxFlows ? `${limits.maxFlows} active flows` : 'Unlimited flows',
+      included: true,
+    },
+    {
+      label: limits.maxDepartments
+        ? `${limits.maxDepartments} departments`
+        : 'Unlimited departments',
+      included: true,
+    },
+    {
+      label: limits.reportWindowDays
+        ? `${limits.reportWindowDays}-day report history`
+        : 'Full report history',
+      included: true,
+    },
+  ]
+  const tail: Record<string, PlanFeature[]> = {
+    free: [
+      { label: 'SLA tracking', included: true },
+      { label: 'Audit trail', included: true },
+      { label: 'AI-powered flow builder', included: limits.aiEnabled },
+      { label: 'Full analytics (30d / 90d / all-time)', included: false },
+      { label: 'Priority support', included: false },
+    ],
+    pro: [
       { label: 'SLA tracking & escalation', included: true },
       { label: 'Audit trail', included: true },
-      { label: 'AI-powered flow builder', included: true },
+      { label: 'AI-powered flow builder', included: limits.aiEnabled },
+      { label: 'Full analytics & bottleneck reports', included: true },
+      { label: 'Priority support', included: true },
+    ],
+    enterprise: [
+      { label: 'SLA tracking & escalation', included: true },
+      { label: 'Audit trail', included: true },
+      { label: 'AI-powered flow builder', included: limits.aiEnabled },
       { label: 'Custom AI usage limits per tenant', included: true },
       { label: 'Dedicated support & custom SLA', included: true },
     ],
-  },
-]
+  }
+  return [...qty, ...(tail[slug] ?? tail.free)]
+}
 
-function PricingSection() {
+async function PricingSection() {
+  const [free, pro, ent] = await Promise.all([
+    getLimits('free'),
+    getLimits('pro'),
+    getLimits('enterprise'),
+  ])
+
+  const plans: Plan[] = [
+    {
+      ...PLAN_META.free,
+      price: '$0',
+      features: buildFeatures('free', free),
+    },
+    {
+      ...PLAN_META.pro,
+      price: pro.pricePerUserCents > 0 ? `$${pro.pricePerUserCents / 100}` : '$0',
+      features: buildFeatures('pro', pro),
+    },
+    {
+      ...PLAN_META.enterprise,
+      price: 'Custom',
+      features: buildFeatures('enterprise', ent),
+    },
+  ]
+
   return (
     <section id="pricing" className="bg-white py-24 border-t border-slate-100">
       <div className="mx-auto max-w-6xl px-6">
@@ -433,7 +482,7 @@ function PricingSection() {
 
         {/* Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-          {PLANS.map((plan) => (
+          {plans.map((plan) => (
             <div
               key={plan.name}
               className={`relative rounded-2xl border p-8 flex flex-col gap-6 ${
