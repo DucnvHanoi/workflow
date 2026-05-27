@@ -1794,3 +1794,173 @@ was only set in .env.local (not in Vercel). Fix: set NEXT_PUBLIC_SITE_URL to
 the production domain in Vercel environment variables, and add the production
 /auth/confirm URL to Supabase → Authentication → URL Configuration → Redirect
 URLs allowlist. - OWASP ZAP: point at staging URL after deploy, run automated scan
+
+43. PHASE 15 — PLATFORM FLOW TEMPLATES (COMPLETE ✅)
+    Theme: give the platform owner a template library that tenant admins can
+    browse and clone into their workspace with one click — reducing onboarding
+    friction and showing best-practice workflow patterns.
+    Build: clean throughout. 4 commits on master (initial feature + 3 bug fixes).
+
+─── Database ─────────────────────────────────────────────────────────────────
+
+supabase/migrations/20260527100000_flow_templates.sql:
+
+- flow_templates table (platform-level, no tenant_id): id, name, description,
+  category CHECK (hr|finance|it|operations|other), graph (JSONB), is_published
+  BOOLEAN DEFAULT false, created_at, updated_at.
+- RLS SELECT policy: any authenticated user can read rows WHERE is_published = true
+  (tenant browsing + clone). All writes go through service-role server actions —
+  no write policies needed.
+- Partial index on (is_published, category) WHERE is_published = true for
+  efficient gallery queries.
+
+─── Platform admin side (/platform/templates) ────────────────────────────────
+
+src/app/platform/templates/page.tsx (new server page):
+
+- Table of all templates (all statuses): name, description, category badge,
+  published/draft status toggle, last-updated date, Edit + Delete actions.
+- "New Template" button calls createTemplate() server action → inserts a row
+  with name 'Untitled Template' → redirects to the edit canvas.
+- Auth: hard-redirect to /unauthorized if caller is not PLATFORM_ADMIN_EMAIL
+  (same assertPlatformAdmin pattern used in other /platform routes).
+
+src/app/platform/templates/[id]/edit/page.tsx (new server page):
+
+- Loads the template row; renders the full React Flow canvas (FlowCanvas) with
+  a new templateId prop to route saves through the template save path instead
+  of the flow-version save path.
+- ConfigSidebar: Publish panel and Version list panel are hidden in template
+  mode (templateId present) — the sidebar shows only node config controls.
+- AssigneePanel: remains fully available so platform admin can set suggested
+  assignee rules as a default starting point for tenants.
+
+src/app/platform/templates/actions.ts (new 'use server'):
+
+- assertPlatformAdmin(): checks user.email === PLATFORM_ADMIN_EMAIL; throws
+  Forbidden otherwise. Called at the top of every mutating action.
+- createTemplate(): inserts a default row, redirects to edit page.
+- saveTemplateGraph(templateId, graph): UPDATE flow_templates SET graph, updated_at.
+  Returns { versionId: templateId } — versionId is re-used from the canvas
+  save contract; for templates it is the template id itself (no version history).
+- updateTemplateMeta(templateId, { name?, description?, category? }): PATCH +
+  revalidatePath('/platform/templates').
+- toggleTemplatePublished(templateId, published): flips is_published + revalidates.
+- deleteTemplate(templateId): hard-deletes + revalidatePath + redirects to list.
+
+src/components/platform/TemplateTopBar.tsx (new 'use client'):
+
+- Inline editable name (click-to-edit input, Enter/Blur commits, Escape reverts).
+- Category select (auto-saves on change via updateTemplateMeta).
+- Publish toggle button (emerald "Published" / slate "Draft — click to publish",
+  optimistic update with revert on error).
+
+src/components/platform/DeleteTemplateButton.tsx (new 'use client'):
+
+- Extracted from the server page to fix a serialization crash: onClick handlers
+  in Server Components are not serializable to the client. Shows a confirm()
+  dialog before calling deleteTemplate() via useTransition.
+
+src/app/platform/layout.tsx:
+
+- "Templates" nav item added to the platform admin sidebar nav.
+
+─── Canvas integration ───────────────────────────────────────────────────────
+
+src/store/canvas-store.ts:
+
+- templateId?: string added to canvas store state. When set, triggerSave()
+  calls saveTemplateGraph(templateId, graph) instead of saveDraftVersion().
+  triggerPositionSave() is a no-op in template mode (templates don't track
+  position-only saves separately).
+- setTemplateId(id) action added; called by the template edit page on mount.
+
+src/components/canvas/FlowCanvas.tsx:
+
+- Accepts optional templateId prop. Calls store.setTemplateId(templateId) in
+  a useEffect on mount.
+
+src/components/canvas/panels/ConfigSidebar.tsx:
+
+- PublishPanel and VersionListPanel are skipped when templateId is truthy
+  — template canvases have no publish lifecycle or version history.
+
+─── Tenant gallery side ──────────────────────────────────────────────────────
+
+src/lib/flows/template-actions.ts (new 'use server'):
+
+- getPublishedTemplates(): admin client SELECT from flow_templates WHERE
+  is_published = true, ordered by category. Returns PublishedTemplate[]:
+  { id, name, description, category, graph }.
+- createFlowFromTemplate(templateId):
+  1. Auth: getSessionClaims() — admin role only.
+  2. Plan limit: counts existing flows; redirects with ?error= param if at cap
+     (same pattern as manual flow creation).
+  3. Fetches template (name + graph).
+  4. scrubAssigneeRules(graph): strips assignee rules of types 'fixed',
+     'department_head', and 'role_in_dept' — these are tenant-specific and
+     meaningless in a new tenant's workspace. 'requester', 'manager_of_requestor',
+     and 'skip_level' are kept as they work generically.
+  5. Inserts a new flow row (status: 'draft').
+  6. Inserts a flow_versions row (version_number: 1, published_at: null) and
+     immediately updates flows.latest_version_id to point at it.
+  7. Redirects to /flows/{id}/edit.
+
+src/components/flows/TemplateGalleryModal.tsx (new 'use client'):
+
+- Full-screen overlay (fixed inset, backdrop, max-w-3xl dialog, max-h-80vh
+  scrollable body).
+- Category tab bar: "All" + one tab per distinct category in the returned
+  template list (sorted, derived at render time with Array.from(new Set(...))).
+- Template grid (1–3 columns responsive): card per template showing name,
+  category badge, optional description (line-clamp-2), "Use template" button.
+- "Use template" calls createFlowFromTemplate() via useTransition; spinner on
+  the active card while pending.
+
+src/app/(app)/flows/page.tsx:
+
+- Fetches getPublishedTemplates() in parallel with the flows list.
+- Passes templates down to FlowsClient.
+
+src/components/flows/flows-client.tsx:
+
+- "Templates" button in the toolbar (admin only) opens TemplateGalleryModal.
+- templates prop added (PublishedTemplate[]) — button hidden when empty.
+- onDeleted callback added to FlowRowActions: filters the deleted flow out of
+  local flows state immediately so the row disappears without a manual refresh.
+  (Root cause: router.refresh() re-fetches server data but FlowsClient holds its
+  own initialFlows state initialised once from props — it never re-syncs on
+  refresh.)
+
+─── Bug fixes ────────────────────────────────────────────────────────────────
+
+Bug 1 — onClick in Server Component (commit 9fb6608):
+DeleteTemplateButton was originally an inline JSX button inside the server page,
+with an onClick calling deleteTemplate(). Next.js serialization fails on event
+handlers in Server Components at runtime. Fix: extracted to
+src/components/platform/DeleteTemplateButton.tsx ('use client') with useTransition
+
+- confirm() dialog.
+
+Bug 2 — Cloned flow opened blank (commit 9a8c71c):
+Two issues in createFlowFromTemplate(): (a) the flow_versions INSERT included
+is_draft: true — is_draft is not a column on flow_versions; the insert was
+silently failing, leaving the flow with no version row at all. (b) Even if the
+insert had succeeded, flows.latest_version_id was never updated, so
+getLatestDraftGraph() returned null. Fix: removed is_draft, used published_at: null
+(matching the saveDraftVersion insert shape), and added the UPDATE flows SET
+latest_version_id after the version insert.
+
+Bug 3 — Deleted flow stayed in list (commit 251dca9):
+After deleteFlow(), router.refresh() was called but FlowsClient never re-synced
+its local flows state from the server props. Fix: added an onDeleted(flowId)
+callback prop from FlowsClient → FlowRowActions that filters the deleted id out
+of local state immediately on success.
+
+KNOWN GOTCHA — onClick in Server Components:
+Any interactive action in a Server Component (like a delete button) must be
+wrapped in a 'use client' child component. Inlining an event handler directly
+in the server page compiles without error but crashes at runtime with a
+serialization failure. Use a Server Action inside a <form action={...}> for
+zero-JS interactions, or a 'use client' component with useTransition for
+confirm-guarded destructive actions.

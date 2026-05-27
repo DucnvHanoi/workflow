@@ -39,7 +39,8 @@ import {
 // RESEND_API_KEY must be set in .env.local and in Vercel environment variables.
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
+const ACCOUNT_EMAIL = process.env.RESEND_ACCOUNT_EMAIL ?? 'onboarding@resend.dev'
+const NOTIFICATION_EMAIL = process.env.RESEND_NOTIFICATION_EMAIL ?? 'onboarding@resend.dev'
 
 // ---------------------------------------------------------------------------
 // Internal log writer
@@ -100,7 +101,7 @@ export async function sendAssignmentEmail(params: SendAssignmentEmailParams): Pr
 
   try {
     const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: NOTIFICATION_EMAIL,
       to: params.recipientEmail,
       subject,
       html,
@@ -165,7 +166,7 @@ export async function sendCompletionEmail(params: SendCompletionEmailParams): Pr
 
   try {
     const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: NOTIFICATION_EMAIL,
       to: params.triggererEmail,
       subject,
       html,
@@ -227,7 +228,7 @@ export async function sendInviteEmail(params: SendInviteEmailParams): Promise<vo
 
   try {
     const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: ACCOUNT_EMAIL,
       to: params.inviteeEmail,
       subject,
       html,
@@ -286,7 +287,7 @@ export async function sendSlaDigestEmail(params: SendSlaDigestEmailParams): Prom
 
   try {
     const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: NOTIFICATION_EMAIL,
       to: params.recipientEmail,
       subject,
       html,
@@ -347,7 +348,7 @@ export async function sendEscalationEmail(params: SendEscalationEmailParams): Pr
 
   try {
     const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: NOTIFICATION_EMAIL,
       to: params.managerEmail,
       subject,
       html,

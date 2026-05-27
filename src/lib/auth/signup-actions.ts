@@ -6,7 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { checkSignupRate } from '@/lib/rate-limit'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev'
+const FROM_EMAIL = process.env.RESEND_ACCOUNT_EMAIL ?? 'onboarding@resend.dev'
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
 
 export type SignupResult = { success: true } | { error: string }
