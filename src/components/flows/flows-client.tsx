@@ -66,6 +66,11 @@ export function FlowsClient({
     setFlows((prev) => prev.map((f) => (f.id === flowId ? { ...f, description } : f)))
   }
 
+  // ── Remove a deleted flow from local state immediately ───────────────────
+  function handleFlowDeleted(flowId: string) {
+    setFlows((prev) => prev.filter((f) => f.id !== flowId))
+  }
+
   // ── Filtered flows (search + tab) ────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
@@ -339,6 +344,7 @@ export function FlowsClient({
                           categories={categories}
                           onCategoryUpdated={handleCategoryUpdated}
                           onDescriptionUpdated={handleDescriptionUpdated}
+                          onDeleted={handleFlowDeleted}
                         />
                       ))}
                     </tbody>
@@ -474,6 +480,7 @@ function FlowTableRow({
   categories,
   onCategoryUpdated,
   onDescriptionUpdated,
+  onDeleted,
 }: {
   flow: FlowListItem
   isAdmin: boolean
@@ -485,6 +492,7 @@ function FlowTableRow({
     _categoryColor: string | null
   ) => void
   onDescriptionUpdated: (flowId: string, description: string | null) => void
+  onDeleted: (flowId: string) => void
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -572,6 +580,7 @@ function FlowTableRow({
             currentCategoryId={flow.categoryId}
             categories={categories}
             onCategoryUpdated={onCategoryUpdated}
+            onDeleted={onDeleted}
           />
         ) : (
           // Regular users: "Start" button on published flows only

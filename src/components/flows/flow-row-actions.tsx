@@ -36,13 +36,13 @@ interface Props {
   status: 'draft' | 'published'
   currentCategoryId: string | null
   categories: FlowCategory[]
-  // Called when category is updated so FlowsClient can patch its local state
   onCategoryUpdated: (
     _flowId: string,
     _categoryId: string | null,
     _categoryName: string | null,
     _categoryColor: string | null
   ) => void
+  onDeleted: (flowId: string) => void
 }
 
 export function FlowRowActions({
@@ -52,6 +52,7 @@ export function FlowRowActions({
   currentCategoryId,
   categories,
   onCategoryUpdated,
+  onDeleted,
 }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -68,7 +69,7 @@ export function FlowRowActions({
         return
       }
       toast.success(`"${flowName}" deleted`)
-      router.refresh()
+      onDeleted(flowId)
     })
   }
 
