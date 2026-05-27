@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation'
 import { PlusIcon, PencilIcon } from 'lucide-react'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { createTemplate, deleteTemplate, toggleTemplatePublished } from './actions'
+import { createTemplate, toggleTemplatePublished } from './actions'
+import { DeleteTemplateButton } from '@/components/platform/DeleteTemplateButton'
 
 const CATEGORY_LABELS: Record<string, string> = {
   hr: 'HR',
@@ -135,24 +136,7 @@ export default async function TemplatesPage() {
                         <PencilIcon className="h-3 w-3" />
                         Edit
                       </Link>
-                      <form
-                        action={async () => {
-                          'use server'
-                          await deleteTemplate(t.id)
-                        }}
-                      >
-                        <button
-                          type="submit"
-                          className="rounded-md px-2 py-1 text-xs text-red-500 hover:bg-red-50 transition-colors"
-                          onClick={(e) => {
-                            if (!confirm(`Delete "${t.name}"? This cannot be undone.`)) {
-                              e.preventDefault()
-                            }
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </form>
+                      <DeleteTemplateButton templateId={t.id} templateName={t.name} />
                     </div>
                   </td>
                 </tr>
