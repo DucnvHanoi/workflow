@@ -25,6 +25,7 @@ interface ConfigSidebarProps {
   onFlowStatusChange: (status: 'draft' | 'published') => void
   onVersionRestored: () => void
   initialAllowedDeptIds: string[]
+  isTemplate?: boolean
 }
 
 type SidebarTab = 'publish' | 'versions'
@@ -100,6 +101,7 @@ export default function ConfigSidebar({
   onFlowStatusChange,
   onVersionRestored,
   initialAllowedDeptIds,
+  isTemplate,
 }: ConfigSidebarProps) {
   const { setSelectedNodeId } = useCanvasStore()
 
@@ -147,6 +149,11 @@ export default function ConfigSidebar({
             )}
           </div>
         </>
+      ) : isTemplate ? (
+        /* ── Template mode: no publish/versions panels ───────────────── */
+        <div className="flex flex-1 items-center justify-center p-6 text-center">
+          <p className="text-sm text-muted-foreground">Select a node to configure it.</p>
+        </div>
       ) : (
         /* ── No node selected: Publish + Versions tabs ───────────────── */
         <IdlePanel

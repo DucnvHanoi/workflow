@@ -7,6 +7,7 @@ import { createFlow } from '@/app/(app)/flows/actions'
 import { getFlows } from '@/lib/flows/actions'
 import { getCategories } from '@/lib/flows/category-actions'
 import { getAvailableFlowSummaries } from '@/lib/ai/trigger-assistant'
+import { getPublishedTemplates } from '@/lib/flows/template-actions'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { redirect } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -24,9 +25,14 @@ export default async function FlowsPage({
 
   const isAdmin = claims.role === 'admin'
 
-  // Parallel fetch — flows, categories, and AI summaries in one round-trip
-  const [{ flows, error: flowsError }, { categories, error: catsError }, { summaries }] =
-    await Promise.all([getFlows(), getCategories(), getAvailableFlowSummaries()])
+  // Parallel fetch — flows, categories, AI summaries, and templates
+  const [{ flows, error: flowsError }, { categories, error: catsError }, { summaries }, templates] =
+    await Promise.all([
+      getFlows(),
+      getCategories(),
+      getAvailableFlowSummaries(),
+      getPublishedTemplates(),
+    ])
 
   const error = flowsError ?? catsError ?? searchParams?.error ?? null
 
@@ -65,6 +71,7 @@ export default async function FlowsPage({
         categories={categories}
         isAdmin={isAdmin}
         createFlowAction={createFlow}
+        templates={templates}
       />
     </div>
   )

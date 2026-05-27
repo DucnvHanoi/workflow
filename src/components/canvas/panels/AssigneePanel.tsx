@@ -102,6 +102,7 @@ export default function AssigneePanel({ node, users, departments }: AssigneePane
           : ''
     ) // node.data is used here
     setRoleValue(rule?.type === 'role_in_dept' ? rule.role : '') // node.data is used here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node.id])
 
   // ── Persist helper ───────────────────────────────────────────────────────

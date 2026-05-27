@@ -23,6 +23,7 @@ import type { TenantUser, TenantDepartment, NodeData } from '@/store/canvas-stor
 import type { Node, Edge } from '@xyflow/react'
 import { deserializeGraph, serializeGraph, type SerializedGraph } from '@/lib/flows/graph'
 import { getLatestDraftGraph } from '@/lib/flows/actions'
+import { saveTemplateGraph } from '@/app/platform/templates/actions'
 import { AiFlowGeneratorDialog } from './AiFlowGeneratorDialog'
 
 import { TriggerNode } from './nodes/TriggerNode'
@@ -60,6 +61,7 @@ interface FlowCanvasProps {
   initialNodes: Node[]
   initialEdges: Edge[]
   initialAllowedDeptIds: string[]
+  templateId?: string
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -73,6 +75,7 @@ export default function FlowCanvas({
   initialNodes,
   initialEdges,
   initialAllowedDeptIds,
+  templateId,
 }: FlowCanvasProps) {
   const {
     nodes,
@@ -86,6 +89,7 @@ export default function FlowCanvas({
     triggerSave,
     triggerPositionSave,
     setFlowId,
+    setCustomSaveFn,
     reset,
   } = useCanvasStore()
 
@@ -105,6 +109,14 @@ export default function FlowCanvas({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flowId])
+
+  // ── Route saves through template action when editing a platform template ──
+
+  useEffect(() => {
+    if (!templateId) return
+    setCustomSaveFn(async (graph) => saveTemplateGraph(templateId, graph))
+    return () => setCustomSaveFn(null)
+  }, [templateId, setCustomSaveFn])
 
   // ── Selected node ─────────────────────────────────────────────────────────
 
@@ -297,6 +309,7 @@ export default function FlowCanvas({
           onFlowStatusChange={setCurrentFlowStatus}
           onVersionRestored={handleVersionRestored}
           initialAllowedDeptIds={initialAllowedDeptIds}
+          isTemplate={!!templateId}
         />
       </div>
     </div>

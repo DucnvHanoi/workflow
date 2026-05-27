@@ -97,6 +97,11 @@ export interface CanvasStore {
 
   isReadOnly: boolean
 
+  // When set, triggerSave/triggerPositionSave call this instead of the default
+  // flow-version save. Used by the platform template editor so saves go to
+  // flow_templates.graph rather than flow_versions.
+  _customSaveFn: ((graph: SerializedGraph) => Promise<{ versionId: string; error?: string }>) | null
+
   nodes: Node[]
   edges: Edge[]
   selectedNodeId: string | null
@@ -119,6 +124,9 @@ export interface CanvasStore {
   setSaveStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void
   setLatestVersionId: (id: string | null) => void
   setFlowId: (id: string) => void
+  setCustomSaveFn: (
+    fn: ((graph: SerializedGraph) => Promise<{ versionId: string; error?: string }>) | null
+  ) => void
 
   setReadOnly: (val: boolean) => void
   loadVersion: (graph: SerializedGraph) => void
@@ -191,6 +199,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     flowId: null,
     _debounceTimer: null,
     isReadOnly: false,
+    _customSaveFn: null,
 
     nodes: [],
     edges: [],
@@ -314,6 +323,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     setSaveStatus: (status) => set({ saveStatus: status }),
     setLatestVersionId: (id) => set({ latestVersionId: id }),
     setFlowId: (id) => set({ flowId: id }),
+    setCustomSaveFn: (fn) => set({ _customSaveFn: fn }),
 
     setReadOnly: (val) => set({ isReadOnly: val }),
 
@@ -328,12 +338,27 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     },
 
     // Structural edits (add/remove node, edge changes, field/assignee/branch
-    // edits) → new version snapshot.
-    triggerSave: () => runDebouncedSave(saveDraftVersion),
+    // edits) → new version snapshot. If a custom save fn is set (template
+    // editor), route through that instead.
+    triggerSave: () => {
+      const fn = get()._customSaveFn
+      if (fn) {
+        runDebouncedSave((_, graph) => fn(graph))
+      } else {
+        runDebouncedSave(saveDraftVersion)
+      }
+    },
 
     // Position-only node moves → overwrite the latest draft in place (no new
     // version). Avoids ballooning version_number on every drag.
-    triggerPositionSave: () => runDebouncedSave(updateDraftGraph),
+    triggerPositionSave: () => {
+      const fn = get()._customSaveFn
+      if (fn) {
+        runDebouncedSave((_, graph) => fn(graph))
+      } else {
+        runDebouncedSave(updateDraftGraph)
+      }
+    },
 
     reset: () => {
       const state = get()
@@ -347,6 +372,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         flowId: null,
         _debounceTimer: null,
         isReadOnly: false,
+        _customSaveFn: null,
       })
     },
   }

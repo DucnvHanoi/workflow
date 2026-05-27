@@ -15,10 +15,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FlowRowActions } from '@/components/flows/flow-row-actions'
 import { ManageCategoriesDialog } from '@/components/flows/manage-categories-dialog'
-import { PlusIcon, SearchIcon, XIcon, PlayIcon } from 'lucide-react'
+import { TemplateGalleryModal } from '@/components/flows/TemplateGalleryModal'
+import { PlusIcon, SearchIcon, XIcon, PlayIcon, LayoutTemplate } from 'lucide-react'
 import { triggerFlow, updateFlowDescription } from '@/lib/flows/actions'
 import type { FlowListItem } from '@/lib/flows/actions'
 import type { FlowCategory } from '@/lib/flows/category-actions'
+import type { PublishedTemplate } from '@/lib/flows/template-actions'
 
 interface Props {
   initialFlows: FlowListItem[]
@@ -26,6 +28,7 @@ interface Props {
   isAdmin: boolean
   // The server action passed from the server page — keeps 'use server' off a client file
   createFlowAction: () => Promise<void>
+  templates: PublishedTemplate[]
 }
 
 // ─── Sentinel value for the "All" tab ────────────────────────────────────────
@@ -37,12 +40,14 @@ export function FlowsClient({
   categories: initialCategories,
   isAdmin,
   createFlowAction,
+  templates,
 }: Props) {
   // ── Local state ──────────────────────────────────────────────────────────
   const [flows, setFlows] = useState<FlowListItem[]>(initialFlows)
   const [categories, setCategories] = useState<FlowCategory[]>(initialCategories)
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState<string>(ALL_TAB)
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false)
 
   // ── Patch a single flow's category without full reload ───────────────────
   function handleCategoryUpdated(
@@ -143,176 +148,208 @@ export function FlowsClient({
   // ── Empty state ──────────────────────────────────────────────────────────
   if (flows.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-lg border bg-muted/20 py-20 text-center">
-        <div className="mb-3 text-4xl">🔁</div>
-        <h2 className="text-lg font-medium">
-          {isAdmin ? 'No flows yet' : 'No published flows available'}
-        </h2>
-        <p className="mb-4 mt-1 text-sm text-muted-foreground">
-          {isAdmin
-            ? 'Create your first workflow to get started.'
-            : 'Ask an administrator to publish a flow so you can start it.'}
-        </p>
-        {isAdmin && (
-          <form action={createFlowAction}>
-            <Button type="submit" size="sm">
-              <PlusIcon className="mr-1.5 h-4 w-4" />
-              New Flow
-            </Button>
-          </form>
-        )}
-      </div>
+      <>
+        <div className="flex flex-col items-center justify-center rounded-lg border bg-muted/20 py-20 text-center">
+          <div className="mb-3 text-4xl">🔁</div>
+          <h2 className="text-lg font-medium">
+            {isAdmin ? 'No flows yet' : 'No published flows available'}
+          </h2>
+          <p className="mb-4 mt-1 text-sm text-muted-foreground">
+            {isAdmin
+              ? 'Create your first workflow to get started.'
+              : 'Ask an administrator to publish a flow so you can start it.'}
+          </p>
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              <form action={createFlowAction}>
+                <Button type="submit" size="sm">
+                  <PlusIcon className="mr-1.5 h-4 w-4" />
+                  New Flow
+                </Button>
+              </form>
+              {templates.length > 0 && (
+                <Button size="sm" variant="outline" onClick={() => setTemplateGalleryOpen(true)}>
+                  <LayoutTemplate className="mr-1.5 h-4 w-4" />
+                  From Template
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+        <TemplateGalleryModal
+          open={templateGalleryOpen}
+          onClose={() => setTemplateGalleryOpen(false)}
+          templates={templates}
+        />
+      </>
     )
   }
 
   return (
-    <div className="space-y-4">
-      {/* ── Toolbar: search + manage categories ── */}
-      <div className="flex items-center gap-3">
-        {/* Search */}
-        <div className="relative flex-1 max-w-sm">
-          <SearchIcon className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-          <Input
-            placeholder="Search flows…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 pr-8"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <XIcon className="h-3.5 w-3.5" />
-            </button>
+    <>
+      <TemplateGalleryModal
+        open={templateGalleryOpen}
+        onClose={() => setTemplateGalleryOpen(false)}
+        templates={templates}
+      />
+      <div className="space-y-4">
+        {/* ── Toolbar: search + manage categories ── */}
+        <div className="flex items-center gap-3">
+          {/* Search */}
+          <div className="relative flex-1 max-w-sm">
+            <SearchIcon className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search flows…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 pr-8"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* From template (admin only, when templates exist) */}
+          {isAdmin && templates.length > 0 && (
+            <Button size="sm" variant="outline" onClick={() => setTemplateGalleryOpen(true)}>
+              <LayoutTemplate className="mr-1.5 h-4 w-4" />
+              From Template
+            </Button>
+          )}
+
+          {/* Manage categories (admin only) */}
+          {isAdmin && (
+            <ManageCategoriesDialog categories={categories} onCategoriesChange={setCategories} />
           )}
         </div>
 
-        {/* Manage categories (admin only) */}
-        {isAdmin && (
-          <ManageCategoriesDialog categories={categories} onCategoriesChange={setCategories} />
+        {/* ── Category tabs ── */}
+        {tabs.length > 1 && (
+          <div className="flex flex-wrap gap-1.5 border-b pb-0">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative flex items-center gap-1.5 rounded-t-md border border-b-0 px-3 py-1.5 text-sm transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-border bg-background font-medium text-foreground'
+                    : 'border-transparent bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                }`}
+              >
+                {tab.color && (
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: tab.color }}
+                  />
+                )}
+                {tab.label}
+                <span
+                  className={`ml-0.5 text-xs tabular-nums ${activeTab === tab.id ? 'text-muted-foreground' : 'text-muted-foreground/70'}`}
+                >
+                  {
+                    flows.filter((f) => {
+                      if (tab.id === ALL_TAB) return true
+                      if (tab.id === UNCATEGORIZED_TAB) return f.categoryId === null
+                      return f.categoryId === tab.id
+                    }).length
+                  }
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ── No search results ── */}
+        {filtered.length === 0 && search && (
+          <div className="py-12 text-center">
+            <p className="text-sm text-muted-foreground">
+              No flows match <span className="font-medium">&ldquo;{search}&rdquo;</span>
+            </p>
+            <button
+              onClick={() => setSearch('')}
+              className="mt-2 text-sm text-primary hover:underline"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
+
+        {/* ── Flow groups / tables ── */}
+        {filtered.length > 0 && (
+          <div className="space-y-6">
+            {groups.map((group, gi) => (
+              <div key={gi}>
+                {/* Group header (only shown in All tab) */}
+                {activeTab === ALL_TAB && group.label && (
+                  <div className="mb-2 flex items-center gap-2">
+                    {group.color && (
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: group.color }}
+                      />
+                    )}
+                    <span className="text-sm font-semibold text-foreground">{group.label}</span>
+                    <span className="text-xs text-muted-foreground">({group.items.length})</span>
+                  </div>
+                )}
+                {activeTab === ALL_TAB && !group.color && group.label === 'Uncategorized' && (
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full border border-dashed border-muted-foreground/40" />
+                    <span className="text-sm font-semibold text-muted-foreground">
+                      Uncategorized
+                    </span>
+                    <span className="text-xs text-muted-foreground">({group.items.length})</span>
+                  </div>
+                )}
+
+                {/* Table */}
+                <div className="overflow-hidden rounded-lg border">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-muted/50">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                          Name
+                        </th>
+                        <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                          Status
+                        </th>
+                        <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">
+                          Version
+                        </th>
+                        <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">
+                          Last Published
+                        </th>
+                        <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">
+                          Updated
+                        </th>
+                        <th className="w-10 px-4 py-3" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {group.items.map((flow) => (
+                        <FlowTableRow
+                          key={flow.id}
+                          flow={flow}
+                          isAdmin={isAdmin}
+                          categories={categories}
+                          onCategoryUpdated={handleCategoryUpdated}
+                          onDescriptionUpdated={handleDescriptionUpdated}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
-
-      {/* ── Category tabs ── */}
-      {tabs.length > 1 && (
-        <div className="flex flex-wrap gap-1.5 border-b pb-0">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`relative flex items-center gap-1.5 rounded-t-md border border-b-0 px-3 py-1.5 text-sm transition-colors ${
-                activeTab === tab.id
-                  ? 'border-border bg-background font-medium text-foreground'
-                  : 'border-transparent bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground'
-              }`}
-            >
-              {tab.color && (
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: tab.color }}
-                />
-              )}
-              {tab.label}
-              <span
-                className={`ml-0.5 text-xs tabular-nums ${activeTab === tab.id ? 'text-muted-foreground' : 'text-muted-foreground/70'}`}
-              >
-                {
-                  flows.filter((f) => {
-                    if (tab.id === ALL_TAB) return true
-                    if (tab.id === UNCATEGORIZED_TAB) return f.categoryId === null
-                    return f.categoryId === tab.id
-                  }).length
-                }
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── No search results ── */}
-      {filtered.length === 0 && search && (
-        <div className="py-12 text-center">
-          <p className="text-sm text-muted-foreground">
-            No flows match <span className="font-medium">&ldquo;{search}&rdquo;</span>
-          </p>
-          <button
-            onClick={() => setSearch('')}
-            className="mt-2 text-sm text-primary hover:underline"
-          >
-            Clear search
-          </button>
-        </div>
-      )}
-
-      {/* ── Flow groups / tables ── */}
-      {filtered.length > 0 && (
-        <div className="space-y-6">
-          {groups.map((group, gi) => (
-            <div key={gi}>
-              {/* Group header (only shown in All tab) */}
-              {activeTab === ALL_TAB && group.label && (
-                <div className="mb-2 flex items-center gap-2">
-                  {group.color && (
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: group.color }}
-                    />
-                  )}
-                  <span className="text-sm font-semibold text-foreground">{group.label}</span>
-                  <span className="text-xs text-muted-foreground">({group.items.length})</span>
-                </div>
-              )}
-              {activeTab === ALL_TAB && !group.color && group.label === 'Uncategorized' && (
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full border border-dashed border-muted-foreground/40" />
-                  <span className="text-sm font-semibold text-muted-foreground">Uncategorized</span>
-                  <span className="text-xs text-muted-foreground">({group.items.length})</span>
-                </div>
-              )}
-
-              {/* Table */}
-              <div className="overflow-hidden rounded-lg border">
-                <table className="w-full text-sm">
-                  <thead className="border-b bg-muted/50">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                        Name
-                      </th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                        Status
-                      </th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">
-                        Version
-                      </th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">
-                        Last Published
-                      </th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">
-                        Updated
-                      </th>
-                      <th className="w-10 px-4 py-3" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {group.items.map((flow) => (
-                      <FlowTableRow
-                        key={flow.id}
-                        flow={flow}
-                        isAdmin={isAdmin}
-                        categories={categories}
-                        onCategoryUpdated={handleCategoryUpdated}
-                        onDescriptionUpdated={handleDescriptionUpdated}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    </>
   )
 }
 
