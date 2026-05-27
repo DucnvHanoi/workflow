@@ -14,7 +14,11 @@ import { PlusIcon } from 'lucide-react'
 import { FlowsClient } from '@/components/flows/flows-client'
 import { FlowTriggerAssistant } from '@/components/my-flows/FlowTriggerAssistant'
 
-export default async function FlowsPage() {
+export default async function FlowsPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string>
+}) {
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
 
@@ -24,7 +28,7 @@ export default async function FlowsPage() {
   const [{ flows, error: flowsError }, { categories, error: catsError }, { summaries }] =
     await Promise.all([getFlows(), getCategories(), getAvailableFlowSummaries()])
 
-  const error = flowsError ?? catsError
+  const error = flowsError ?? catsError ?? searchParams?.error ?? null
 
   return (
     <div className="mx-auto max-w-5xl p-6">
