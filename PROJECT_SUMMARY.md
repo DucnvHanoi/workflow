@@ -2251,3 +2251,94 @@ Surface area wired:
   shown only when sidebar is not collapsed.
 - Both pages share the same sticky header nav pattern as the landing page
   (logo + Privacy Policy, Help Center, Log in links).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 45. PHASE 17 — ONBOARDING & NOTIFICATIONS (ROADMAP)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+M1 — Tenant Onboarding & Activation 🔜 NEXT
+M2 — Slack & Teams Webhook Notifications 🔜 PLANNED
+
+─── M1 — Tenant Onboarding & Activation ────────────────────────────────────
+
+Theme: new tenants sign up and hit a blank slate. A guided first-run
+experience reduces drop-off and gets the first workflow live faster.
+
+Components:
+
+Onboarding checklist widget (persistent, dismissible):
+
+- Rendered in the (app) layout or /tasks page for admin users only.
+- 4–5 steps: ① Invite your first user ② Create your first flow
+  ③ Publish and trigger a flow ④ Set up your team (departments) ⑤ Explore AI.
+- Progress stored in a new tenant_onboarding table (or JSONB column on tenants)
+  so it persists across sessions and auto-ticks when the action is completed.
+- "Dismiss" hides permanently once all steps are done or the user opts out.
+- Each step has a CTA button that deep-links to the relevant page.
+
+Empty states:
+
+- /flows — when no flows exist: illustration + "Create your first flow" button
+  - optional "Use a template" shortcut.
+- /tasks — when no pending tasks: friendly zero-state message, not a blank table.
+- /users — when only the admin exists: "Invite your first team member" CTA.
+
+Welcome email:
+
+- Triggered automatically after createTenantAccount() completes (signup flow).
+- Sent via Resend with subject "Welcome to BizFlow — here's how to get started".
+- Body: 3-step quick-start guide (create flow, invite user, trigger flow) with
+  deep-link buttons. Uses the same branded email template shell as invite emails.
+
+Sample flow pre-load (optional, toggle):
+
+- After signup, offer "Load a sample Leave Request flow?" — one click to clone
+  the Leave Request template from the platform template library into the new
+  tenant's workspace, so they can see a real flow immediately.
+
+─── M2 — Slack & Teams Webhook Notifications ────────────────────────────────
+
+Theme: step assignment and SLA alerts delivered to Slack or Teams channels
+alongside (or instead of) email, using each platform's Incoming Webhooks.
+
+How it works:
+
+Slack Incoming Webhooks — admin goes to api.slack.com/apps → creates an app
+→ enables Incoming Webhooks → installs to a channel → copies the webhook URL
+(https://hooks.slack.com/services/T.../B.../xxx). BizFlow POSTs a Block Kit
+message with the task name, flow name, assignee, due date, and an "Open Task"
+button linking to https://www.bizflow.id.vn/tasks/[id].
+
+Microsoft Teams — admin goes to a Teams channel → Manage Channel →
+Connectors → Incoming Webhook → configure → copies the webhook URL
+(https://xxx.webhook.office.com/webhookb2/...). BizFlow POSTs an Adaptive
+Card payload with the same information.
+
+URL shape detection: if the URL contains hooks.slack.com → Slack format;
+if it contains webhook.office.com → Teams format.
+
+Components:
+
+supabase/migrations — add slack_webhook_url TEXT and teams_webhook_url TEXT
+to the tenants table (nullable).
+
+src/lib/notifications/webhook.ts (new):
+
+- sendSlackNotification(url, payload): POST Block Kit JSON.
+- sendTeamsNotification(url, payload): POST Adaptive Card JSON.
+- sendWebhookNotification(tenantId, event): resolves tenant webhook URL,
+  detects platform, formats payload, fires the POST. Fire-and-forget
+  (await-ed to avoid Vercel Lambda cut-off, but errors are non-fatal).
+
+Notification events wired (in src/lib/flows/actions.ts):
+
+- Step assigned (triggerFlow / advanceFlow): notify assignee's tenant channel.
+- SLA overdue (src/app/api/cron/sla/route.ts): notify channel alongside
+  existing email digest.
+
+Settings UI — new "Integrations" card in /settings (admin only):
+
+- Two URL inputs: Slack Webhook URL + Teams Webhook URL (mutually exclusive
+  or both allowed — tenant's choice).
+- "Test" button fires a sample notification so the admin can confirm it works
+  before saving.
+- Server action saveWebhookUrls() validates URL shape before persisting.
