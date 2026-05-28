@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendSlaDigestEmail, sendEscalationEmail } from '@/lib/email/resend'
+import { sendWebhookNotification } from '@/lib/notifications/webhook'
 import type { SerializedGraph } from '@/lib/flows/graph'
 
 export async function GET(request: NextRequest) {
@@ -196,6 +197,24 @@ export async function GET(request: NextRequest) {
     for (const row of alreadySent ?? []) {
       alreadySentEmails.add(row.recipient_email as string)
     }
+  }
+
+  // Send one webhook notification per tenant that has overdue/due-soon steps
+  const tenantSlaMap: Record<string, { overdueCount: number; dueSoonCount: number }> = {}
+  for (const info of stepInfos) {
+    if (!tenantSlaMap[info.tenantId])
+      tenantSlaMap[info.tenantId] = { overdueCount: 0, dueSoonCount: 0 }
+    if (info.isOverdue) tenantSlaMap[info.tenantId].overdueCount++
+    else tenantSlaMap[info.tenantId].dueSoonCount++
+  }
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.bizflow.id.vn'
+  for (const [tenantId, counts] of Object.entries(tenantSlaMap)) {
+    void sendWebhookNotification(tenantId, {
+      type: 'sla_overdue',
+      overdueCount: counts.overdueCount,
+      dueSoonCount: counts.dueSoonCount,
+      taskLink: `${siteUrl}/tasks`,
+    })
   }
 
   let digestsSent = 0

@@ -11,6 +11,7 @@ import type { FormField, BranchCondition } from '@/store/canvas-store'
 import { sendAssignmentEmail } from '@/lib/email/resend'
 import { logAuditEvent } from '@/lib/audit/log'
 import { createNotification } from '@/lib/notifications/create'
+import { sendWebhookNotification } from '@/lib/notifications/webhook'
 import { revalidatePath } from 'next/cache'
 
 export type FlowListItem = {
@@ -877,6 +878,15 @@ export async function triggerFlow(
       link: '/tasks',
     })
 
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.bizflow.id.vn'
+    void sendWebhookNotification(tenantId, {
+      type: 'step_assigned',
+      flowName: (flow.name as string) ?? 'Flow',
+      stepName: stepLabel,
+      assigneeName: assigneeName,
+      taskLink: `${siteUrl}/tasks`,
+    })
+
     void resolveUserEmailAndName(db, assignedTo).then((assignee) => {
       if (assignee) {
         void sendAssignmentEmail({
@@ -1519,6 +1529,15 @@ async function advanceFlow(
       title: `New task: ${nextStepLabel}`,
       body: `You've been assigned a step. Open My Tasks to complete it.`,
       link: '/tasks',
+    })
+
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.bizflow.id.vn'
+    void sendWebhookNotification(tenantId, {
+      type: 'step_assigned',
+      flowName,
+      stepName: nextStepLabel,
+      assigneeName,
+      taskLink: `${siteUrl}/tasks`,
     })
 
     const triggererName = await resolveUserName(db, triggeredByUserId)
