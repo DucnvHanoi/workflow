@@ -2578,3 +2578,51 @@ Settings UI — new "Integrations" card in /settings (admin only):
 - "Test" button fires a sample notification so the admin can confirm it works
   before saving.
 - Server action saveWebhookUrls() validates URL shape before persisting.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 46. PHASE 17 — ONBOARDING & NOTIFICATIONS (COMPLETE ✅)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Theme: guide new tenants from signup to first workflow, and deliver real-time
+alerts to Slack/Teams so assignees never miss a task. Both milestones shipped
+in one session (2026-05-28). Build: clean, 103 routes, npm run build passes.
+
+── Session log (2026-05-28) ──────────────────────────────────────────────────
+
+git pull origin master — pulled Phase 17 M1 + related fixes from origin:
+
+- AdminChecklist, TourProvider, sample flow preload, welcome email update
+- user_onboarding migration, knowledge base seed migrations
+- Help center pages (/help, /help/[slug]), Privacy & Terms pages
+- Support system updates (AI responder, user context, inbound webhook)
+- Onboarding wired into layout, tasks page, sidebar, AvatarDropdown
+  Missing packages from M1 pull (marked, @vercel/functions) installed and
+  committed alongside M2.
+
+Phase 17 M2 — Slack & Teams Webhook Notifications implemented and shipped:
+
+DB: 20260528130000_add_webhook_urls_to_tenants.sql — slack_webhook_url TEXT
+and teams_webhook_url TEXT added to tenants. Applied to production via MCP.
+
+src/lib/notifications/webhook.ts (new) — WebhookEvent union type
+(step_assigned | sla_overdue), URL-shape platform detection, Slack Block Kit
+and Teams Adaptive Card payload builders, sendWebhookNotification(tenantId,
+event) fire-and-forget helper, testWebhookUrl(url) for settings Test button.
+
+src/lib/settings/webhook-actions.ts (new, 'use server') — getWebhookUrls(),
+saveWebhookUrls() with URL shape validation, testWebhook() admin gate.
+
+src/components/settings/WebhookSettingsCard.tsx (new) — Slack + Teams URL
+inputs, per-URL Test button, Save with status feedback.
+
+src/app/(app)/settings/page.tsx — "Integrations" tab added (4th tab).
+Fetches webhook URLs server-side, renders WebhookSettingsCard.
+
+src/lib/flows/actions.ts — sendWebhookNotification fired in triggerFlow and
+advanceFlow after step assignment (alongside existing email + in-app notification).
+
+src/app/api/cron/sla/route.ts — one sla_overdue webhook per tenant
+(overdueCount + dueSoonCount summary) fired before email digest loop.
+
+Commits:
+595b61b feat(integrations): Phase 17 M2 — Slack & Teams webhook notifications
+5355628 docs(summary): update Phase 17 M2 — Slack & Teams webhook notifications complete
