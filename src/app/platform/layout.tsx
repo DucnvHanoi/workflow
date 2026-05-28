@@ -1,7 +1,15 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
-import { LayoutDashboard, Users, Settings2, Zap, LayoutTemplate, Headphones } from 'lucide-react'
+import {
+  LayoutDashboard,
+  Users,
+  Settings2,
+  Zap,
+  LayoutTemplate,
+  Headphones,
+  BookOpen,
+} from 'lucide-react'
 
 const NAV = [
   { href: '/platform/tenants', label: 'Tenants', icon: Users },
@@ -9,6 +17,7 @@ const NAV = [
   { href: '/platform/ai-overrides', label: 'AI Overrides', icon: Zap },
   { href: '/platform/templates', label: 'Templates', icon: LayoutTemplate },
   { href: '/platform/support', label: 'Support', icon: Headphones },
+  { href: '/platform/support/knowledge', label: 'Knowledge Base', icon: BookOpen },
 ]
 
 export default async function PlatformLayout({ children }: { children: React.ReactNode }) {
