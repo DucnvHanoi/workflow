@@ -2626,3 +2626,78 @@ src/app/api/cron/sla/route.ts — one sla_overdue webhook per tenant
 Commits:
 595b61b feat(integrations): Phase 17 M2 — Slack & Teams webhook notifications
 5355628 docs(summary): update Phase 17 M2 — Slack & Teams webhook notifications complete
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 47. PHASE 18 — MOBILE UX & COLLABORATION (ROADMAP)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+M1 — Mobile-Responsive Polish 🔜 NEXT
+M2 — Flow Instance Comments / Thread 🔜 PLANNED
+
+─── M1 — Mobile-Responsive Polish ───────────────────────────────────────────
+
+Theme: the app was built desktop-first. The core assignee workflow (/tasks,
+sidebar nav, step detail panels, flow trigger) must be fully usable on a phone
+so field teams and non-desk workers can participate without a laptop.
+
+Scope (core assignee paths only — canvas/admin excluded):
+
+Sidebar navigation:
+
+- Collapse to a bottom tab bar or hamburger drawer on mobile (sm breakpoint).
+- Active tab indicator, touch-friendly tap targets (min 44px).
+
+/tasks page:
+
+- Tab bar (Pending / My Flows / History) wraps correctly on narrow screens.
+- AdminChecklist collapses cleanly or stacks vertically.
+- Task cards in the list are full-width, readable without horizontal scroll.
+
+Step detail / task form (tasks-client.tsx + instance detail panel):
+
+- Slide-in panel becomes full-screen sheet on mobile instead of 50vw side panel.
+- Form fields (text, select, file upload) are touch-friendly.
+- Submit / Save Draft buttons fixed to bottom of screen on mobile.
+
+/flows list page:
+
+- Flow cards stack to single column.
+- Filter bar collapses into a dropdown or sheet.
+
+/my-flows/[id] (flow instance timeline):
+
+- Timeline cards stack cleanly, step badges wrap.
+
+─── M2 — Flow Instance Comments / Thread ────────────────────────────────────
+
+Theme: assignees and admins currently have no in-app channel to ask questions
+or leave notes on a running flow instance — all back-channel happens via email.
+A simple comment thread per flow instance reduces noise and creates an audit
+trail of decisions.
+
+DB:
+
+instance_comments table:
+id uuid PK
+tenant_id uuid FK → tenants
+instance_id uuid FK → flow_instances ON DELETE CASCADE
+user_id uuid FK → users
+body text NOT NULL
+created_at timestamptz DEFAULT now()
+
+RLS: tenant isolation on tenant_id + only users with access to the instance
+can read/write (same access rule as getFlowTimeline: triggerer, any assignee,
+or tenant admin).
+
+API / server actions (src/lib/flows/comment-actions.ts):
+
+- addComment(instanceId, body): validates access, inserts row, returns comment.
+- getComments(instanceId): returns thread sorted oldest→newest.
+
+UI:
+
+- Comment thread rendered below the step timeline in the instance detail panel
+  (my-flows/[id] and admin/instances slide-in panel).
+- Simple textarea + "Send" button; optimistic append on submit.
+- Avatar + name + relative timestamp per message.
+- Real-time optional: poll every 30s or use Supabase Realtime channel on
+  instance_comments for live updates.
