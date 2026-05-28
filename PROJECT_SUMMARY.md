@@ -2180,6 +2180,40 @@ high + non-billing → auto-reply, ticket → ai_replied
 low + non-billing → auto-reply, ticket → pending_human, agent alerted
 low + billing → no reply, ticket → pending_human, agent alerted
 
+─── Google OAuth Login Fix (COMPLETE) ───────────────────────────────────────
+
+Symptom: clicking "Continue with Google" completed the Google auth flow but
+redirected to the landing page (https://www.bizflow.id.vn/?code=...) instead
+of the app.
+
+Root cause: Supabase falls back to the Site URL when the redirectTo URL passed
+by signInWithOAuth is not in its Redirect URLs allowlist. The PKCE code was
+appended to the site root (/?code=...) instead of /auth/callback?code=...
+The /auth/callback Route Handler never ran, so exchangeCodeForSession was
+never called. The landing page's `if (user) redirect('/tasks')` check ran
+instead, making it appear the user was sent to the "home page."
+
+Fix 1 — middleware intercept (src/middleware.ts):
+Added a check at the top of the middleware function: if the request hits '/'
+with a 'code' query param present, immediately redirect to /auth/callback
+preserving all query params. The PKCE code_verifier cookie travels with the
+redirect so exchangeCodeForSession succeeds.
+
+Fix 2 — platform admin bypass in callback (src/app/auth/callback/route.ts):
+After a successful exchangeCodeForSession, if the authenticated user's email
+matches PLATFORM_ADMIN_EMAIL, redirect straight to /platform, bypassing the
+public.users profile check that normal users go through. Platform admin always
+lands at /platform after any OAuth login.
+
+KNOWN GOTCHA — Supabase Redirect URL allowlist:
+signInWithOAuth passes redirectTo: `${window.location.origin}/auth/callback`.
+If that exact URL is not in Supabase → Auth → URL Configuration → Redirect
+URLs, Supabase silently falls back to the Site URL. Add all variants to avoid
+relying on the middleware intercept:
+https://www.bizflow.id.vn/auth/callback
+https://bizflow.id.vn/auth/callback
+http://localhost:3000/auth/callback
+
 ─── Terms of Service & Privacy Policy Pages (COMPLETE) ──────────────────────
 
 Two public legal pages added (commit 2d8e7c9). Both fully accessible without
