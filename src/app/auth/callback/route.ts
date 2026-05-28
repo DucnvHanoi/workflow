@@ -13,6 +13,12 @@ export async function GET(request: Request) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error && data.user) {
+      // Platform admin bypasses the profile check — always land at /platform
+      const platformEmail = process.env.PLATFORM_ADMIN_EMAIL
+      if (platformEmail && data.user.email === platformEmail) {
+        return NextResponse.redirect(`${origin}/platform`)
+      }
+
       // Invited users won't have full_name set yet — send them to account setup
       const { data: profile } = await supabase
         .from('users')
