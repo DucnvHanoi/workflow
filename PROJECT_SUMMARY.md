@@ -1889,6 +1889,42 @@ src/components/shell/AvatarDropdown.tsx
 
 69bc819 feat(onboarding): Phase 17 M1 — tenant onboarding & activation
 
+── Bug Fix: Tour Auto-Start Skipped for Invited Users ───────────────────────
+
+Symptom: newly invited users completed account setup, were redirected to
+/tasks, but the tooltip tour never appeared.
+
+Root cause: TourProvider mounts once in the (app) layout and persists across
+client-side navigations. The auto-start useEffect fired while the user was
+still on /account-setup — where data-tour elements do not exist. Because the
+effect ran and set autoStarted.current = true, by the time the user reached
+/tasks the guard had already fired. stepIndex was 0 but the rect-lookup effect
+only re-runs when stepIndex changes, so rect stayed null and the portal
+rendered nothing.
+
+Fix: added usePathname() to TourProvider.tsx. The auto-start effect now
+returns early unless pathname === '/tasks'. pathname added to the effect
+dependency array so it re-evaluates on every client-side navigation.
+
+File changed: src/components/onboarding/TourProvider.tsx
+
+Commit: b8f6437 fix(onboarding): gate tour auto-start on /tasks pathname
+
+── Production Migrations Applied (2026-05-28) ───────────────────────────────
+
+All three migrations applied to production project qdngvdffqsnqikqbhkmw
+(workflow-saas, ap-southeast-1) via Supabase MCP:
+
+1. 20260528120000_user_onboarding — creates user_onboarding table with RLS
+   policies (user can select/insert own rows) and user_id index.
+
+2. 20260415093000_knowledge_base_seed — 22 English help-center articles
+   across 8 categories (Getting Started, Flows, Tasks, Users, Departments,
+   Reports, Settings, AI Features). 5 updated, 17 inserted on first run.
+
+3. 20260415094000_knowledge_base_vietnamese — 27 Vietnamese translations
+   covering the same article set (slug suffix -vi).
+
 ── Invite Flow: Pending Users Leaking Into App ───────────────────────────────
 
 Root cause: invited users were created with is_active=true (DB default),
