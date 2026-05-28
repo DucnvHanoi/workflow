@@ -71,6 +71,24 @@ export function Sidebar({ role }: SidebarProps) {
         })}
       </nav>
 
+      {/* Legal links */}
+      {!collapsed && (
+        <div className="px-3 pb-2 flex items-center gap-3 shrink-0">
+          <Link
+            href="/privacy"
+            className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+          >
+            Privacy
+          </Link>
+          <Link
+            href="/terms"
+            className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+          >
+            Terms
+          </Link>
+        </div>
+      )}
+
       {/* Collapse toggle */}
       <div
         className={cn(
