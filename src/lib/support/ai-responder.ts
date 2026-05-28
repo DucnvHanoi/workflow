@@ -27,7 +27,7 @@ Rules:
 - Always set confidence "low" for billing questions (invoices, refunds, plan changes, exact pricing)
 - Keep the reply under 300 words
 - Address the customer by first name if their name is known
-- Do NOT add any sign-off or closing line — the system will append it automatically
+- Sign off naturally in the same language as the reply (e.g. "BizFlow Support Team")
 
 Respond ONLY with valid JSON — no code fences, no extra text:
 {"category":"billing|how-to|account|technical|general","confidence":"high|low","reply_text":"..."}`
@@ -202,17 +202,11 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
 
     const isBilling = aiReply.category === 'billing'
     const isHighConfidence = aiReply.confidence === 'high' && !isBilling
-    // Low confidence but not billing → still send, but append the follow-up note
     const canAutoReply = isHighConfidence || (aiReply.confidence === 'low' && !isBilling)
-
-    const FOLLOWUP_NOTE =
-      "If this doesn't answer your question, just reply to this email and there will be a BizFlow staff follow up with you very soon."
 
     // 5a. Can auto-reply (high confidence, or low-confidence non-billing) -----
     if (canAutoReply) {
-      const replyText = isHighConfidence
-        ? `${aiReply.reply_text}\n\n${FOLLOWUP_NOTE}`
-        : `${aiReply.reply_text}\n\n${FOLLOWUP_NOTE}`
+      const replyText = aiReply.reply_text
 
       const outboundMsgId = `<${ticketId}.${Date.now()}@bizflow.id.vn>`
 
