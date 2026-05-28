@@ -30,10 +30,7 @@ export type InstanceDetail = {
   flow_description: string | null
   graph: SerializedGraph
   steps: StepInstanceRow[]
-  // ── NEW: true when the viewing user was assigned to at least one step
-  // but is NOT the flow triggerer. Used to show the correct header copy
-  // and to allow assignees to read all completed step data.
   viewer_is_assignee: boolean
-  // passed from page.tsx so the client can show admin-only actions
   isAdmin: boolean
+  show_full_comment_history: boolean
 }

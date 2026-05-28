@@ -287,6 +287,7 @@ export function TasksClient({
               detail={panel.data.detail}
               orderedNodeIds={panel.data.orderedNodeIds}
               timeline={panel.data.timeline}
+              initialComments={panel.data.initialComments}
               currentUserId={currentUserId}
               isAdmin={isAdmin}
               tenantId={tenantId}

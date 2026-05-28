@@ -18,6 +18,7 @@ import { walkGraphOrder } from '@/lib/flows/graph-utils'
 import { InstanceDetailClient } from './instance-detail-client'
 import type { InstanceDetail, StepInstanceRow } from './types'
 import { getFlowTimeline } from '@/lib/flows/actions'
+import { getComments } from '@/lib/flows/comment-actions'
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ async function getInstanceDetail(
       updated_at,
       flow_versions!flow_version_id (
         graph,
-        flows!flow_id ( name, description, tenant_id )
+        flows!flow_id ( name, description, tenant_id, show_full_comment_history )
       )
     `
     )
@@ -151,9 +152,9 @@ async function getInstanceDetail(
     flow_name: flow.name,
     graph,
     steps,
-    // ── NEW: tell the client whether the viewer is here as an assignee
     viewer_is_assignee: isAssignee && !isTriggerer,
     isAdmin,
+    show_full_comment_history: (flow.show_full_comment_history as boolean | null) ?? true,
   }
 }
 
@@ -177,8 +178,10 @@ export default async function InstanceDetailPage(props: { params: Promise<{ id: 
     return node && node.type !== 'trigger' && node.type !== 'complete'
   })
 
-  // Fetch activity log server-side
-  const { events: timeline } = await getFlowTimeline(params.id)
+  const [{ events: timeline }, { comments: initialComments }] = await Promise.all([
+    getFlowTimeline(params.id),
+    getComments(params.id),
+  ])
 
   return (
     <InstanceDetailClient
@@ -188,6 +191,7 @@ export default async function InstanceDetailPage(props: { params: Promise<{ id: 
       isAdmin={isAdmin}
       tenantId={claims.tenant_id!}
       timeline={timeline}
+      initialComments={initialComments}
     />
   )
 }

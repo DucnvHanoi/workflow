@@ -2,7 +2,7 @@
 
 // FILE PATH: src/app/(app)/my-flows/[id]/instance-detail-client.tsx
 
-import React, { useState, useCallback, useTransition } from 'react'
+import React, { useState, useCallback, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
@@ -39,6 +39,8 @@ import type { SerializedNode } from '@/lib/flows/graph'
 import type { FormField } from '@/store/canvas-store'
 import type { FlowEventLog } from '@/lib/flows/actions'
 import { cancelInstance, reassignStep, getTenantUsers } from '@/lib/flows/actions'
+import { addComment, getComments } from '@/lib/flows/comment-actions'
+import type { CommentItem } from '@/lib/flows/comment-actions'
 import { FileDownloadLink, isFilePaths } from '@/components/canvas/FileDownloadLink'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -50,6 +52,7 @@ interface InstanceDetailClientProps {
   isAdmin: boolean
   timeline: FlowEventLog[]
   tenantId: string
+  initialComments?: CommentItem[]
   panelMode?: boolean
   onPanelClose?: () => void
   onPanelRefresh?: () => void
@@ -286,6 +289,7 @@ export function InstanceDetailClient({
   isAdmin,
   timeline,
   tenantId,
+  initialComments = [],
   panelMode = false,
   onPanelClose,
   onPanelRefresh,
@@ -520,6 +524,14 @@ export function InstanceDetailClient({
 
       {/* ── Activity Log ── */}
       <ActivityLog timeline={timeline} graph={detail.graph} />
+
+      {/* ── Comment Thread ── */}
+      <CommentThread
+        instanceId={detail.id}
+        initialComments={initialComments}
+        currentUserId={currentUserId}
+        showFullHistory={detail.show_full_comment_history}
+      />
 
       {/* ── Bottom back / close button ── */}
       <div className="mt-4">
@@ -1142,4 +1154,149 @@ function formatRelative(iso: string) {
   const days = Math.floor(hrs / 24)
   if (days < 7) return `${days}d ago`
   return formatDate(iso)
+}
+
+// ─── CommentThread ────────────────────────────────────────────────────────────
+
+function commentInitials(name: string | null, email: string): string {
+  if (name) {
+    const parts = name.trim().split(/\s+/)
+    return parts.length >= 2
+      ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+      : parts[0].slice(0, 2).toUpperCase()
+  }
+  return email.slice(0, 2).toUpperCase()
+}
+
+function CommentThread({
+  instanceId,
+  initialComments,
+  currentUserId,
+  showFullHistory,
+}: {
+  instanceId: string
+  initialComments: CommentItem[]
+  currentUserId: string
+  showFullHistory: boolean
+}) {
+  const [comments, setComments] = useState<CommentItem[]>(initialComments)
+  const [body, setBody] = useState('')
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const trimmed = body.trim()
+    if (!trimmed || isPending) return
+    setSubmitError(null)
+
+    // Optimistic append
+    const tempId = `temp-${Date.now()}`
+    const optimistic: CommentItem = {
+      id: tempId,
+      body: trimmed,
+      created_at: new Date().toISOString(),
+      user_id: currentUserId,
+      user_name: 'You',
+      user_email: '',
+    }
+    setComments((prev) => [...prev, optimistic])
+    setBody('')
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+
+    startTransition(async () => {
+      const result = await addComment(instanceId, trimmed)
+      if (result.error) {
+        setSubmitError(result.error)
+        setComments((prev) => prev.filter((c) => c.id !== tempId))
+        setBody(trimmed)
+      } else {
+        const { comments: fresh } = await getComments(instanceId)
+        setComments(fresh)
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+      }
+    })
+  }
+
+  return (
+    <div className="mt-6 border-t pt-5">
+      <h3 className="mb-3 text-sm font-semibold text-foreground">Comments</h3>
+
+      {!showFullHistory && (
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          History restricted — you can only see comments from when you joined this flow.
+        </p>
+      )}
+
+      {/* Thread */}
+      <div className="mb-3 max-h-72 space-y-2.5 overflow-y-auto">
+        {comments.length === 0 ? (
+          <p className="py-4 text-center text-xs text-muted-foreground">
+            No comments yet. Start the conversation.
+          </p>
+        ) : (
+          comments.map((c) => {
+            const isMe = c.user_id === currentUserId
+            const name = c.user_name ?? c.user_email
+            return (
+              <div key={c.id} className={`flex gap-2.5 ${isMe ? 'flex-row-reverse' : ''}`}>
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
+                  {commentInitials(c.user_name, c.user_email)}
+                </div>
+                <div
+                  className={`min-w-0 max-w-[80%] ${isMe ? 'items-end' : 'items-start'} flex flex-col`}
+                >
+                  <div className={`flex items-baseline gap-1.5 ${isMe ? 'flex-row-reverse' : ''}`}>
+                    <span className="text-[11px] font-semibold text-foreground">
+                      {isMe ? 'You' : name}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {formatRelative(c.created_at)}
+                    </span>
+                  </div>
+                  <p
+                    className={`mt-0.5 rounded-xl px-3 py-2 text-sm break-words ${
+                      isMe ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'
+                    }`}
+                  >
+                    {c.body}
+                  </p>
+                </div>
+              </div>
+            )
+          })
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {submitError && <p className="mb-2 text-xs text-red-600">{submitError}</p>}
+
+      {/* Input */}
+      <form onSubmit={handleSubmit} className="flex items-end gap-2">
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault()
+              handleSubmit(e as unknown as React.FormEvent)
+            }
+          }}
+          placeholder="Write a comment… (Ctrl+Enter to send)"
+          rows={2}
+          maxLength={2000}
+          disabled={isPending}
+          className="flex-1 resize-none rounded-lg border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+        />
+        <button
+          type="submit"
+          disabled={isPending || !body.trim()}
+          className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isPending ? '…' : 'Send'}
+        </button>
+      </form>
+    </div>
+  )
 }

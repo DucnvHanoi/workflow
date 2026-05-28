@@ -25,6 +25,7 @@ interface ConfigSidebarProps {
   onFlowStatusChange: (status: 'draft' | 'published') => void
   onVersionRestored: () => void
   initialAllowedDeptIds: string[]
+  initialShowFullHistory: boolean
   isTemplate?: boolean
 }
 
@@ -35,6 +36,7 @@ interface IdlePanelProps {
   flowStatus: 'draft' | 'published'
   departments: TenantDepartment[]
   initialAllowedDeptIds: string[]
+  initialShowFullHistory: boolean
   onFlowStatusChange: (status: 'draft' | 'published') => void
   onVersionRestored: () => void
 }
@@ -44,6 +46,7 @@ function IdlePanel({
   flowStatus,
   departments,
   initialAllowedDeptIds,
+  initialShowFullHistory,
   onFlowStatusChange,
   onVersionRestored,
 }: IdlePanelProps) {
@@ -79,6 +82,7 @@ function IdlePanel({
             flowStatus={flowStatus}
             departments={departments}
             initialAllowedDeptIds={initialAllowedDeptIds}
+            initialShowFullHistory={initialShowFullHistory}
             onStatusChange={onFlowStatusChange}
           />
         ) : (
@@ -101,6 +105,7 @@ export default function ConfigSidebar({
   onFlowStatusChange,
   onVersionRestored,
   initialAllowedDeptIds,
+  initialShowFullHistory,
   isTemplate,
 }: ConfigSidebarProps) {
   const { setSelectedNodeId } = useCanvasStore()
@@ -161,6 +166,7 @@ export default function ConfigSidebar({
           flowStatus={flowStatus}
           departments={departments}
           initialAllowedDeptIds={initialAllowedDeptIds}
+          initialShowFullHistory={initialShowFullHistory}
           onFlowStatusChange={onFlowStatusChange}
           onVersionRestored={onVersionRestored}
         />

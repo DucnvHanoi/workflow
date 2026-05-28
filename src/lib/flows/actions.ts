@@ -662,6 +662,28 @@ export async function updateFlowDepartmentRestrictions(
   return { error: error?.message ?? null }
 }
 
+// ─── updateFlowCommentHistory ─────────────────────────────────────────────────
+
+export async function updateFlowCommentHistory(
+  flowId: string,
+  showFullHistory: boolean
+): Promise<{ error: string | null }> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { error: gate.error }
+
+  const { tenantId, db } = gate
+  const access = await assertFlowInTenant(db, flowId, tenantId)
+  if (!access.ok) return { error: access.error }
+
+  const { error } = await db
+    .from('flows')
+    .update({ show_full_comment_history: showFullHistory, updated_at: new Date().toISOString() })
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+
+  return { error: error?.message ?? null }
+}
+
 // ─── updateFlowDescription ───────────────────────────────────────────────────
 
 export async function updateFlowDescription(
@@ -2626,12 +2648,14 @@ export type InstanceDetail = {
   steps: StepInstanceRow[]
   viewer_is_assignee: boolean
   isAdmin: boolean
+  show_full_comment_history: boolean
 }
 
 export type InstanceDetailForPanel = {
   detail: InstanceDetail
   orderedNodeIds: string[]
   timeline: FlowEventLog[]
+  initialComments: import('@/lib/flows/comment-actions').CommentItem[]
 }
 
 export async function getInstanceDetailForPanel(instanceId: string): Promise<{
@@ -2657,7 +2681,7 @@ export async function getInstanceDetailForPanel(instanceId: string): Promise<{
       updated_at,
       flow_versions!flow_version_id (
         graph,
-        flows!flow_id ( name, description, tenant_id )
+        flows!flow_id ( name, description, tenant_id, show_full_comment_history )
       )
     `
     )
@@ -2812,7 +2836,13 @@ export async function getInstanceDetailForPanel(instanceId: string): Promise<{
     steps,
     viewer_is_assignee: isAssignee && !isTriggerer,
     isAdmin,
+    show_full_comment_history:
+      ((flow as Record<string, unknown>).show_full_comment_history as boolean | null) ?? true,
   }
 
-  return { data: { detail, orderedNodeIds, timeline }, error: null }
+  // ── 8. Fetch initial comments ──────────────────────────────────────────────
+  const { getComments } = await import('@/lib/flows/comment-actions')
+  const { comments: initialComments } = await getComments(instanceId)
+
+  return { data: { detail, orderedNodeIds, timeline, initialComments }, error: null }
 }

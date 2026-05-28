@@ -7,7 +7,12 @@ import { CheckCircle2, AlertTriangle, Globe, FileText, ShieldCheck } from 'lucid
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { serializeGraph, validateGraph, type ValidationError } from '@/lib/flows/graph'
-import { publishFlow, unpublishFlow, updateFlowDepartmentRestrictions } from '@/lib/flows/actions'
+import {
+  publishFlow,
+  unpublishFlow,
+  updateFlowDepartmentRestrictions,
+  updateFlowCommentHistory,
+} from '@/lib/flows/actions'
 import { useCanvasStore, type NodeData, type TenantDepartment } from '@/store/canvas-store'
 import type { Node } from '@xyflow/react'
 
@@ -18,6 +23,7 @@ interface PublishPanelProps {
   flowStatus: 'draft' | 'published'
   departments: TenantDepartment[]
   initialAllowedDeptIds: string[]
+  initialShowFullHistory: boolean
   onStatusChange: (status: 'draft' | 'published') => void
 }
 
@@ -28,12 +34,15 @@ export default function PublishPanel({
   flowStatus,
   departments,
   initialAllowedDeptIds,
+  initialShowFullHistory,
   onStatusChange,
 }: PublishPanelProps) {
   const nodes = useCanvasStore((s) => s.nodes)
   const edges = useCanvasStore((s) => s.edges)
   const [isPending, startTransition] = useTransition()
   const [isRestrictionPending, startRestrictionTransition] = useTransition()
+  const [isHistoryPending, startHistoryTransition] = useTransition()
+  const [showFullHistory, setShowFullHistory] = useState(initialShowFullHistory)
 
   // Local restriction state — initialised from server, auto-saved on change
   const [restricted, setRestricted] = useState(initialAllowedDeptIds.length > 0)
@@ -93,6 +102,16 @@ export default function PublishPanel({
     setAllowedDeptIds(next)
     startRestrictionTransition(async () => {
       const result = await updateFlowDepartmentRestrictions(flowId, next)
+      if (result.error) toast.error(result.error)
+    })
+  }
+
+  // ── Comment history toggle ────────────────────────────────────────────────
+
+  function handleHistoryToggle(checked: boolean) {
+    setShowFullHistory(checked)
+    startHistoryTransition(async () => {
+      const result = await updateFlowCommentHistory(flowId, checked)
       if (result.error) toast.error(result.error)
     })
   }
@@ -223,6 +242,33 @@ export default function PublishPanel({
             )}
           </div>
         )}
+      </div>
+
+      <div className="border-t border-border" />
+
+      {/* ── Comment history ───────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-muted-foreground shrink-0" />
+          <p className="text-sm font-semibold text-foreground">Comment History</p>
+        </div>
+        <div className="flex items-start gap-2">
+          <input
+            id="history-toggle"
+            type="checkbox"
+            checked={showFullHistory}
+            onChange={(e) => handleHistoryToggle(e.target.checked)}
+            disabled={isHistoryPending}
+            className="mt-0.5 h-4 w-4 rounded border-input accent-primary cursor-pointer"
+          />
+          <label htmlFor="history-toggle" className="text-xs leading-snug cursor-pointer">
+            Show full comment history to all participants
+            <span className="block text-muted-foreground">
+              When off, assignees who join later can only see comments posted after their step was
+              assigned. Triggerer and admins always see everything.
+            </span>
+          </label>
+        </div>
       </div>
     </div>
   )

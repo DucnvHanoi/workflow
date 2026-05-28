@@ -17,6 +17,13 @@ export type WebhookEvent =
       dueSoonCount: number
       taskLink: string
     }
+  | {
+      type: 'comment_added'
+      flowName: string
+      commenterName: string
+      body: string
+      taskLink: string
+    }
 
 // ── Platform detection ────────────────────────────────────────────────────────
 
@@ -47,6 +54,32 @@ function buildSlackPayload(event: WebhookEvent): object {
               text: { type: 'plain_text', text: 'Open Task' },
               url: event.taskLink,
               action_id: 'open_task',
+            },
+          ],
+        },
+      ],
+    }
+  }
+
+  // comment_added
+  if (event.type === 'comment_added') {
+    return {
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `:speech_balloon: *New comment on "${event.flowName}"*\n*${event.commenterName}:* ${event.body}`,
+          },
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: 'View Flow' },
+              url: event.taskLink,
+              action_id: 'view_flow',
             },
           ],
         },
@@ -112,6 +145,37 @@ function buildTeamsPayload(event: WebhookEvent): object {
               },
             ],
             actions: [{ type: 'Action.OpenUrl', title: 'Open Task', url: event.taskLink }],
+          },
+        },
+      ],
+    }
+  }
+
+  // comment_added
+  if (event.type === 'comment_added') {
+    return {
+      type: 'message',
+      attachments: [
+        {
+          contentType: 'application/vnd.microsoft.card.adaptive',
+          content: {
+            $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+            type: 'AdaptiveCard',
+            version: '1.4',
+            body: [
+              {
+                type: 'TextBlock',
+                text: `New comment on "${event.flowName}"`,
+                weight: 'Bolder',
+                size: 'Medium',
+              },
+              {
+                type: 'FactSet',
+                facts: [{ title: 'From', value: event.commenterName }],
+              },
+              { type: 'TextBlock', text: event.body, wrap: true },
+            ],
+            actions: [{ type: 'Action.OpenUrl', title: 'View Flow', url: event.taskLink }],
           },
         },
       ],

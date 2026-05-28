@@ -9,6 +9,7 @@ export type NotificationType =
   | 'flow_completed'
   | 'sla_reminder'
   | 'step_escalated'
+  | 'comment_added'
 
 export interface CreateNotificationParams {
   tenantId: string

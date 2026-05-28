@@ -61,6 +61,7 @@ interface FlowCanvasProps {
   initialNodes: Node[]
   initialEdges: Edge[]
   initialAllowedDeptIds: string[]
+  initialShowFullHistory?: boolean
   templateId?: string
 }
 
@@ -75,6 +76,7 @@ export default function FlowCanvas({
   initialNodes,
   initialEdges,
   initialAllowedDeptIds,
+  initialShowFullHistory = true,
   templateId,
 }: FlowCanvasProps) {
   const {
@@ -309,6 +311,7 @@ export default function FlowCanvas({
           onFlowStatusChange={setCurrentFlowStatus}
           onVersionRestored={handleVersionRestored}
           initialAllowedDeptIds={initialAllowedDeptIds}
+          initialShowFullHistory={initialShowFullHistory}
           isTemplate={!!templateId}
         />
       </div>
