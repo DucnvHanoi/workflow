@@ -1748,6 +1748,147 @@ Lambda terminates when the server action returns, killing the HTTP call to
 Resend before it leaves the process. Fixed by awaiting all three calls.
 Nothing appeared in the Resend dashboard because the request never reached it.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 17 M1 — ONBOARDING & ACTIVATION (2026-05-28)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Goal: guide new tenants from signup to their first published flow with minimal
+friction — admin checklist, user tour, sample data, and a richer welcome email.
+
+── DB: user_onboarding table ─────────────────────────────────────────────────
+
+Migration: supabase/migrations/20260528120000_user_onboarding.sql
+
+user_onboarding (
+id uuid PK,
+user_id uuid → auth.users CASCADE,
+step_key text,
+completed_at timestamptz DEFAULT now(),
+UNIQUE (user_id, step_key)
+)
+
+RLS: users can only read/insert their own rows. Admin client bypasses RLS for
+server-side reads (checklist state, layout fetch).
+
+step_key values in use:
+tour_completed — user clicked Done on the tooltip tour
+checklist_dismissed — admin dismissed the setup checklist card
+
+── Admin Setup Checklist ─────────────────────────────────────────────────────
+
+Component: src/components/onboarding/AdminChecklist.tsx
+Actions: src/lib/onboarding/actions.ts → getAdminChecklistState()
+
+Shown on /tasks for admins only. 5 steps passively derived from live DB counts
+(no explicit "mark done" — state reflects reality):
+
+1. Create your first flow (flows count > 0)
+2. Publish a flow (flows where status='published' > 0)
+3. Invite a team member (users in tenant excluding self > 0)
+4. Set up a department (departments count > 0)
+5. Enable AI features (tenant_ai_configs row exists)
+
+Features:
+
+- Progress bar (completed/total)
+- Collapse/expand toggle
+- Dismiss button → marks step_key='checklist_dismissed' in user_onboarding
+- Dismissed state is optimistic (instant hide) then server-persisted
+
+── User Tooltip Tour ─────────────────────────────────────────────────────────
+
+Component: src/components/onboarding/TourProvider.tsx
+
+Architecture:
+
+- TourContext (startTour, active) shared via React context
+- TourProvider wraps the entire app layout (server passes role + completedStepKeys)
+- Tour overlay rendered via React.createPortal to document.body
+- CSS box-shadow spotlight: 0 0 0 9999px rgba(0,0,0,0.55) around target element
+- Target lookup: document.querySelector('[data-tour="<key>"]')
+- Rect updates on resize and scroll for accurate spotlight positioning
+
+Auto-start rules:
+
+- Non-admins: auto-starts 800ms after first login if 'tour_completed' not in DB
+- Admins: manual only (triggered from "Take the tour" in avatar dropdown)
+- Completion marks step_key='tour_completed' in user_onboarding
+
+Tour steps (non-admin):
+
+1. data-tour="task-list" — Pending Tasks tab button
+2. data-tour="nav-start-flow" — Start a Flow nav link (sidebar)
+3. data-tour="my-flows-tab" — My Flows tab button
+
+Tour steps (admin):
+
+1. data-tour="task-list" — Pending Tasks tab button
+2. data-tour="nav-flow-builder" — Flow Builder nav link (sidebar)
+3. data-tour="nav-invite" — Invite nav link (sidebar)
+
+"Take the tour" entry added to AvatarDropdown (all roles, always visible).
+Uses useTour() hook to call startTour().
+
+── Sample Flow Preload ────────────────────────────────────────────────────────
+
+File: src/lib/onboarding/sample-flow.ts
+
+Called from signup-actions.ts after step 4 (app_metadata stamped).
+Finds the "Leave Request" template (ilike match, is_published=true), clones it
+as a draft named "<name> (Sample)" with scrubbed tenant-specific assignee rules.
+Non-fatal — wrapped in try/catch so signup never fails if template is missing.
+
+── Welcome Email ─────────────────────────────────────────────────────────────
+
+Updated: src/lib/auth/signup-actions.ts → buildConfirmationEmail()
+
+Subject: "Confirm your DragFlow account" (unchanged)
+New content: 4-step numbered getting-started guide below the CTA button:
+
+1. Confirm your email (the CTA itself)
+2. Explore the sample Leave Request flow in Flow Builder
+3. Invite team members from the Invite page
+4. Publish a flow and let the team start submitting
+
+── Wire-up changes ───────────────────────────────────────────────────────────
+
+src/app/(app)/layout.tsx
+
+- Fetches getOnboardingSteps(user.id) → completedStepKeys
+- Wraps layout in <TourProvider role completedStepKeys>
+
+src/app/(app)/tasks/page.tsx
+
+- Fetches getAdminChecklistState() in parallel (admins only)
+- Passes adminChecklist to TasksClient
+
+src/app/(app)/tasks/tasks-client.tsx
+
+- Renders <AdminChecklist> above tabs when state provided and not dismissed
+- TabButton accepts optional tourKey → data-tour attribute
+- Pending Tasks tab: data-tour="task-list"
+- My Flows tab: data-tour="my-flows-tab"
+
+src/components/shell/nav-items.ts
+
+- NavItem interface gains optional tourKey field
+- Start a Flow: tourKey="nav-start-flow"
+- Flow Builder: tourKey="nav-flow-builder"
+- Invite: tourKey="nav-invite"
+
+src/components/shell/sidebar.tsx
+
+- Link renders data-tour={item.tourKey} when present
+
+src/components/shell/AvatarDropdown.tsx
+
+- Imports useTour from TourProvider
+- New "Take the tour" menu item (MapPin icon) calls startTour()
+
+── Commit ────────────────────────────────────────────────────────────────────
+
+69bc819 feat(onboarding): Phase 17 M1 — tenant onboarding & activation
+
 ── Invite Flow: Pending Users Leaking Into App ───────────────────────────────
 
 Root cause: invited users were created with is_active=true (DB default),
