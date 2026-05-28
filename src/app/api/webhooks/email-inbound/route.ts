@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { processInboundEmail, type PostmarkInboundPayload } from '@/lib/support/inbound'
 import { generateAiResponse } from '@/lib/support/ai-responder'
 
@@ -39,9 +40,9 @@ export async function POST(request: NextRequest) {
   try {
     const result = await processInboundEmail(payload)
 
-    // Trigger AI response fire-and-forget — return 200 immediately so
-    // Postmark does not retry. AI errors are handled internally.
-    void generateAiResponse(result.ticketId, result.messageId)
+    // waitUntil keeps the serverless function alive after the response is sent
+    // so the AI work completes. plain void would be killed immediately on Vercel.
+    waitUntil(generateAiResponse(result.ticketId, result.messageId))
 
     return NextResponse.json({
       ok: true,
