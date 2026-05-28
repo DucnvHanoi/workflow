@@ -34,6 +34,17 @@ function isPlatformRoute(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // Supabase sometimes redirects OAuth code to the site root instead of
+  // /auth/callback when the redirectTo URL isn't in its allowlist.
+  // Forward it to the proper handler so exchangeCodeForSession can run.
+  if (pathname === '/' && request.nextUrl.searchParams.has('code')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth/callback'
+    return NextResponse.redirect(url)
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -63,8 +74,6 @@ export async function middleware(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-
-  const { pathname } = request.nextUrl
 
   // 1. Public routes — always allow through
   if (isPublicRoute(pathname)) {
