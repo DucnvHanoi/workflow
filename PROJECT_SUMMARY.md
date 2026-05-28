@@ -2630,8 +2630,8 @@ Commits:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 47. PHASE 18 — MOBILE UX & COLLABORATION (ROADMAP)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-M1 — Mobile-Responsive Polish 🔜 NEXT
-M2 — Flow Instance Comments / Thread 🔜 PLANNED
+M1 — Mobile-Responsive Polish ✅ COMPLETE
+M2 — Flow Instance Comments / Thread ✅ COMPLETE
 
 ─── M1 — Mobile-Responsive Polish ───────────────────────────────────────────
 
@@ -2701,3 +2701,103 @@ UI:
 - Avatar + name + relative timestamp per message.
 - Real-time optional: poll every 30s or use Supabase Realtime channel on
   instance_comments for live updates.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 48. PHASE 18 — MOBILE UX & COLLABORATION (COMPLETE ✅)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Theme: make the app usable on mobile for field teams, and give all flow
+participants an in-app comment thread so decisions are captured where the work
+happens. Both milestones shipped in one session (2026-05-28). Build: clean,
+103 routes, npm run build passes.
+
+── M1 — Mobile-Responsive Sidebar & Core Nav (2026-05-28) ───────────────────
+
+Commit: 3a82aa2 feat(mobile): Phase 18 M1 — mobile-responsive sidebar + core nav
+
+src/components/shell/sidebar.tsx:
+
+- On mobile (< md): sidebar becomes a fixed full-height left drawer (z-50,
+  w-72) hidden off-screen by default. A hamburger button (Menu icon, fixed
+  top-left, md:hidden) opens it; an X button inside the header closes it.
+  Backdrop overlay (z-40, bg-black/50) closes on tap. Auto-closes on navigation
+  via useEffect watching usePathname().
+- Desktop (md+): existing collapsible behavior unchanged (w-56 / w-14).
+
+src/components/shell/topbar.tsx:
+
+- pr-6 pl-16 md:pl-6 — reserves 64px on the left on mobile to clear the
+  fixed hamburger button; reverts to 24px on desktop.
+
+src/app/(app)/layout.tsx:
+
+- p-4 md:p-6 on main — tighter content padding on narrow screens.
+
+src/app/(app)/tasks/tasks-client.tsx:
+
+- Tab bar: px-3 sm:px-5 so all three tabs fit on a 375px phone without
+  horizontal scroll.
+
+── M2 — Flow Instance Comment Thread (2026-05-28) ────────────────────────────
+
+Commit: 9374e9e feat(comments): Phase 18 M2 — flow instance comment thread
+
+DB (applied to production qdngvdffqsnqikqbhkmw):
+
+instance_comments (id, tenant_id, instance_id, user_id, body, created_at)
+
+- body CHECK: 1–2000 chars, trimmed
+- Indexes: (instance_id, created_at), (tenant_id)
+- RLS: tenant_id isolation policy
+
+flows.show_full_comment_history boolean NOT NULL DEFAULT true
+
+Access rules:
+
+- Read/write: flow triggerer + any user who has ever been assigned a step on
+  this instance (past or current, i.e., has a step_instances row) + admin.
+- Future assignees (no step_instances row yet) are excluded automatically —
+  they gain access the moment advanceFlow assigns their step.
+- Admin always has read access but does NOT receive comment notifications
+  unless also triggerer or step assignee.
+
+History toggle (show_full_comment_history):
+
+- Stored on the flows table (per-flow, not global).
+- When OFF: regular assignees only see comments whose created_at >=
+  their earliest step_instance.created_at for that instance.
+- Triggerer and admin always see full history regardless.
+- Toggle lives in the flow builder Publish panel (alongside dept restriction).
+- Server action: updateFlowCommentHistory(flowId, bool).
+
+src/lib/flows/comment-actions.ts (new 'use server'):
+
+- checkAccess(): resolves triggerer / step-assignee / admin, returns flow
+  metadata including showFullHistory.
+- getComments(instanceId): access-gated, history-filtered. Called on page
+  load (server) and client-side after each successful addComment.
+- addComment(instanceId, body): insert → in-app notifications for all
+  participants except the poster → Slack/Teams webhook (comment_added event).
+
+Notifications:
+
+- src/lib/notifications/create.ts: added 'comment_added' to NotificationType.
+- src/lib/notifications/webhook.ts: added 'comment_added' WebhookEvent with
+  Slack Block Kit and Teams Adaptive Card payloads. Slack shows commenter
+  name + truncated body + "View Flow" button.
+
+UI — CommentThread (inline component in instance-detail-client.tsx):
+
+- Bubble layout: own messages right (primary bg), others left (muted bg).
+- Optimistic append on send; server refresh on success to sync IDs.
+- Ctrl+Enter keyboard shortcut to submit; 2000-char textarea maxLength.
+- Amber notice banner when show_full_comment_history = false.
+- Rendered below Activity Log in both /my-flows/[id] full page and the
+  tasks slide-in panel (initialComments threaded through
+  getInstanceDetailForPanel → InstanceDetailForPanel → tasks-client).
+
+Prop threading for history toggle (edit/page → FlowCanvas → ConfigSidebar
+→ IdlePanel → PublishPanel): initialShowFullHistory optional (default true)
+so platform template editor is unaffected.
+
+KNOWN GOTCHA — Set iteration: tsconfig default target (ES3) does not support
+for...of on Set. Fixed with Array.from(participantIds) in addComment.
