@@ -61,6 +61,9 @@ function LandingNav() {
             <a href="#faq" className="hover:text-slate-900 transition-colors">
               FAQ
             </a>
+            <Link href="/help" className="hover:text-slate-900 transition-colors">
+              Help
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-3">

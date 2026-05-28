@@ -19,6 +19,7 @@ import {
   Bot,
   TrendingUp,
   ShieldCheck,
+  BookOpen,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -103,6 +104,8 @@ export const NAV_ITEMS: NavItem[] = [
   },
   // Settings group (admin only)
   { label: 'Settings', href: '/settings', icon: Settings, adminOnly: true, group: 'Settings' },
+  // Help — visible to all roles
+  { label: 'Help', href: '/help', icon: BookOpen, adminOnly: false, group: 'Support' },
 ]
 
 export function getNavItems(role: string): NavItem[] {
