@@ -45,6 +45,7 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 
 const ACCOUNT_EMAIL = process.env.RESEND_ACCOUNT_EMAIL ?? 'onboarding@resend.dev'
 const NOTIFICATION_EMAIL = process.env.RESEND_NOTIFICATION_EMAIL ?? 'onboarding@resend.dev'
+const SUPPORT_FROM_EMAIL = process.env.SUPPORT_FROM_EMAIL ?? ACCOUNT_EMAIL
 
 // ---------------------------------------------------------------------------
 // Internal log writer
@@ -360,7 +361,7 @@ export async function sendSupportReplyEmail(
   const headers: Record<string, string> = {
     'Message-ID': params.customMessageId,
     // Reply-To ensures customer replies route back through Postmark inbound
-    'Reply-To': 'contact@bizflow.id.vn',
+    'Reply-To': process.env.SUPPORT_REPLY_TO_EMAIL ?? 'contact@bizflow.id.vn',
   }
   if (params.inReplyTo) {
     headers['In-Reply-To'] = params.inReplyTo
@@ -369,7 +370,7 @@ export async function sendSupportReplyEmail(
 
   try {
     const { data, error } = await resend.emails.send({
-      from: ACCOUNT_EMAIL,
+      from: SUPPORT_FROM_EMAIL,
       to: params.to,
       subject: params.subject,
       html,
@@ -408,7 +409,7 @@ export async function sendAgentAlertEmail(params: SendAgentAlertEmailParams): Pr
 
   try {
     const { error } = await resend.emails.send({
-      from: ACCOUNT_EMAIL,
+      from: SUPPORT_FROM_EMAIL,
       to: agentEmail,
       subject,
       html,
