@@ -40,6 +40,8 @@ import type {
 } from '@/lib/flows/actions'
 import type { FormField } from '@/store/canvas-store'
 import { InstanceDetailClient } from '@/app/(app)/my-flows/[id]/instance-detail-client'
+import { AdminChecklist } from '@/components/onboarding/AdminChecklist'
+import type { AdminChecklistState } from '@/lib/onboarding/actions'
 
 // ─── Modal state (step form) ──────────────────────────────────────────────────
 
@@ -90,6 +92,7 @@ interface TasksClientProps {
   currentUserId: string
   tenantId: string
   isAdmin: boolean
+  adminChecklist?: AdminChecklistState | null
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -101,6 +104,7 @@ export function TasksClient({
   currentUserId,
   tenantId,
   isAdmin,
+  adminChecklist,
 }: TasksClientProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('pending')
@@ -188,6 +192,9 @@ export function TasksClient({
 
   return (
     <>
+      {/* ── Admin onboarding checklist ── */}
+      {adminChecklist && !adminChecklist.dismissed && <AdminChecklist state={adminChecklist} />}
+
       {/* ── Tab bar ── */}
       <div className="mb-5 flex border-b">
         <TabButton
@@ -195,12 +202,14 @@ export function TasksClient({
           onClick={() => setActiveTab('pending')}
           label="Pending Tasks"
           count={pendingTasks.length}
+          tourKey="task-list"
         />
         <TabButton
           active={activeTab === 'my-flows'}
           onClick={() => setActiveTab('my-flows')}
           label="My Flows"
           count={myFlowInstances.length}
+          tourKey="my-flows-tab"
         />
         <TabButton
           active={activeTab === 'history'}
@@ -330,15 +339,18 @@ function TabButton({
   onClick,
   label,
   count,
+  tourKey,
 }: {
   active: boolean
   onClick: () => void
   label: string
   count: number
+  tourKey?: string
 }) {
   return (
     <button
       onClick={onClick}
+      data-tour={tourKey}
       className={`flex items-center gap-2 border-b-2 px-5 py-2.5 text-sm font-medium transition-colors ${
         active
           ? 'border-primary text-primary'

@@ -11,6 +11,7 @@
 
 import { getMyTasks, getMyCompletedTasks, getMyInstances } from '@/lib/flows/actions'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { getAdminChecklistState } from '@/lib/onboarding/actions'
 import { redirect } from 'next/navigation'
 import { TasksClient } from './tasks-client'
 
@@ -20,11 +21,19 @@ export default async function TasksPage() {
   const { user, claims } = await getSessionClaims()
   if (!user) redirect('/login')
 
+  const isAdmin = claims.role === 'admin'
+
   const [
     { tasks: pendingTasks, error: pendingError },
     { tasks: completedTasks, error: completedError },
     { instances: myFlowInstances, error: instancesError },
-  ] = await Promise.all([getMyTasks(), getMyCompletedTasks(), getMyInstances()])
+    adminChecklist,
+  ] = await Promise.all([
+    getMyTasks(),
+    getMyCompletedTasks(),
+    getMyInstances(),
+    isAdmin ? getAdminChecklistState() : Promise.resolve(null),
+  ])
 
   const error = pendingError ?? completedError ?? instancesError
 
@@ -48,7 +57,8 @@ export default async function TasksPage() {
           myFlowInstances={myFlowInstances}
           currentUserId={user.id}
           tenantId={claims.tenant_id!}
-          isAdmin={claims.role === 'admin'}
+          isAdmin={isAdmin}
+          adminChecklist={adminChecklist}
         />
       )}
     </div>

@@ -55,6 +55,7 @@ export function Sidebar({ role }: SidebarProps) {
               <Link
                 href={item.href}
                 title={collapsed ? item.label : undefined}
+                data-tour={item.tourKey}
                 className={cn(
                   'flex items-center rounded-md text-sm transition-colors',
                   collapsed ? 'justify-center py-2' : 'gap-2.5 px-3 py-2',

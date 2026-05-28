@@ -33,6 +33,8 @@ export interface NavItem {
   exact?: boolean
   /** Visual group label rendered above the first item in each group */
   group?: string
+  /** data-tour attribute value for tooltip tour targeting */
+  tourKey?: string
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -44,10 +46,17 @@ export const NAV_ITEMS: NavItem[] = [
     icon: PlayCircle,
     adminOnly: false,
     hideFromAdmin: true,
+    tourKey: 'nav-start-flow',
   },
   // Admin-only workflow items
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, adminOnly: true },
-  { label: 'Flow Builder', href: '/flows', icon: GitBranch, adminOnly: true },
+  {
+    label: 'Flow Builder',
+    href: '/flows',
+    icon: GitBranch,
+    adminOnly: true,
+    tourKey: 'nav-flow-builder',
+  },
   { label: 'Instances', href: '/admin/instances', icon: List, adminOnly: true },
   { label: 'Audit Trail', href: '/admin/audit', icon: ScrollText, adminOnly: true },
   { label: 'AI Spend', href: '/admin/ai-usage', icon: Bot, adminOnly: true },
@@ -76,6 +85,7 @@ export const NAV_ITEMS: NavItem[] = [
     adminOnly: true,
     exact: true,
     group: 'Users',
+    tourKey: 'nav-invite',
   },
   {
     label: 'Pending Invites',

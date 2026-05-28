@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { User, Settings, LogOut } from 'lucide-react'
+import { User, Settings, LogOut, MapPin } from 'lucide-react'
 import { createBrowserClient } from '@supabase/ssr'
 import {
   DropdownMenu,
@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useTour } from '@/components/onboarding/TourProvider'
 
 interface Props {
   initials: string
@@ -21,6 +22,7 @@ interface Props {
 
 export function AvatarDropdown({ initials, displayName, email, role }: Props) {
   const router = useRouter()
+  const { startTour } = useTour()
 
   async function handleSignOut() {
     const supabase = createBrowserClient(
@@ -61,6 +63,11 @@ export function AvatarDropdown({ initials, displayName, email, role }: Props) {
             Settings
           </DropdownMenuItem>
         )}
+
+        <DropdownMenuItem onSelect={startTour}>
+          <MapPin className="mr-2 h-4 w-4" />
+          Take the tour
+        </DropdownMenuItem>
 
         <DropdownMenuSeparator />
 
