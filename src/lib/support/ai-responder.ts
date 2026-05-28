@@ -40,25 +40,46 @@ interface AiResponseJson {
 async function searchKnowledgeBase(query: string): Promise<string> {
   const db = createAdminClient()
 
-  // Sanitise query for plainto_tsquery — strip punctuation that could break parsing
   const cleanQuery = query
     .replace(/[^\w\s]/g, ' ')
     .trim()
     .slice(0, 300)
 
+  if (!cleanQuery) return 'No relevant knowledge base articles found.'
+
+  const select = 'title, content_markdown'
+  const format = (rows: { title: string; content_markdown: string }[]) =>
+    rows.map((a) => `## ${a.title}\n\n${a.content_markdown}`).join('\n\n---\n\n')
+
   try {
-    const { data } = await db
+    // Pass 1: AND semantics — precise match
+    const { data: exact } = await db
       .from('knowledge_base')
-      .select('title, content_markdown')
+      .select(select)
       .eq('is_active', true)
       .textSearch('search_vector', cleanQuery, { type: 'plain', config: 'english' })
       .limit(3)
 
-    if (data && data.length > 0) {
-      return data.map((a) => `## ${a.title}\n\n${a.content_markdown}`).join('\n\n---\n\n')
-    }
+    if (exact && exact.length > 0) return format(exact)
+
+    // Pass 2: OR semantics — any word matches (better recall for paraphrased queries)
+    const orQuery = cleanQuery
+      .split(/\s+/)
+      .filter((w) => w.length > 3)
+      .join(' OR ')
+
+    if (!orQuery) return 'No relevant knowledge base articles found.'
+
+    const { data: broad } = await db
+      .from('knowledge_base')
+      .select(select)
+      .eq('is_active', true)
+      .textSearch('search_vector', orQuery, { type: 'websearch', config: 'english' })
+      .limit(3)
+
+    if (broad && broad.length > 0) return format(broad)
   } catch {
-    // Full-text search failed (empty query, etc.) — fall through to no articles
+    // Search failed — fall through
   }
 
   return 'No relevant knowledge base articles found.'
@@ -98,7 +119,8 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       (message.body_html ? message.body_html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') : '')
 
     // 2. Knowledge base search -----------------------------------------------
-    const kbQuery = `${ticket.subject} ${bodyText}`.slice(0, 500)
+    // Subject-only gives better KB recall — full body adds noise terms that break plainto_tsquery AND matching
+    const kbQuery = ticket.subject.slice(0, 300)
     const kbArticles = await searchKnowledgeBase(kbQuery)
 
     // 3. Call Claude ----------------------------------------------------------
