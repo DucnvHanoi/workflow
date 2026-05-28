@@ -351,7 +351,7 @@ function TabButton({
     <button
       onClick={onClick}
       data-tour={tourKey}
-      className={`flex items-center gap-2 border-b-2 px-5 py-2.5 text-sm font-medium transition-colors ${
+      className={`flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:gap-2 sm:px-5 ${
         active
           ? 'border-primary text-primary'
           : 'border-transparent text-muted-foreground hover:text-foreground'

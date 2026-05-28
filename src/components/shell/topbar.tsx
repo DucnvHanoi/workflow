@@ -56,8 +56,8 @@ export async function Topbar({ userId, userEmail, tenantId, role }: TopbarProps)
   const initialNotifications = (notifRows ?? []) as NotificationItem[]
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-6">
-      {/* Tenant name */}
+    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card pr-6 pl-16 md:pl-6">
+      {/* Tenant name — pl-16 on mobile leaves room for the fixed hamburger button */}
       <span className="text-sm font-medium text-foreground">{tenantName}</span>
 
       {/* Right side: notification bell + role badge + avatar */}
