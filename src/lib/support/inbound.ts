@@ -3,33 +3,32 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // ---------------------------------------------------------------------------
-// Resend body fetch — inbound webhook payloads omit text/html body
-// ---------------------------------------------------------------------------
-
-async function fetchEmailBody(
-  emailId: string
-): Promise<{ text: string | null; html: string | null }> {
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) return { text: null, html: null }
-  try {
-    const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      cache: 'no-store',
-    })
-    if (!res.ok) return { text: null, html: null }
-    const data = (await res.json()) as { text?: string; html?: string }
-    return { text: data.text ?? null, html: data.html ?? null }
-  } catch {
-    return { text: null, html: null }
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+/** Postmark inbound webhook payload shape */
+export interface PostmarkInboundPayload {
+  From: string // "Name <email>" or plain address
+  FromName: string
+  FromFull: { Email: string; Name: string; MailboxHash: string }
+  To: string
+  ToFull: Array<{ Email: string; Name: string; MailboxHash: string }>
+  Subject: string
+  TextBody: string
+  HtmlBody: string
+  MessageID: string // RFC Message-ID header value
+  Date: string
+  ReplyTo?: string
+  Cc?: string
+  Bcc?: string
+  Headers: Array<{ Name: string; Value: string }>
+  Attachments?: unknown[]
+  MailboxHash?: string
+}
+
+// Kept for reference only — no longer used for inbound processing
 export interface ResendInboundPayload {
-  type: string // "email.received"
+  type: string
   created_at: string
   data: {
     from: string
@@ -37,7 +36,7 @@ export interface ResendInboundPayload {
     subject: string
     text?: string
     html?: string
-    message_id: string // the RFC Message-ID header, provided directly by Resend
+    message_id: string
     email_id: string
     headers?: Record<string, string> | Array<{ name: string; value: string }>
     attachments?: unknown[]
@@ -72,19 +71,14 @@ function normaliseSubject(subject: string): string {
     .toLowerCase()
 }
 
-/** Extract a named header from either header format Resend may send */
+/** Extract a named header from Postmark's [{ Name, Value }] array */
 function getHeader(
-  headers: Record<string, string> | Array<{ name: string; value: string }> | undefined,
+  headers: Array<{ Name: string; Value: string }> | undefined,
   name: string
 ): string | null {
   if (!headers) return null
   const lower = name.toLowerCase()
-  if (Array.isArray(headers)) {
-    return headers.find((h) => h.name.toLowerCase() === lower)?.value ?? null
-  }
-  // object map — keys may be mixed-case
-  const key = Object.keys(headers).find((k) => k.toLowerCase() === lower)
-  return key ? headers[key] : null
+  return headers.find((h) => h.Name.toLowerCase() === lower)?.Value ?? null
 }
 
 // ---------------------------------------------------------------------------
@@ -98,21 +92,20 @@ function getHeader(
  * 3. Appends the message to support_messages
  * Returns the ticket id and message id.
  */
-export async function processInboundEmail(payload: ResendInboundPayload): Promise<{
+export async function processInboundEmail(payload: PostmarkInboundPayload): Promise<{
   ticketId: string
   messageId: string
   isNewTicket: boolean
 }> {
   const db = createAdminClient()
 
-  const { data: emailData } = payload
-  const sender = parseEmailAddress(emailData.from)
-  const subject = emailData.subject?.trim() ?? '(no subject)'
+  const sender = parseEmailAddress(payload.From)
+  const subject = payload.Subject?.trim() || '(no subject)'
 
-  // Resend provides message_id directly; fall back to header extraction for in-reply-to / references
-  const messageId = emailData.message_id ?? null
-  const inReplyTo = getHeader(emailData.headers, 'in-reply-to')
-  const references = getHeader(emailData.headers, 'references')
+  // Postmark provides MessageID directly; extract threading headers from Headers array
+  const messageId = payload.MessageID ?? null
+  const inReplyTo = getHeader(payload.Headers, 'in-reply-to')
+  const references = getHeader(payload.Headers, 'references')
 
   // ------------------------------------------------------------------
   // 1. Threading: find existing ticket
@@ -199,11 +192,11 @@ export async function processInboundEmail(payload: ResendInboundPayload): Promis
   // ------------------------------------------------------------------
   // 3. Log the inbound message
   // ------------------------------------------------------------------
-  // Resend inbound webhooks omit body — fetch it separately via the Emails API
-  const body =
-    emailData.text || emailData.html
-      ? { text: emailData.text ?? null, html: emailData.html ?? null }
-      : await fetchEmailBody(emailData.email_id)
+  // Postmark includes TextBody and HtmlBody directly in the webhook payload
+  const body = {
+    text: payload.TextBody || null,
+    html: payload.HtmlBody || null,
+  }
 
   const { data: msg, error: msgError } = await db
     .from('support_messages')

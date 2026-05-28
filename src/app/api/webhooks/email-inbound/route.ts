@@ -1,13 +1,13 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { processInboundEmail, type ResendInboundPayload } from '@/lib/support/inbound'
+import { processInboundEmail, type PostmarkInboundPayload } from '@/lib/support/inbound'
 
 /**
  * POST /api/webhooks/email-inbound
  *
- * Receives inbound emails forwarded by Resend.
+ * Receives inbound emails forwarded by Postmark.
  * Security: secret query param (?secret=SUPPORT_INBOUND_SECRET).
- * Resend does not sign inbound payloads, so we guard with a shared secret
- * embedded in the webhook URL configured on the Resend dashboard.
+ * Postmark does not sign inbound payloads, so we guard with a shared secret
+ * embedded in the webhook URL configured on the Postmark dashboard.
  *
  * After parsing and persisting the ticket/message this handler returns 200
  * immediately. The AI response (M3) is triggered asynchronously.
@@ -22,18 +22,16 @@ export async function POST(request: NextRequest) {
   }
 
   // --- Parse body ------------------------------------------------------------
-  let payload: ResendInboundPayload
+  let payload: PostmarkInboundPayload
   try {
-    payload = (await request.json()) as ResendInboundPayload
+    payload = (await request.json()) as PostmarkInboundPayload
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  if (!payload.data?.from || !payload.data?.subject) {
-    return NextResponse.json(
-      { error: 'Missing required fields: data.from, data.subject' },
-      { status: 400 }
-    )
+  // Postmark sends top-level From and Subject fields
+  if (!payload.From || !payload.Subject) {
+    return NextResponse.json({ error: 'Missing required fields: From, Subject' }, { status: 400 })
   }
 
   // --- Process ---------------------------------------------------------------
@@ -53,7 +51,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Resend retries on non-2xx — make sure we don't process GET/HEAD
+// Postmark health check — return 200 for GET requests
 export async function GET() {
   return NextResponse.json({ ok: true })
 }
