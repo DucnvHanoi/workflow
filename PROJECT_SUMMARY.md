@@ -2179,3 +2179,41 @@ Routing table:
 high + non-billing → auto-reply, ticket → ai_replied
 low + non-billing → auto-reply, ticket → pending_human, agent alerted
 low + billing → no reply, ticket → pending_human, agent alerted
+
+─── Terms of Service & Privacy Policy Pages (COMPLETE) ──────────────────────
+
+Two public legal pages added (commit 2d8e7c9). Both fully accessible without
+login — added to PUBLIC_ROUTES in middleware.ts (/terms, /privacy, /help).
+
+src/app/terms/page.tsx:
+
+- 14-section Terms of Service (acceptance, service, accounts, billing,
+  acceptable use, IP, privacy, disclaimers, liability, indemnification,
+  termination, governing law, changes, contact).
+- Sticky desktop ToC sidebar (lg:grid lg:grid-cols-[220px_1fr]).
+- GDPR-compatible governing-law clause, EU ODR platform link.
+- USD 100 aggregate liability cap. 30-day data retention post-termination.
+- eslint-disable react/no-unescaped-entities (legal text contains many
+  quoted terms and contractions in JSX).
+
+src/app/privacy/page.tsx:
+
+- 13-section Privacy Policy covering GDPR + CCPA compliance.
+- Legal bases: Art. 6(1)(b) contract, (f) legitimate interests,
+  (c) legal obligation, (a) consent.
+- Full GDPR rights (Art. 15-22): access, rectification, erasure,
+  restriction, portability, objection, automated decision-making.
+- CCPA rights: know, delete, correct, opt-out of sale, non-discrimination.
+- Third-party processors listed: Supabase/AWS, Resend, Postmark, Stripe,
+  Sentry, Anthropic.
+- International data transfers: SCCs + UK IDTAs.
+- Sub-grouped ToC entries for rights sub-sections (GDPR / CCPA).
+
+Surface area wired:
+
+- Landing page footer: href="#" links replaced with <Link> to /privacy
+  and /terms; Help Center link added to account nav column.
+- App sidebar (sidebar.tsx): Privacy / Terms micro-links at bottom,
+  shown only when sidebar is not collapsed.
+- Both pages share the same sticky header nav pattern as the landing page
+  (logo + Privacy Policy, Help Center, Log in links).

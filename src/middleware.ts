@@ -10,6 +10,9 @@ const PUBLIC_ROUTES = [
   '/auth/confirm',
   '/auth/mfa',
   '/api/webhooks',
+  '/terms',
+  '/privacy',
+  '/help',
 ]
 
 // Routes that require the 'admin' role
