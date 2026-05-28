@@ -2801,3 +2801,37 @@ so platform template editor is unaffected.
 
 KNOWN GOTCHA — Set iteration: tsconfig default target (ES3) does not support
 for...of on Set. Fixed with Array.from(participantIds) in addComment.
+
+───────────────────────────────────────────────────────────────────────────── 49. POST-PHASE 18 BUG FIXES — Comment FK & Notification Type (2026-05-28)
+─────────────────────────────────────────────────────────────────────────────
+
+Two silent failures discovered after Phase 18 M2 shipped:
+
+BUG 1 — Comment thread showed empty despite rows in DB
+Root cause: instance_comments.user_id was defined as REFERENCES auth.users(id).
+PostgREST resolves the `users!user_id` join hint by looking for a FK to the
+public `users` table, not auth.users. With no matching FK, the join silently
+errored and getComments() returned { comments: [], error: "..." }, which callers
+discarded — so the CommentThread always rendered "No comments yet."
+Fix: Migration 20260528150000 drops the old FK and re-adds it as
+REFERENCES users(id) (public schema), matching the pattern used by
+flow_event_logs.actor_id and audit_logs.actor_id.
+
+BUG 2 — comment_added notifications never appeared in the bell
+Root cause: The notifications table had a CHECK constraint
+(notifications_type_check) locking the type column to exactly four values:
+step_assigned, flow_completed, sla_reminder, step_escalated. Any insert with
+type = 'comment_added' violated the constraint and was silently swallowed by
+the try/catch in createNotification().
+Fix: Same migration drops and recreates the constraint with comment_added added.
+
+Code fix: NotificationBell.tsx TYPE_ICON map updated — comment_added now
+maps to 💬 instead of falling through to the generic 🔔 fallback.
+
+Migration applied to production (qdngvdffqsnqikqbhkmw) and committed:
+supabase/migrations/20260528150000_fix_comment_fk_and_notification_type.sql
+src/components/shell/NotificationBell.tsx
+
+LESSON: When adding a new notification type in TypeScript (NotificationType
+union), always check for a corresponding DB CHECK constraint on
+notifications.type and update it in the same migration.
