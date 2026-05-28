@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { usePathname } from 'next/navigation'
 import { X, ChevronRight } from 'lucide-react'
 import { markOnboardingStep } from '@/lib/onboarding/actions'
 
@@ -93,6 +94,7 @@ export function TourProvider({ children, role, completedStepKeys }: Props) {
 
   const steps = role === 'admin' ? ADMIN_STEPS : USER_STEPS
   const active = stepIndex !== null
+  const pathname = usePathname()
 
   useEffect(() => {
     setMounted(true)
@@ -102,16 +104,17 @@ export function TourProvider({ children, role, completedStepKeys }: Props) {
     setStepIndex(0)
   }, [])
 
-  // Auto-start for non-admins who haven't completed the tour
+  // Auto-start for non-admins who haven't completed the tour.
+  // Only fires when the user is on /tasks so data-tour elements exist in the DOM.
   useEffect(() => {
     if (autoStarted.current) return
     if (role === 'admin') return
     if (completedStepKeys.includes('tour_completed')) return
+    if (pathname !== '/tasks') return
     autoStarted.current = true
-    // Delay slightly so page elements are rendered
     const t = setTimeout(() => setStepIndex(0), 800)
     return () => clearTimeout(t)
-  }, [role, completedStepKeys])
+  }, [role, completedStepKeys, pathname])
 
   // Update rect when stepIndex changes
   useEffect(() => {
