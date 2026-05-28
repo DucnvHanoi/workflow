@@ -1972,6 +1972,65 @@ the production domain in Vercel environment variables, and add the production
 /auth/confirm URL to Supabase → Authentication → URL Configuration → Redirect
 URLs allowlist. - OWASP ZAP: point at staging URL after deploy, run automated scan
 
+── PHASE 17 M2 — SLACK & TEAMS WEBHOOK NOTIFICATIONS (2026-05-28) ──────────
+
+Goal: deliver step-assignment and SLA alerts to Slack or Teams channels
+alongside email, using each platform's Incoming Webhooks.
+
+DB Migration: supabase/migrations/20260528130000_add_webhook_urls_to_tenants.sql
+
+ALTER TABLE tenants
+ADD COLUMN slack_webhook_url TEXT,
+ADD COLUMN teams_webhook_url TEXT;
+
+Applied to production (qdngvdffqsnqikqbhkmw) via Supabase MCP.
+
+src/lib/notifications/webhook.ts (new):
+
+- WebhookEvent union type: 'step_assigned' | 'sla_overdue'
+- detectPlatform(url): 'slack' | 'teams' | null — URL-shape detection
+  (hooks.slack.com → Slack; webhook.office.com → Teams)
+- buildSlackPayload(event): Block Kit JSON (section + actions button)
+- buildTeamsPayload(event): Adaptive Card JSON (TextBlock + FactSet + OpenUrl)
+- sendWebhookNotification(tenantId, event): fetches tenant webhook URLs,
+  detects platform, fires POSTs concurrently. Fire-and-forget, non-fatal.
+- testWebhookUrl(url): sends a sample step_assigned payload — used by the
+  settings Test button without needing a real flow.
+
+src/lib/settings/webhook-actions.ts (new, 'use server'):
+
+- getWebhookUrls(): returns current slack_webhook_url + teams_webhook_url
+  for the caller's tenant (admin-only).
+- saveWebhookUrls(slackUrl, teamsUrl): validates URL shape before persisting
+  (null-stores empty strings to allow clearing).
+- testWebhook(url): admin-gated wrapper around testWebhookUrl().
+
+src/components/settings/WebhookSettingsCard.tsx (new client component):
+
+- Two URL inputs (Slack + Teams) with monospace font.
+- Per-URL "Test" button with independent pending state.
+- Save button with optimistic status feedback.
+
+src/app/(app)/settings/page.tsx — added "Integrations" tab (4th tab):
+
+- Fetches getWebhookUrls() when tab=integrations.
+- Renders <WebhookSettingsCard> with current URLs.
+
+Wired notification events:
+
+- src/lib/flows/actions.ts (triggerFlow + advanceFlow): fires
+  sendWebhookNotification after step assignment, alongside existing
+  createNotification + sendAssignmentEmail. Uses NEXT_PUBLIC_SITE_URL
+  for the task deep-link.
+- src/app/api/cron/sla/route.ts: groups stepInfos by tenant, fires one
+  sla_overdue webhook per tenant (overdueCount + dueSoonCount summary)
+  before the existing email digest loop.
+
+Also installed: marked + @vercel/functions (missing packages from Phase 17 M1
+pull that broke the build).
+
+Commit: 595b61b feat(integrations): Phase 17 M2 — Slack & Teams webhook notifications
+
 43. PHASE 15 — PLATFORM FLOW TEMPLATES (COMPLETE ✅)
     Theme: give the platform owner a template library that tenant admins can
     browse and clone into their workspace with one click — reducing onboarding
@@ -2432,8 +2491,8 @@ Surface area wired:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 45. PHASE 17 — ONBOARDING & NOTIFICATIONS (ROADMAP)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-M1 — Tenant Onboarding & Activation 🔜 NEXT
-M2 — Slack & Teams Webhook Notifications 🔜 PLANNED
+M1 — Tenant Onboarding & Activation ✅ COMPLETE
+M2 — Slack & Teams Webhook Notifications ✅ COMPLETE
 
 ─── M1 — Tenant Onboarding & Activation ────────────────────────────────────
 
