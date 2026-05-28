@@ -358,7 +358,97 @@ export function buildSlaDigestEmail(data: SlaDigestEmailData): {
 }
 
 // ---------------------------------------------------------------------------
-// Template 6 — Escalation (to manager)
+// Template 6 — Support Reply (AI → customer)
+// ---------------------------------------------------------------------------
+
+export interface SupportReplyEmailData {
+  senderName: string | null // customer's name (may be null)
+  replyText: string // plain-text reply body from Claude
+}
+
+export function buildSupportReplyEmail(data: SupportReplyEmailData): {
+  subject: string
+  html: string
+} {
+  const greeting = data.senderName ? `Hi ${escHtml(data.senderName.split(' ')[0])},` : 'Hi,'
+
+  // Convert plain-text newlines to <br> for HTML email
+  const htmlBody = escHtml(data.replyText).replace(/\n/g, '<br />')
+
+  const body = `
+    <p style="margin:0 0 20px;font-size:15px;color:#52525b;line-height:1.6;">${greeting}</p>
+    <p style="margin:0 0 24px;font-size:15px;color:#18181b;line-height:1.7;">${htmlBody}</p>
+    <p style="margin:24px 0 0;font-size:14px;color:#71717a;line-height:1.6;">
+      If you have further questions, just reply to this email and we'll be happy to help.
+    </p>
+    <hr style="border:none;border-top:1px solid #e4e4e7;margin:24px 0;" />
+    <p style="margin:0;font-size:13px;color:#71717a;">
+      BizFlow Support Team<br />
+      <a href="mailto:contact@bizflow.id.vn" style="color:#71717a;">contact@bizflow.id.vn</a>
+    </p>
+  `
+
+  return {
+    subject: '', // caller sets Re: subject
+    html: shell('BizFlow Support', body),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Template 7 — Agent Alert (AI escalation → platform agent)
+// ---------------------------------------------------------------------------
+
+export interface AgentAlertEmailData {
+  ticketId: string
+  subject: string
+  senderEmail: string
+  senderName: string | null
+  category: string
+  reason: string // why this needs human review
+}
+
+export function buildAgentAlertEmail(data: AgentAlertEmailData): {
+  subject: string
+  html: string
+} {
+  const BASE_URL_INTERNAL = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+  const ticketUrl = `${BASE_URL_INTERNAL}/platform/support/${data.ticketId}`
+  const from = data.senderName
+    ? `${escHtml(data.senderName)} (${escHtml(data.senderEmail)})`
+    : escHtml(data.senderEmail)
+
+  const body = `
+    <div style="display:inline-block;background-color:#fef9c3;border:1px solid #fde047;border-radius:20px;padding:4px 12px;margin-bottom:16px;">
+      <span style="font-size:13px;color:#854d0e;font-weight:600;">Needs human review</span>
+    </div>
+
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      New support ticket
+    </h2>
+    <p style="margin:0 0 20px;font-size:15px;color:#52525b;line-height:1.6;">
+      A new ticket requires your attention — the AI could not auto-reply.
+    </p>
+
+    <table cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #e4e4e7;border-radius:6px;padding:16px;background-color:#fafafa;">
+      <tbody>
+        ${detailRow('From', from)}
+        ${detailRow('Subject', data.subject)}
+        ${detailRow('Category', data.category)}
+        ${detailRow('Reason', data.reason)}
+      </tbody>
+    </table>
+
+    ${ctaButton('View Ticket', ticketUrl)}
+  `
+
+  return {
+    subject: `[Support] Needs review: ${data.subject}`,
+    html: shell('Support ticket needs review', body),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Template 8 — Escalation (to manager)
 // ---------------------------------------------------------------------------
 
 export interface EscalationEmailData {

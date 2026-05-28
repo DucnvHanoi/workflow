@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { processInboundEmail, type PostmarkInboundPayload } from '@/lib/support/inbound'
+import { generateAiResponse } from '@/lib/support/ai-responder'
 
 /**
  * POST /api/webhooks/email-inbound
@@ -37,6 +38,10 @@ export async function POST(request: NextRequest) {
   // --- Process ---------------------------------------------------------------
   try {
     const result = await processInboundEmail(payload)
+
+    // Trigger AI response fire-and-forget — return 200 immediately so
+    // Postmark does not retry. AI errors are handled internally.
+    void generateAiResponse(result.ticketId, result.messageId)
 
     return NextResponse.json({
       ok: true,

@@ -24,11 +24,15 @@ import {
   buildInviteEmail,
   buildSlaDigestEmail,
   buildEscalationEmail,
+  buildSupportReplyEmail,
+  buildAgentAlertEmail,
   type AssignmentEmailData,
   type CompletionEmailData,
   type InviteEmailData,
   type SlaDigestEmailData,
   type EscalationEmailData,
+  type SupportReplyEmailData,
+  type AgentAlertEmailData,
 } from './templates'
 
 // ---------------------------------------------------------------------------
@@ -330,6 +334,91 @@ export async function sendSlaDigestEmail(params: SendSlaDigestEmailParams): Prom
 
 // ---------------------------------------------------------------------------
 // sendEscalationEmail
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// sendSupportReplyEmail
+// ---------------------------------------------------------------------------
+
+export interface SendSupportReplyEmailParams extends SupportReplyEmailData {
+  to: string // customer email address
+  subject: string // "Re: <original subject>" — caller sets this
+  inReplyTo: string | null // original Message-ID for threading
+  customMessageId: string // our outbound Message-ID, stored in support_messages
+}
+
+/**
+ * Sends an AI-generated reply to the customer.
+ * Returns the Resend delivery ID (or null on failure).
+ * Unlike other send functions this is awaited by the caller (ai-responder.ts).
+ */
+export async function sendSupportReplyEmail(
+  params: SendSupportReplyEmailParams
+): Promise<string | null> {
+  const { html } = buildSupportReplyEmail(params)
+
+  const headers: Record<string, string> = {
+    'Message-ID': params.customMessageId,
+    // Reply-To ensures customer replies route back through Postmark inbound
+    'Reply-To': 'contact@bizflow.id.vn',
+  }
+  if (params.inReplyTo) {
+    headers['In-Reply-To'] = params.inReplyTo
+    headers['References'] = params.inReplyTo
+  }
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: ACCOUNT_EMAIL,
+      to: params.to,
+      subject: params.subject,
+      html,
+      headers,
+    })
+
+    if (error) {
+      console.error('[email] Resend API error (support-reply):', error)
+      return null
+    }
+    return data?.id ?? null
+  } catch (err) {
+    console.error('[email] Unexpected error sending support reply:', err)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendAgentAlertEmail
+// ---------------------------------------------------------------------------
+
+export interface SendAgentAlertEmailParams extends AgentAlertEmailData {}
+
+/**
+ * Sends a "ticket needs human review" alert to the support agent.
+ * Fire-and-forget safe: never throws.
+ */
+export async function sendAgentAlertEmail(params: SendAgentAlertEmailParams): Promise<void> {
+  const { subject, html } = buildAgentAlertEmail(params)
+  const agentEmail = process.env.SUPPORT_AGENT_EMAIL ?? process.env.RESEND_ACCOUNT_EMAIL
+
+  if (!agentEmail) {
+    console.error('[email] SUPPORT_AGENT_EMAIL not configured — cannot send agent alert')
+    return
+  }
+
+  try {
+    const { error } = await resend.emails.send({
+      from: ACCOUNT_EMAIL,
+      to: agentEmail,
+      subject,
+      html,
+    })
+    if (error) console.error('[email] Resend API error (agent-alert):', error)
+  } catch (err) {
+    console.error('[email] Unexpected error sending agent alert:', err)
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 export interface SendEscalationEmailParams extends EscalationEmailData {
