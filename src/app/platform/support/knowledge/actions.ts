@@ -68,20 +68,6 @@ export async function getArticle(id: string): Promise<KbArticleFull | null> {
 }
 
 // ---------------------------------------------------------------------------
-// slugify helper (server-side, also exported for client use)
-// ---------------------------------------------------------------------------
-
-export function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 80)
-}
-
-// ---------------------------------------------------------------------------
 // createArticle
 // ---------------------------------------------------------------------------
 

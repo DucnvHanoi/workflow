@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { marked } from 'marked'
-import { slugify } from './actions'
+import { slugify } from './utils'
 
 const CATEGORIES = ['general', 'billing', 'account', 'how-to', 'technical'] as const
 
