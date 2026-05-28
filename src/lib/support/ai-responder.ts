@@ -3,6 +3,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendSupportReplyEmail, sendAgentAlertEmail } from '@/lib/email/resend'
+import { fetchUserContext } from './user-context'
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -10,17 +11,18 @@ import { sendSupportReplyEmail, sendAgentAlertEmail } from '@/lib/email/resend'
 
 const SYSTEM_PROMPT = `You are a helpful customer support agent for BizFlow, a workflow automation SaaS platform.
 
-You will be given a customer email (subject + body) and relevant knowledge base articles.
+You will be given a customer email (subject + body), relevant knowledge base articles, and optionally live account context for the sender (their profile, active workflow steps, and recent flows they started).
 
 Your task:
 1. Infer the best category: billing | how-to | account | technical | general
-2. Rate your confidence: "high" if the KB articles fully answer the question, "low" if unsure
+2. Rate your confidence: "high" if the KB articles (and account context if present) fully answer the question, "low" if unsure
 3. Write a concise, friendly reply in plain text (no markdown, no bullet symbols)
 
 Rules:
-- NEVER invent pricing figures, account-specific data, or features not in the KB articles
+- If account context is provided, use it to give a specific, personalised answer (e.g. name the actual flow or step the user is asking about)
+- NEVER invent data not present in the KB articles or account context
 - Always set confidence "low" for billing questions (invoices, refunds, plan changes, pricing)
-- Keep the reply under 250 words
+- Keep the reply under 300 words
 - Address the customer by first name if their name is known
 - Sign off as: BizFlow Support Team
 
@@ -118,10 +120,12 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       message.body_text ||
       (message.body_html ? message.body_html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') : '')
 
-    // 2. Knowledge base search -----------------------------------------------
-    // Subject-only gives better KB recall — full body adds noise terms that break plainto_tsquery AND matching
+    // 2. Knowledge base search + user context (parallel) ---------------------
     const kbQuery = ticket.subject.slice(0, 300)
-    const kbArticles = await searchKnowledgeBase(kbQuery)
+    const [kbArticles, userContext] = await Promise.all([
+      searchKnowledgeBase(kbQuery),
+      fetchUserContext(ticket.sender_email as string),
+    ])
 
     // 3. Call Claude ----------------------------------------------------------
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -135,16 +139,19 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       ? `${ticket.sender_name} <${ticket.sender_email}>`
       : ticket.sender_email
 
-    const userContent = `CUSTOMER EMAIL
-Subject: ${ticket.subject}
-From: ${senderLabel}
-
-${bodyText.slice(0, 2000)}
-
----
-
-KNOWLEDGE BASE ARTICLES
-${kbArticles}`
+    const userContent = [
+      'CUSTOMER EMAIL',
+      `Subject: ${ticket.subject}`,
+      `From: ${senderLabel}`,
+      '',
+      bodyText.slice(0, 2000),
+      '',
+      '---',
+      '',
+      'KNOWLEDGE BASE ARTICLES',
+      kbArticles,
+      ...(userContext ? ['', '---', '', userContext] : []),
+    ].join('\n')
 
     const client = new Anthropic({ apiKey })
     const aiMessage = await client.messages.create({
