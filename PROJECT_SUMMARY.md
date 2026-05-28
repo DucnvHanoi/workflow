@@ -2076,3 +2076,106 @@ Set in .env.local and in Vercel → Environment Variables → Production.
 KNOWN GOTCHA — Webhook URL must be www.bizflow.id.vn (not bare domain).
 Vercel redirects the bare domain to www; webhook providers do not follow
 the redirect and log the 307 body ("Redirecting...") as a failed delivery.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 16 — SESSION 2 (2026-05-28) — COMPLETED MILESTONES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+─── M4 — Admin Support Inbox UI (COMPLETE) ──────────────────────────────────
+
+/platform/support — ticket list with 4 stat cards (open / needs review /
+ai_replied / closed), status filter tabs (URL-based), table with subject,
+sender, status/priority/category/AI-confidence badges, last activity.
+
+/platform/support/[id] — thread detail: full inbound+outbound message
+history, Customer/Support/AI badges per message, metadata sidebar.
+Agent reply form (client component): textarea → sendAgentReply() server
+action → Resend email → outbound row logged to support_messages → ticket
+closed. Standalone status dropdown changes ticket status independently.
+
+Server actions (src/app/platform/support/actions.ts):
+getTickets(statusFilter?) | getTicketWithMessages(ticketId)
+updateTicketStatus(ticketId, status) | sendAgentReply(ticketId, replyText)
+All guarded by assertPlatformAdmin().
+
+─── Public Help Center (COMPLETE) ────────────────────────────────────────────
+
+/help — public page (no auth), shows all English KB articles grouped by
+category. Category overview cards with article counts. "Contact Support"
+CTA. Filters out -vi slug articles.
+
+/help/[slug] — individual article rendered from content_markdown using
+marked (markdown→HTML) + @tailwindcss/typography prose styles. Breadcrumb
+nav, "View on Help Center" link from admin edit page. generateStaticParams
+for build-time generation.
+
+Nav wired: "Help" link added to landing page nav + app sidebar (all roles,
+BookOpen icon, Support group). Dependencies: marked@18, @tailwindcss/typography.
+
+─── M5 — Knowledge Base Management UI (COMPLETE) ────────────────────────────
+
+/platform/support/knowledge — article list: active/inactive counts,
+category badges, toggle active (useTransition), delete with confirm.
+"Knowledge Base" nav item added to /platform layout.
+
+/platform/support/knowledge/new — create form.
+/platform/support/knowledge/[id] — edit form with live markdown preview
+toggle and "View on Help Center ↗" link.
+
+ArticleForm (client component): title→auto-slug until manually edited,
+slug sanitised via slugify() (extracted to utils.ts — 'use server' files
+may only export async functions). Markdown stored in React state so content
+survives preview/edit toggle; submitted via hidden input. Category select.
+Save revalidates /platform/support/knowledge and /help.
+
+TRAP — 'use server' sync export: slugify() was initially exported from
+actions.ts (a 'use server' file). Next.js 14 rejects non-async exports from
+'use server' files at build time. Fix: moved to utils.ts (no directive).
+
+─── AI Context Enrichment (COMPLETE) ────────────────────────────────────────
+
+src/lib/support/user-context.ts — fetchUserContext(senderEmail):
+
+- Looks up sender in users table by email.
+- Returns '' immediately if not found (prospective/unknown sender —
+  KB-only mode unchanged, zero behaviour change).
+- If found: fetches tenant, department, manager in parallel.
+- Fetches pending step_instances assigned to user (up to 5); extracts
+  step label from flow_versions.graph JSON nodes array.
+- Fetches recent flow_instances triggered by user (up to 5); resolves
+  current step label from graph.
+- Marks overdue steps (due_at < now) with ⚠ flag.
+- Formats as ACCOUNT CONTEXT / STEPS WAITING / FLOWS RECENTLY STARTED block.
+
+generateAiResponse() updated: KB search + fetchUserContext run in parallel
+(Promise.all). User context block injected after KB articles in Claude prompt.
+System prompt updated to instruct Claude to use account data for specific
+personalised answers (name the actual flow/step).
+
+─── AI Confidence & Auto-reply Improvements (COMPLETE) ──────────────────────
+
+Problem: "high" confidence was gated on KB articles fully answering the
+question → most tickets routed to pending_human even for simple queries.
+
+Fix 1 — System prompt confidence redefinition:
+"high" = Claude can give a complete, accurate answer from any source
+(KB, account context, or general product knowledge).
+"low" = ONLY for billing/financial questions requiring data Claude cannot see.
+Claude no longer penalises itself for sparse KB results.
+
+Fix 2 — KB search pass 3 fallback:
+When both text-search passes (AND + OR) return nothing, a broad
+cross-category sample of 6 English articles is returned so Claude always
+has product context. Article limits on passes 1 & 2 raised 3 → 5.
+
+Fix 3 — Loosened auto-reply gate:
+Before: low confidence → no reply sent, pending_human.
+After: low confidence + non-billing → reply sent (reply_text as-is) +
+ticket stays pending_human + agent alerted to monitor.
+Only billing routes straight to human without sending.
+Claude signs off in the same language as the reply (no hardcoded EN footer).
+
+Routing table:
+high + non-billing → auto-reply, ticket → ai_replied
+low + non-billing → auto-reply, ticket → pending_human, agent alerted
+low + billing → no reply, ticket → pending_human, agent alerted
