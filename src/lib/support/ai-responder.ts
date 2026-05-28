@@ -15,16 +15,19 @@ You will be given a customer email (subject + body), relevant knowledge base art
 
 Your task:
 1. Infer the best category: billing | how-to | account | technical | general
-2. Rate your confidence: "high" if the KB articles (and account context if present) fully answer the question, "low" if unsure
+2. Rate your confidence as "high" or "low" using these rules:
+   - "high": you can give a complete, accurate, helpful answer — whether from KB articles, account context, or your general knowledge of BizFlow
+   - "low": ONLY when the question requires sensitive account-specific data you cannot see (e.g. invoices, exact charges), or involves a billing dispute/refund/plan change
+   - Do NOT rate "low" just because KB articles were sparse — if you know the answer, say "high"
 3. Write a concise, friendly reply in plain text (no markdown, no bullet symbols)
 
 Rules:
-- If account context is provided, use it to give a specific, personalised answer (e.g. name the actual flow or step the user is asking about)
-- NEVER invent data not present in the KB articles or account context
-- Always set confidence "low" for billing questions (invoices, refunds, plan changes, pricing)
+- If account context is provided, use it to give a specific, personalised answer (name the actual flow or step)
+- NEVER invent billing figures, invoice data, or account-specific financial details
+- Always set confidence "low" for billing questions (invoices, refunds, plan changes, exact pricing)
 - Keep the reply under 300 words
 - Address the customer by first name if their name is known
-- Sign off as: BizFlow Support Team
+- Do NOT add any sign-off or closing line — the system will append it automatically
 
 Respond ONLY with valid JSON — no code fences, no extra text:
 {"category":"billing|how-to|account|technical|general","confidence":"high|low","reply_text":"..."}`
@@ -47,42 +50,54 @@ async function searchKnowledgeBase(query: string): Promise<string> {
     .trim()
     .slice(0, 300)
 
-  if (!cleanQuery) return 'No relevant knowledge base articles found.'
-
   const select = 'title, content_markdown'
   const format = (rows: { title: string; content_markdown: string }[]) =>
     rows.map((a) => `## ${a.title}\n\n${a.content_markdown}`).join('\n\n---\n\n')
 
-  try {
-    // Pass 1: AND semantics — precise match
-    const { data: exact } = await db
-      .from('knowledge_base')
-      .select(select)
-      .eq('is_active', true)
-      .textSearch('search_vector', cleanQuery, { type: 'plain', config: 'english' })
-      .limit(3)
+  if (cleanQuery) {
+    try {
+      // Pass 1: AND semantics — precise match
+      const { data: exact } = await db
+        .from('knowledge_base')
+        .select(select)
+        .eq('is_active', true)
+        .textSearch('search_vector', cleanQuery, { type: 'plain', config: 'english' })
+        .limit(5)
 
-    if (exact && exact.length > 0) return format(exact)
+      if (exact && exact.length > 0) return format(exact)
 
-    // Pass 2: OR semantics — any word matches (better recall for paraphrased queries)
-    const orQuery = cleanQuery
-      .split(/\s+/)
-      .filter((w) => w.length > 3)
-      .join(' OR ')
+      // Pass 2: OR semantics — any word matches
+      const orQuery = cleanQuery
+        .split(/\s+/)
+        .filter((w) => w.length > 3)
+        .join(' OR ')
 
-    if (!orQuery) return 'No relevant knowledge base articles found.'
+      if (orQuery) {
+        const { data: broad } = await db
+          .from('knowledge_base')
+          .select(select)
+          .eq('is_active', true)
+          .textSearch('search_vector', orQuery, { type: 'websearch', config: 'english' })
+          .limit(5)
 
-    const { data: broad } = await db
-      .from('knowledge_base')
-      .select(select)
-      .eq('is_active', true)
-      .textSearch('search_vector', orQuery, { type: 'websearch', config: 'english' })
-      .limit(3)
-
-    if (broad && broad.length > 0) return format(broad)
-  } catch {
-    // Search failed — fall through
+        if (broad && broad.length > 0) return format(broad)
+      }
+    } catch {
+      // Search failed — fall through to broad fallback
+    }
   }
+
+  // Pass 3: no text match — return a broad cross-category sample so Claude
+  // has product context even when the query doesn't match KB wording
+  const { data: fallback } = await db
+    .from('knowledge_base')
+    .select(select)
+    .eq('is_active', true)
+    .not('slug', 'like', '%-vi')
+    .order('category', { ascending: true })
+    .limit(6)
+
+  if (fallback && fallback.length > 0) return format(fallback)
 
   return 'No relevant knowledge base articles found.'
 }
@@ -185,10 +200,20 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       return
     }
 
-    const isHighConfidence = aiReply.confidence === 'high' && aiReply.category !== 'billing'
+    const isBilling = aiReply.category === 'billing'
+    const isHighConfidence = aiReply.confidence === 'high' && !isBilling
+    // Low confidence but not billing → still send, but append the follow-up note
+    const canAutoReply = isHighConfidence || (aiReply.confidence === 'low' && !isBilling)
 
-    // 5a. High confidence → auto-reply ----------------------------------------
-    if (isHighConfidence) {
+    const FOLLOWUP_NOTE =
+      "If this doesn't answer your question, just reply to this email and there will be a BizFlow staff follow up with you very soon."
+
+    // 5a. Can auto-reply (high confidence, or low-confidence non-billing) -----
+    if (canAutoReply) {
+      const replyText = isHighConfidence
+        ? `${aiReply.reply_text}\n\n${FOLLOWUP_NOTE}`
+        : `${aiReply.reply_text}\n\n${FOLLOWUP_NOTE}`
+
       const outboundMsgId = `<${ticketId}.${Date.now()}@bizflow.id.vn>`
 
       const replySubject = ticket.subject.startsWith('Re:')
@@ -199,7 +224,7 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
         to: ticket.sender_email as string,
         senderName: ticket.sender_name as string | null,
         subject: replySubject,
-        replyText: aiReply.reply_text,
+        replyText,
         inReplyTo: message.email_message_id as string | null,
         customMessageId: outboundMsgId,
       })
@@ -208,27 +233,39 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       await db.from('support_messages').insert({
         ticket_id: ticketId,
         direction: 'outbound',
-        from_email: process.env.RESEND_FROM_EMAIL ?? 'noreply@bizflow.id.vn',
+        from_email: process.env.SUPPORT_FROM_EMAIL ?? 'support@bizflow.id.vn',
         from_name: 'BizFlow Support',
-        body_text: aiReply.reply_text,
+        body_text: replyText,
         is_ai_generated: true,
         email_message_id: outboundMsgId,
         in_reply_to: message.email_message_id ?? null,
         resend_id: resendId,
       })
 
-      // Update ticket
+      // Update ticket — low-confidence replies stay open for potential follow-up
       await db
         .from('support_tickets')
         .update({
-          status: 'ai_replied',
+          status: isHighConfidence ? 'ai_replied' : 'pending_human',
           category: aiReply.category,
-          ai_confidence: 'high',
+          ai_confidence: aiReply.confidence,
           last_message_at: new Date().toISOString(),
         })
         .eq('id', ticketId)
 
-      // 5b. Low confidence or billing → escalate to human -----------------------
+      // Alert agent for low-confidence so they can monitor
+      if (!isHighConfidence) {
+        await sendAgentAlertEmail({
+          ticketId,
+          subject: ticket.subject as string,
+          senderEmail: ticket.sender_email as string,
+          senderName: ticket.sender_name as string | null,
+          category: aiReply.category,
+          reason: 'AI replied with low confidence — please verify the response',
+        })
+      }
+
+      // 5b. Billing or sensitive — escalate to human only ----------------------
     } else {
       await db
         .from('support_tickets')
@@ -245,10 +282,7 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
         senderEmail: ticket.sender_email as string,
         senderName: ticket.sender_name as string | null,
         category: aiReply.category,
-        reason:
-          aiReply.category === 'billing'
-            ? 'Billing question — requires human review'
-            : 'AI confidence too low to auto-reply',
+        reason: 'Billing question — requires human review',
       })
     }
   } catch (err) {
