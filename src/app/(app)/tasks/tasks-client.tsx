@@ -13,7 +13,7 @@
 //   - Escape key and an X button close the panel.
 //   - Props extended: myFlowInstances, currentUserId, tenantId, isAdmin added.
 
-import { useState, useCallback, useTransition, useEffect } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -25,51 +25,20 @@ import {
   ClockIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  Loader2Icon,
   InboxIcon,
   ArrowRightIcon,
   XIcon,
 } from 'lucide-react'
-import { TaskDetailModal } from '@/components/canvas/TaskDetailModal'
-import { getStepInstance, getInstanceDetailForPanel } from '@/lib/flows/actions'
+import { getInstanceDetailForPanel } from '@/lib/flows/actions'
 import type {
   TaskListItem,
   CompletedTaskListItem,
   FlowInstanceListItem,
   InstanceDetailForPanel,
 } from '@/lib/flows/actions'
-import type { FormField } from '@/store/canvas-store'
 import { InstanceDetailClient } from '@/app/(app)/my-flows/[id]/instance-detail-client'
 import { AdminChecklist } from '@/components/onboarding/AdminChecklist'
 import type { AdminChecklistState } from '@/lib/onboarding/actions'
-
-// ─── Modal state (step form) ──────────────────────────────────────────────────
-
-interface ModalState {
-  open: boolean
-  stepInstanceId: string
-  stepNodeId: string
-  instanceId: string
-  tenantId: string
-  stepLabel: string
-  formSchema: FormField[]
-  initialData: Record<string, unknown>
-  flowName: string
-  triggeredByName: string | null
-}
-
-const CLOSED: ModalState = {
-  open: false,
-  stepInstanceId: '',
-  stepNodeId: '',
-  instanceId: '',
-  tenantId: '',
-  stepLabel: '',
-  formSchema: [],
-  initialData: {},
-  flowName: '',
-  triggeredByName: null,
-}
 
 // ─── Tab type ─────────────────────────────────────────────────────────────────
 
@@ -108,9 +77,6 @@ export function TasksClient({
 }: TasksClientProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('pending')
-  const [modal, setModal] = useState<ModalState>(CLOSED)
-  const [loadingTaskId, setLoadingTaskId] = useState<string | null>(null)
-  const [, startTransition] = useTransition()
   const [panel, setPanel] = useState<PanelState>({ status: 'closed' })
 
   // Close panel on Escape key
@@ -152,41 +118,6 @@ export function TasksClient({
     [router]
   )
 
-  // Step form modal
-  const openTask = useCallback((task: TaskListItem) => {
-    setLoadingTaskId(task.stepInstanceId)
-    startTransition(async () => {
-      let initialData: Record<string, unknown> = {}
-      try {
-        const { stepInstance } = await getStepInstance(task.stepInstanceId)
-        if (stepInstance?.form_data && Object.keys(stepInstance.form_data).length > 0) {
-          initialData = stepInstance.form_data as Record<string, unknown>
-        }
-      } catch {
-        // Non-fatal
-      }
-      setLoadingTaskId(null)
-      setModal({
-        open: true,
-        stepInstanceId: task.stepInstanceId,
-        stepNodeId: task.stepId,
-        instanceId: task.instanceId,
-        tenantId: task.tenantId,
-        stepLabel: task.stepLabel,
-        formSchema: task.formSchema,
-        initialData,
-        flowName: task.flowName,
-        triggeredByName: task.triggeredByName,
-      })
-    })
-  }, [])
-
-  const closeModal = useCallback(() => setModal(CLOSED), [])
-  const handleSubmitted = useCallback(() => {
-    setModal(CLOSED)
-    router.refresh()
-  }, [router])
-
   const isPanelOpen = panel.status !== 'closed'
   const panelInstanceId = panel.status !== 'closed' ? panel.instanceId : null
 
@@ -221,7 +152,7 @@ export function TasksClient({
 
       {/* ── Tab content ── */}
       {activeTab === 'pending' && (
-        <PendingTab tasks={pendingTasks} loadingTaskId={loadingTaskId} onOpen={openTask} />
+        <PendingTab tasks={pendingTasks} activeInstanceId={panelInstanceId} onView={openPanel} />
       )}
       {activeTab === 'my-flows' && (
         <MyFlowsTab
@@ -232,24 +163,6 @@ export function TasksClient({
       )}
       {activeTab === 'history' && (
         <HistoryTab tasks={completedTasks} activeInstanceId={panelInstanceId} onView={openPanel} />
-      )}
-
-      {/* ── Step Form Modal ── */}
-      {modal.stepInstanceId && (
-        <TaskDetailModal
-          open={modal.open}
-          onClose={closeModal}
-          onSubmitted={handleSubmitted}
-          stepInstanceId={modal.stepInstanceId}
-          stepLabel={modal.stepLabel}
-          formSchema={modal.formSchema}
-          initialData={modal.initialData}
-          flowName={modal.flowName}
-          triggeredByName={modal.triggeredByName}
-          tenantId={modal.tenantId}
-          instanceId={modal.instanceId}
-          stepNodeId={modal.stepNodeId}
-        />
       )}
 
       {/* ── Instance Detail Side Panel ─────────────────────────────────────── */}
@@ -376,12 +289,12 @@ function TabButton({
 
 function PendingTab({
   tasks,
-  loadingTaskId,
-  onOpen,
+  activeInstanceId,
+  onView,
 }: {
   tasks: TaskListItem[]
-  loadingTaskId: string | null
-  onOpen: (task: TaskListItem) => void
+  activeInstanceId: string | null
+  onView: (instanceId: string) => void
 }) {
   if (tasks.length === 0) {
     return (
@@ -400,8 +313,8 @@ function PendingTab({
         <PendingTaskCard
           key={task.stepInstanceId}
           task={task}
-          isLoading={loadingTaskId === task.stepInstanceId}
-          onOpen={() => onOpen(task)}
+          isActive={activeInstanceId === task.instanceId}
+          onView={() => onView(task.instanceId)}
         />
       ))}
     </div>
@@ -412,15 +325,19 @@ function PendingTab({
 
 function PendingTaskCard({
   task,
-  isLoading,
-  onOpen,
+  isActive,
+  onView,
 }: {
   task: TaskListItem
-  isLoading: boolean
-  onOpen: () => void
+  isActive: boolean
+  onView: () => void
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-lg border bg-card px-4 py-3 shadow-sm">
+    <div
+      className={`flex items-start justify-between gap-4 rounded-lg border bg-card px-4 py-3 shadow-sm transition-colors ${
+        isActive ? 'border-primary/40 bg-primary/5' : ''
+      }`}
+    >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <ClockIcon className="h-4 w-4 shrink-0 text-blue-500" />
@@ -445,22 +362,9 @@ function PendingTaskCard({
           })()}
       </div>
       <div className="shrink-0">
-        {task.formSchema.length > 0 ? (
-          <Button size="sm" onClick={onOpen} disabled={isLoading}>
-            {isLoading ? (
-              <>
-                <Loader2Icon className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                Loading…
-              </>
-            ) : (
-              'Open'
-            )}
-          </Button>
-        ) : (
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/my-flows/${task.instanceId}`}>View flow</Link>
-          </Button>
-        )}
+        <Button size="sm" onClick={onView}>
+          Open
+        </Button>
       </div>
     </div>
   )
