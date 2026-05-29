@@ -1,0 +1,63 @@
+-- Knowledge Base: 7 new articles covering gaps identified in Phase 18 review
+-- Topics: assignee rules, branch conditions, webhooks, comments, audit trail,
+--         workflow versions, Google sign-in
+
+INSERT INTO knowledge_base (title, slug, content_markdown, category, is_active) VALUES
+
+(
+  'How to Configure Assignee Rules',
+  'how-to-configure-assignee-rules',
+  E'# How to Configure Assignee Rules\n\nAssignee rules determine who receives each step in a workflow. You set them in the flow builder on each Action or Branch node.\n\n## Available rule types\n\n**Requester**\nThe step is assigned to the person who triggered the flow. Use this for steps the submitter must fill in themselves (e.g. providing additional information).\n\n**Manager of requester**\nThe step is assigned to the requester''s direct manager (as configured in the Users list). Use this for first-level approvals.\n\n**Skip-level manager**\nThe step is assigned to the manager''s manager — one level above the requester''s direct manager. Use this for escalated or senior approvals.\n\n**Department head**\nThe step is assigned to the head of the requester''s department. The department head is configured in Departments Management.\n\n**Fixed person (email)**\nThe step always goes to one specific person, identified by their email address. Use this for steps that must always go to a specific individual (e.g. the CFO for all finance approvals). If that person is deactivated, the flow will show an error — keep this rule up to date.\n\n**Role in department**\nThe step is assigned to a user with a specific role (Admin or Member) within a specific department.\n\n## Setting an assignee rule\n\n1. Click an Action or Branch node on the canvas\n2. In the right-hand config panel, scroll to the Assignee section\n3. Select the rule type from the dropdown\n4. Fill in any additional fields (e.g. select a department for "Department head" or "Role in dept")\n\n## What if no matching user is found?\n\nIf the rule cannot resolve a user (e.g. the department has no head set, or the fixed-email person has been deactivated), the workflow step will error with a descriptive message. Go to Admin → Instances to see the error log, then fix the underlying issue and re-trigger a fresh instance.',
+  'how-to',
+  true
+),
+
+(
+  'How to Configure Branch Conditions',
+  'how-to-configure-branch-conditions',
+  E'# How to Configure Branch Conditions\n\nBranch nodes split a workflow into a Yes path and a No path based on a value from an earlier step. This lets you build approval flows with different outcomes (e.g. approved vs rejected).\n\n## Adding a branch node\n\n1. On the canvas, click the + button on an existing node and choose Branch\n2. Connect the Yes and No handles to different downstream steps\n3. Click the branch node to open the config panel\n\n## Setting conditions\n\nEach path (Yes / No) can have one or more conditions. All conditions in a group must be true for that path to be taken.\n\n1. In the config panel, click Add condition under the Yes or No group\n2. Select the upstream step and field to read the value from\n3. Choose an operator\n4. Enter the value to compare against\n\n## Available operators\n\n| Operator | Meaning | Field types |\n|----------|---------|-------------|\n| equals | Exact match (case-insensitive) | All |\n| not equals | Does not match | All |\n| contains | Field value includes the text | Text, Long Text, Checkbox |\n| greater than | Numeric comparison | Number |\n| less than | Numeric comparison | Number |\n| greater than or equal | Numeric comparison | Number |\n| less than or equal | Numeric comparison | Number |\n\n## Using AI to parse conditions\n\nInstead of filling in the condition manually, type a plain-English rule in the AI input at the bottom of each condition group and press Enter. For example:\n\n- "amount is more than 1000"\n- "decision equals Approve"\n- "leave type contains annual"\n\nBizFlow will map your description to the correct field, operator, and value automatically.\n\n## Manual operator editing\n\nYou can also change the operator directly on any existing condition row by clicking the operator dropdown between the field selector and value input.',
+  'how-to',
+  true
+),
+
+(
+  'How to Set Up Slack and Teams Notifications',
+  'how-to-setup-webhook-notifications',
+  E'# How to Set Up Slack and Teams Notifications\n\nBizFlow can send step-assignment and SLA overdue alerts directly to a Slack channel or Microsoft Teams channel, in addition to email.\n\n## Setting up Slack\n\n1. In Slack, go to **api.slack.com/apps** and create a new app (or use an existing one)\n2. Enable **Incoming Webhooks** and add it to the channel you want to receive notifications\n3. Copy the webhook URL (it starts with `https://hooks.slack.com/services/...`)\n4. In BizFlow, go to **Settings → Integrations** (admin only)\n5. Paste the URL in the **Slack Webhook URL** field\n6. Click **Test** to send a sample notification and confirm it arrives\n7. Click **Save**\n\n## Setting up Microsoft Teams\n\n1. In Teams, go to the channel you want and click **Manage Channel → Connectors**\n2. Add an **Incoming Webhook** connector and give it a name\n3. Copy the webhook URL (it starts with `https://...webhook.office.com/webhookb2/...`)\n4. In BizFlow, go to **Settings → Integrations**\n5. Paste the URL in the **Teams Webhook URL** field\n6. Click **Test** to verify, then **Save**\n\n## What notifications are sent\n\n- **Step assigned**: whenever a workflow step is assigned to someone in your team, a message is posted to the configured channel\n- **SLA overdue**: once per day, if there are overdue or due-soon steps across your team, a summary is posted\n\n## Notes\n\n- You can configure both Slack and Teams at the same time — notifications are sent to both\n- Webhook URLs are per-organisation, not per-user\n- To stop notifications, clear the URL field and save',
+  'how-to',
+  true
+),
+
+(
+  'How to Use Flow Instance Comments',
+  'how-to-use-flow-comments',
+  E'# How to Use Flow Instance Comments\n\nEvery running workflow instance has a comment thread where participants can ask questions, leave notes, or flag issues — without going back to email.\n\n## Who can comment\n\n- The person who triggered the flow\n- Anyone who has been assigned a step in the instance (past or current)\n- Organisation admins\n\nFuture assignees (people whose step has not yet been reached) cannot see or post comments until their step is assigned.\n\n## Posting a comment\n\n1. Open a workflow instance — from Tasks → (click a task), from My Flows → (click a flow), or from Admin → Instances\n2. Scroll to the Comments section below the step timeline\n3. Type your comment (up to 2000 characters) and click **Send**, or press Ctrl+Enter\n\nYour comment appears immediately. All other participants receive an in-app notification and, if your organisation has Slack or Teams webhooks configured, a channel message.\n\n## Comment history\n\nBy default, all participants can see the full comment history from when the flow started. Admins can restrict this per-flow so that assignees only see comments posted from the time their step was assigned:\n\n1. Open the flow in edit mode\n2. In the Publish panel (right sidebar), find **Comment history**\n3. Toggle off **Show full history to all participants**\n\nTriggers and admins always see the full history regardless of this setting.\n\n## Notes\n\n- Comments are part of the instance record and remain visible even after the flow completes\n- Comments cannot currently be edited or deleted after posting',
+  'how-to',
+  true
+),
+
+(
+  'Understanding the Audit Trail',
+  'understanding-audit-trail',
+  E'# Understanding the Audit Trail\n\nThe audit trail is an append-only log of important admin actions in your BizFlow workspace. It helps with compliance, accountability, and troubleshooting.\n\n## Accessing the audit trail\n\n1. Go to **Admin → Audit Trail** in the left sidebar (admin only)\n2. The table shows the most recent 1000 entries\n3. Filter by action type, actor (who did it), or date range\n4. Search by free text across the action log\n\n## What is logged\n\n| Action | When it is recorded |\n|--------|---------------------|\n| **role_changed** | An admin changes another user''s role (e.g. Member → Admin) |\n| **flow_published** | An admin publishes a workflow |\n| **flow_unpublished** | An admin unpublishes a workflow |\n| **step_reassigned** | An admin manually reassigns a pending step to a different person |\n| **step_escalated** | A step is escalated to a manager due to an SLA breach |\n| **user_deactivated** | An admin deactivates a user account |\n| **user_reactivated** | An admin reactivates a user account |\n| **tasks_bulk_reassigned** | An admin bulk-reassigns all pending tasks from one user to another |\n\n## What is not logged\n\n- Regular task completions (these are in the flow event log, visible inside each instance)\n- User profile updates (name, avatar, job title)\n- Department membership changes\n\n## Notes\n\n- The audit trail is read-only — entries cannot be edited or deleted\n- Entries are scoped to your organisation only\n- Each entry shows the actor (who), the action (what), the target (which user/flow/step), and the timestamp',
+  'technical',
+  true
+),
+
+(
+  'Understanding Workflow Versions',
+  'understanding-workflow-versions',
+  E'# Understanding Workflow Versions\n\nEvery time you publish a workflow, BizFlow saves a new version of the canvas. This means you can keep improving a workflow without disrupting instances that are already running.\n\n## How versioning works\n\n- Every publish creates a numbered version (v1, v2, v3, …)\n- Existing running instances always complete using the version they were started on\n- New instances triggered after a publish use the latest published version\n- You can edit a draft freely without affecting live instances — the draft is saved automatically but does not create a new version until you publish\n\n## Viewing version history\n\n1. Open a flow in edit mode\n2. In the right-hand sidebar, open the **Versions** panel\n3. You will see a list of all versions with their publish date\n4. Click any version to preview the canvas at that point in time (read-only)\n\n## Comparing two versions\n\n1. In the Versions panel, click **Compare versions**\n2. Select two version numbers (defaults to newest vs previous)\n3. Click **View changes** — a summary dialog shows:\n   - Steps added or removed\n   - Steps that were renamed, had fields added/removed, or had their assignee rule changed\n   - Connections (edges) added or removed\n\n## Draft vs published\n\n- **Draft**: your current working copy; saved automatically as you edit. Does not affect live instances.\n- **Published**: the version that new flow triggers will use. Each publish increments the version number.\n\n## Notes\n\n- Unpublishing a workflow prevents new instances from being triggered but does not cancel instances already running\n- Version numbers are internal — users triggering a flow always get the latest published version automatically',
+  'technical',
+  true
+),
+
+(
+  'How to Sign In with Google',
+  'how-to-sign-in-with-google',
+  E'# How to Sign In with Google\n\nBizFlow supports signing in with your Google account as an alternative to email and password.\n\n## Signing in with Google\n\n1. Go to the BizFlow login page\n2. Click **Continue with Google**\n3. Select your Google account and grant permission\n4. You will be redirected to your BizFlow workspace\n\n## First time using Google sign-in\n\nIf your email address matches an existing BizFlow account (e.g. one created by an admin invitation), Google sign-in will link automatically and you will be signed in to that account.\n\nIf no account exists for your Google email, you will need to sign up first or ask your admin to invite you.\n\n## Two-factor authentication (MFA) with Google sign-in\n\nIf you have set up TOTP two-factor authentication on your BizFlow account using an email/password login, note that Google sign-in currently bypasses the MFA step. This is a known limitation — the extra code prompt only appears on email/password logins. If your organisation requires strict MFA enforcement, use email and password to sign in.\n\n## Trouble signing in with Google?\n\n- Make sure you are selecting the same Google account that matches your BizFlow email\n- If you are redirected to the home page instead of your workspace, try again — this can happen if your browser blocked the redirect\n- If the issue persists, try signing in with your email and password instead, or contact support at contact@bizflow.id.vn',
+  'account',
+  true
+)
+
+ON CONFLICT (slug) DO NOTHING;

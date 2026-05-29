@@ -11,7 +11,7 @@ import { fetchUserContext } from './user-context'
 
 const SYSTEM_PROMPT = `You are a helpful customer support agent for BizFlow, a workflow automation SaaS platform.
 
-You will be given a customer email (subject + body), relevant knowledge base articles, and optionally live account context for the sender (their profile, active workflow steps, and recent flows they started).
+You will be given a customer email (subject + body), relevant knowledge base articles (each may include a Help Center URL), and optionally live account context for the sender (their profile, active workflow steps, and recent flows they started).
 
 Your task:
 1. Infer the best category: billing | how-to | account | technical | general
@@ -25,6 +25,7 @@ Rules:
 - If account context is provided, use it to give a specific, personalised answer (name the actual flow or step)
 - NEVER invent billing figures, invoice data, or account-specific financial details
 - Always set confidence "low" for billing questions (invoices, refunds, plan changes, exact pricing)
+- If a knowledge base article directly addresses the question, include its Help Center URL at the end of your reply so the customer can read the full guide (format: bizflow.id.vn/help/[slug])
 - Keep the reply under 300 words
 - Address the customer by first name if their name is known
 - Sign off naturally in the same language as the reply (e.g. "BizFlow Support Team")
@@ -50,9 +51,13 @@ async function searchKnowledgeBase(query: string): Promise<string> {
     .trim()
     .slice(0, 300)
 
-  const select = 'title, content_markdown'
-  const format = (rows: { title: string; content_markdown: string }[]) =>
-    rows.map((a) => `## ${a.title}\n\n${a.content_markdown}`).join('\n\n---\n\n')
+  const select = 'title, slug, content_markdown'
+  const format = (rows: { title: string; slug: string; content_markdown: string }[]) =>
+    rows
+      .map(
+        (a) => `## ${a.title}\n\n${a.content_markdown}\n\nHelp Center: bizflow.id.vn/help/${a.slug}`
+      )
+      .join('\n\n---\n\n')
 
   if (cleanQuery) {
     try {
@@ -136,7 +141,10 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       (message.body_html ? message.body_html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') : '')
 
     // 2. Knowledge base search + user context (parallel) ---------------------
-    const kbQuery = ticket.subject.slice(0, 300)
+    // Use subject + opening lines of body so vague subjects ("Help!", "Question")
+    // still produce relevant KB hits via the body content.
+    const bodySnippet = bodyText.slice(0, 150)
+    const kbQuery = `${ticket.subject} ${bodySnippet}`.slice(0, 300)
     const [kbArticles, userContext] = await Promise.all([
       searchKnowledgeBase(kbQuery),
       fetchUserContext(ticket.sender_email as string),
