@@ -1952,6 +1952,55 @@ Fixes applied:
    "Pending" badge) from deliberately deactivated (is_active=false + has
    name → grey "Inactive" badge).
 
+── Pending Tasks: slide-in panel instead of modal ───────────────────────────
+
+Previously, clicking a pending task opened `TaskDetailModal` — a centered
+dialog with a step form but no comments, activity log, or full instance detail.
+
+Changed to open the same right-side `InstanceDetailClient` slide-in panel
+already used by the My Flows and History tabs. The pending tab "Open" button
+now calls `openPanel(task.instanceId)` directly. The panel already handles
+step form submission for the assigned user so no functionality was lost.
+`TaskDetailModal`, `loadingTaskId`, `openTask`, `closeModal`, and
+`handleSubmitted` were removed from `tasks-client.tsx` (net −96 lines).
+
+Commit: ba97e59 feat(tasks): open pending flow in slide-in panel instead of modal
+
+── /my-flows route removed — unified into /tasks ────────────────────────────
+
+The `/my-flows` standalone pages had no sidebar nav link and were the only
+destination that bypassed the slide-in panel UX (they rendered
+InstanceDetailClient as a full page). Notification links and email links both
+pointed to `/my-flows/${instanceId}`, causing a jarring context switch.
+
+Changes (commit ac6249c):
+
+- `/tasks` page now reads the `?open` query param (from `searchParams`) and
+  passes `initialInstanceId` to `TasksClient`. On mount, `TasksClient` calls
+  `openPanel(initialInstanceId)` so the slide-in panel opens automatically.
+- All notification link generators updated to `/tasks?open=${instanceId}`:
+  `comment-actions.ts`, `actions.ts` (×2 — flow_completed paths),
+  `email/templates.ts` (completion email CTA).
+- `flows-client.tsx` post-trigger redirect updated to `/tasks?open=${instanceId}`.
+- `instance-detail-client.tsx` back links (top + bottom) simplified to `/tasks`
+  ("My Tasks") for both triggerer and assignee roles.
+- `/my-flows/[id]/page.tsx` converted to a thin redirect:
+  `redirect(\`/tasks?open=${id}\`)` — old email links and bookmarks still work.
+- `/my-flows/page.tsx` converted to `redirect('/tasks')`.
+
+Old email links and bookmarks continue to work via the redirect. The
+`/my-flows/[id]/instance-detail-client.tsx` and related files remain as the
+component source used by the panel (imported by `tasks-client.tsx`).
+
+KB updates (migration 20260529200000, applied to production):
+
+- `understanding-notifications` (EN + VI): added 💬 **Comment added** row to
+  the notification types table (was missing since Phase 18 M2). Updated
+  "navigate to the relevant page" → "open the relevant flow in the detail panel".
+- `how-to-use-flow-comments`: replaced "from My Flows → (click a flow)" with
+  the full set of entry points (Tasks → Pending, My Flows, History tabs;
+  notification bell; Admin → Instances).
+
 ── Post-Setup Redirect Fix ───────────────────────────────────────────────────
 
 After completing account setup, invited users (role=user) were redirected to
