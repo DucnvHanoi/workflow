@@ -403,11 +403,11 @@ export function InstanceDetailClient({
       {/* ── Back link ── */}
       {!panelMode && (
         <Link
-          href={detail.viewer_is_assignee ? '/tasks' : '/my-flows'}
+          href="/tasks"
           className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeftIcon className="h-3.5 w-3.5" />
-          {detail.viewer_is_assignee ? 'My Tasks' : 'My Flows'}
+          My Tasks
         </Link>
       )}
 
@@ -542,9 +542,9 @@ export function InstanceDetailClient({
           </Button>
         ) : (
           <Button asChild variant="outline" size="sm">
-            <Link href={detail.viewer_is_assignee ? '/tasks' : '/my-flows'}>
+            <Link href="/tasks">
               <ArrowLeftIcon className="mr-1.5 h-3.5 w-3.5" />
-              {detail.viewer_is_assignee ? 'Back to My Tasks' : 'Back to My Flows'}
+              Back to My Tasks
             </Link>
           </Button>
         )}

@@ -200,7 +200,7 @@ export function buildCompletionEmail(data: CompletionEmailData): {
   subject: string
   html: string
 } {
-  const instanceUrl = `${BASE_URL}/my-flows/${data.instanceId}`
+  const instanceUrl = `${BASE_URL}/tasks?open=${data.instanceId}`
 
   const stepRows = data.steps
     .map(

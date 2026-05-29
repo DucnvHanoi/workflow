@@ -1286,7 +1286,7 @@ async function advanceFlow(
       type: 'flow_completed',
       title: 'Flow completed',
       body: 'A flow you started has completed successfully.',
-      link: `/my-flows/${instanceId}`,
+      link: `/tasks?open=${instanceId}`,
     })
     return
   }
@@ -1461,7 +1461,7 @@ async function advanceFlow(
       type: 'flow_completed',
       title: 'Flow completed',
       body: 'A flow you started has completed successfully.',
-      link: `/my-flows/${instanceId}`,
+      link: `/tasks?open=${instanceId}`,
     })
     return
   }

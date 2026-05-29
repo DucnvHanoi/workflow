@@ -192,7 +192,7 @@ export async function addComment(
   participantIds.delete(user.id) // don't notify the poster
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.bizflow.id.vn'
-  const taskLink = `${siteUrl}/my-flows/${instanceId}`
+  const taskLink = `${siteUrl}/tasks?open=${instanceId}`
 
   // In-app notifications (fire-and-forget, non-fatal)
   for (const uid of Array.from(participantIds)) {

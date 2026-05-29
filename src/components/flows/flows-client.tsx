@@ -504,7 +504,7 @@ function FlowTableRow({
         toast.error(result.error)
         return
       }
-      router.push(`/my-flows/${result.instanceId}`)
+      router.push(`/tasks?open=${result.instanceId}`)
     })
   }
 

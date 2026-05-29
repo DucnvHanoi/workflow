@@ -17,8 +17,12 @@ import { TasksClient } from './tasks-client'
 
 export const dynamic = 'force-dynamic'
 
-export default async function TasksPage() {
-  const { user, claims } = await getSessionClaims()
+export default async function TasksPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string>>
+}) {
+  const [{ user, claims }, resolvedParams] = await Promise.all([getSessionClaims(), searchParams])
   if (!user) redirect('/login')
 
   const isAdmin = claims.role === 'admin'
@@ -59,6 +63,7 @@ export default async function TasksPage() {
           tenantId={claims.tenant_id!}
           isAdmin={isAdmin}
           adminChecklist={adminChecklist}
+          initialInstanceId={resolvedParams.open ?? null}
         />
       )}
     </div>

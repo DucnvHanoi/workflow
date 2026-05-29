@@ -62,6 +62,7 @@ interface TasksClientProps {
   tenantId: string
   isAdmin: boolean
   adminChecklist?: AdminChecklistState | null
+  initialInstanceId?: string | null
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -74,6 +75,7 @@ export function TasksClient({
   tenantId,
   isAdmin,
   adminChecklist,
+  initialInstanceId,
 }: TasksClientProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('pending')
@@ -101,6 +103,11 @@ export function TasksClient({
   }, [])
 
   const closePanel = useCallback(() => setPanel({ status: 'closed' }), [])
+
+  // Auto-open panel when navigating from a notification link (?open=ID)
+  useEffect(() => {
+    if (initialInstanceId) openPanel(initialInstanceId)
+  }, [initialInstanceId, openPanel])
 
   // Re-fetch panel after submit / cancel / reassign inside the panel
   const refreshPanel = useCallback(
