@@ -2884,3 +2884,120 @@ src/components/shell/NotificationBell.tsx
 LESSON: When adding a new notification type in TypeScript (NotificationType
 union), always check for a corresponding DB CHECK constraint on
 notifications.type and update it in the same migration.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50. FLOW TEMPLATE LIBRARY EXPANSION (2026-05-30)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Migration: supabase/migrations/20260530100000_flow_templates_seed.sql
+Commit: 4e6b9c9 feat(templates): seed 20 published flow templates across all categories
+
+Seeded 20 additional published flow templates covering all five categories.
+Total published templates in production is now 22 (2 pre-existing + 20 new).
+
+─── HR (6 templates) ────────────────────────────────────────────────────────
+
+Leave Request — Branch flow. Requester submits leave type + dates; manager
+approves/rejects via a branch node; approved path goes to HR processing
+(confirmation number); rejected path routes back to requester for acknowledgment.
+
+Employee Onboarding — Two-step linear. IT dept head sets up equipment and
+accounts (checkbox field for equipment list); manager completes orientation
+checklist and assigns a buddy.
+
+Performance Review — Three-step linear. Employee self-assessment (ratings +
+goals); manager review (performance rating + promotion recommendation);
+HR sign-off (acknowledgment).
+
+Remote Work Request — Branch flow. Employee submits dates and tasks; manager
+approves or rejects; both paths route back to the requester for acknowledgment.
+
+Training & Development Request — Branch flow. Employee submits program details
+and cost; manager approves or rejects; approved path goes to finance for budget
+code and amount; rejected path routes to requester.
+
+Employee Offboarding — Two-step linear. IT dept head records asset returns and
+access revocation; manager conducts exit interview (reason for leaving, rehire
+eligibility, feedback).
+
+─── Finance (5 templates) ───────────────────────────────────────────────────
+
+Purchase Order Request — Branch flow. Requester submits vendor, items, quantity,
+unit price, and justification; manager approves/rejects; approved path goes to
+finance for PO number and payment terms.
+
+Expense Reimbursement — Branch flow. Employee submits date, category, amount,
+and receipt status; manager approves with an approved amount; finance processes
+payment via bank transfer, card credit, or check.
+
+Invoice Approval — Branch flow. Finance submits invoice details (number, vendor,
+amount, due date, PO reference); finance dept head reviews and approves/rejects;
+approved path goes to manager for payment scheduling.
+
+Budget Request — Two-step linear. Requester submits budget category, period,
+amount, and expected outcomes; dept head approves (with optional conditions and
+adjusted amount).
+
+Contract Review & Approval — Three-step linear. Requester submits contract with
+document upload; legal reviews (approved / approved with redlines / rejected);
+skip-level management provides final sign-off.
+
+─── IT (4 templates) ────────────────────────────────────────────────────────
+
+IT Equipment Request — Branch flow. Employee selects equipment type and provides
+justification; IT dept head approves/rejects; approved path records asset tag,
+serial number, and delivery date.
+
+Software Access Request — Two-step linear. Employee requests system and access
+level (read only → admin) with urgency flag; IT provisions and records licence
+details.
+
+IT Incident Report — Two-step linear. Staff reports incident type, severity,
+affected system, and user count; IT records resolution status, root cause, and
+resolution steps.
+
+New Employee IT Provisioning — Two-step linear. HR submits employee details and
+checks accounts to create (Email, VPN, Slack, GitHub, CRM, ERP); IT confirms
+full or partial provisioning.
+
+─── Operations (3 templates) ────────────────────────────────────────────────
+
+Vendor Onboarding — Three-step linear. Procurement submits vendor details and
+type; legal reviews NDA, background check, and compliance status; finance creates
+the vendor in-system and verifies banking details.
+
+Business Travel Request — Branch flow. Employee submits destination, dates,
+purpose, and budget; manager approves/rejects; approved path books flights and
+hotel with a booking reference.
+
+Asset Transfer Request — Two-step linear. Requester specifies asset, current
+location, transfer destination, and reason; dept head confirms the transfer
+with actual date and name.
+
+─── Other (2 templates) ─────────────────────────────────────────────────────
+
+New Project Proposal — Branch flow. Proposer submits project name, type, budget,
+dates, benefits, and risks; skip-level sponsor approves/rejects; approved path
+allocates project code, budget, and resources.
+
+Document Review & Sign-off — Three-step linear. Author submits document with
+file upload; manager conducts peer review (approved / approved with changes /
+requires revision); skip-level provides final publication sign-off.
+
+─── Design decisions ─────────────────────────────────────────────────────────
+
+- All 20 templates use only portable assignee rule types (requester,
+  manager_of_requestor, skip_level, requester_dept_head). The three
+  tenant-specific types (fixed, department_head, role_in_dept) are
+  scrubbed on clone (scrubAssigneeRules in template-actions.ts) so they
+  are never used here.
+- Branch templates: the branch node's own formSchema contains a radio
+  "Decision [Approve / Reject]" field (id: f1). The branchCondition
+  evaluates f1 eq "Approve" → yes handle. This means the branch works
+  immediately after cloning with no further configuration required.
+- Rejection paths: all use a single acknowledgment radio field
+  "I acknowledge the rejection [Acknowledged]" assigned back to the
+  requester, giving the loop a clean close without leaving the requester
+  with no notification.
+- ON CONFLICT DO NOTHING: the migration is safe to re-run; it will skip
+  rows if the table is ever repopulated (no unique constraint on name,
+  so re-running on a fresh DB will insert again — use with care).
