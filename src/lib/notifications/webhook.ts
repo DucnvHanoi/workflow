@@ -268,7 +268,7 @@ export async function testWebhookUrl(url: string): Promise<{ error: string | nul
     const platform = detectPlatform(url)
     if (!platform) return { error: 'URL must be a valid Slack or Teams webhook URL.' }
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.bizflow.id.vn'
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.aitomicflow.com'
     const payload = buildSlackPayload({
       type: 'step_assigned',
       flowName: 'Sample Flow',

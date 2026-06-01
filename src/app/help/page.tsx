@@ -14,7 +14,7 @@ const CATEGORY_META: Record<
 > = {
   general: {
     label: 'General',
-    description: 'What is DragFlow, getting started, and overview',
+    description: 'What is Aitomic Flow, getting started, and overview',
     icon: HelpCircle,
     color: 'bg-slate-100 text-slate-600',
   },
@@ -80,7 +80,7 @@ export default async function HelpPage() {
           </div>
           <h1 className="text-3xl font-bold text-slate-900">Help Center</h1>
           <p className="text-slate-500 mt-2 text-base">
-            {totalArticles} articles — find answers to common questions about DragFlow
+            {totalArticles} articles — find answers to common questions about Aitomic Flow
           </p>
         </div>
       </div>
@@ -161,7 +161,7 @@ export default async function HelpPage() {
             Send us an email and our support team will get back to you.
           </p>
           <a
-            href="mailto:support@bizflow.id.vn"
+            href="mailto:support@aitomicflow.com"
             className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
           >
             Contact Support

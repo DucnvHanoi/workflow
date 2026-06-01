@@ -207,7 +207,7 @@ export async function GET(request: NextRequest) {
     if (info.isOverdue) tenantSlaMap[info.tenantId].overdueCount++
     else tenantSlaMap[info.tenantId].dueSoonCount++
   }
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.bizflow.id.vn'
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.aitomicflow.com'
   for (const [tenantId, counts] of Object.entries(tenantSlaMap)) {
     void sendWebhookNotification(tenantId, {
       type: 'sla_overdue',

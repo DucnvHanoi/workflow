@@ -383,14 +383,14 @@ export function buildSupportReplyEmail(data: SupportReplyEmailData): {
     </p>
     <hr style="border:none;border-top:1px solid #e4e4e7;margin:24px 0;" />
     <p style="margin:0;font-size:13px;color:#71717a;">
-      BizFlow Support Team<br />
-      <a href="mailto:contact@bizflow.id.vn" style="color:#71717a;">contact@bizflow.id.vn</a>
+      Aitomic Flow Support Team<br />
+      <a href="mailto:contact@aitomicflow.com" style="color:#71717a;">contact@aitomicflow.com</a>
     </p>
   `
 
   return {
     subject: '', // caller sets Re: subject
-    html: shell('BizFlow Support', body),
+    html: shell('Aitomic Flow Support', body),
   }
 }
 

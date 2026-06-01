@@ -113,7 +113,7 @@ export default function SignupPage() {
             <div className="h-11 w-11 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
               <GitBranch className="h-5 w-5 text-white" />
             </div>
-            <span className="font-bold text-slate-900 text-xl tracking-tight">DragFlow</span>
+            <span className="font-bold text-slate-900 text-xl tracking-tight">Aitomic Flow</span>
           </Link>
           <h1 className="text-2xl font-bold text-slate-900 mt-6 mb-2">Create your account</h1>
           <p className="text-sm text-slate-500">

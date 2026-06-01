@@ -123,7 +123,7 @@ export default async function HelpArticlePage({ params }: { params: { slug: stri
             Back to Help Center
           </Link>
           <a
-            href="mailto:support@bizflow.id.vn"
+            href="mailto:support@aitomicflow.com"
             className="text-indigo-600 hover:text-indigo-700 transition-colors"
           >
             Still need help? Contact us

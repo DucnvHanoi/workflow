@@ -14,8 +14,8 @@ const geistMono = localFont({
 })
 
 export const metadata: Metadata = {
-  title: 'DragFlow',
-  description: 'Drag and drop workflow builder',
+  title: 'Aitomic Flow',
+  description: 'AI-powered workflow automation platform',
 }
 
 export default function RootLayout({

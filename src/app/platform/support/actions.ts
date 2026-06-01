@@ -150,7 +150,7 @@ export async function sendAgentReply(ticketId: string, replyText: string): Promi
     .limit(1)
     .single()
 
-  const outboundMsgId = `<${ticketId}.${Date.now()}@bizflow.id.vn>`
+  const outboundMsgId = `<${ticketId}.${Date.now()}@aitomicflow.com>`
   const replySubject = (ticket.subject as string).startsWith('Re:')
     ? (ticket.subject as string)
     : `Re: ${ticket.subject}`
@@ -167,8 +167,8 @@ export async function sendAgentReply(ticketId: string, replyText: string): Promi
   await db.from('support_messages').insert({
     ticket_id: ticketId,
     direction: 'outbound',
-    from_email: process.env.SUPPORT_FROM_EMAIL ?? 'support@bizflow.id.vn',
-    from_name: 'BizFlow Support',
+    from_email: process.env.SUPPORT_FROM_EMAIL ?? 'support@aitomicflow.com',
+    from_name: 'Aitomic Flow Support',
     body_text: replyText,
     is_ai_generated: false,
     email_message_id: outboundMsgId,

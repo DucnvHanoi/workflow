@@ -20,19 +20,19 @@ import {
 } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'DragFlow — Build smarter approval workflows with AI',
+  title: 'Aitomic Flow — Build smarter approval workflows with AI',
   description:
     'Design multi-step workflows visually, automate routing, track SLAs, and let AI help you build faster. No code required. Free plan available.',
   openGraph: {
-    title: 'DragFlow — Build smarter approval workflows with AI',
+    title: 'Aitomic Flow — Build smarter approval workflows with AI',
     description:
       'Design multi-step workflows visually, automate routing, track SLAs, and let AI help you build faster.',
     type: 'website',
-    siteName: 'DragFlow',
+    siteName: 'Aitomic Flow',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'DragFlow — Build smarter approval workflows with AI',
+    title: 'Aitomic Flow — Build smarter approval workflows with AI',
     description:
       'Design multi-step workflows visually, automate routing, track SLAs, and let AI help you build faster.',
   },
@@ -49,7 +49,7 @@ function LandingNav() {
             <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center shadow-sm">
               <GitBranch className="h-4 w-4 text-white" />
             </div>
-            <span className="font-bold text-slate-900 text-lg tracking-tight">DragFlow</span>
+            <span className="font-bold text-slate-900 text-lg tracking-tight">Aitomic Flow</span>
           </Link>
           <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-slate-500">
             <a href="#features" className="hover:text-slate-900 transition-colors">
@@ -155,7 +155,7 @@ function HeroSection() {
                 <div className="h-3 w-3 rounded-full bg-emerald-400" />
               </div>
               <div className="flex-1 max-w-xs mx-auto bg-white border border-slate-200 rounded-md px-3 py-1 text-xs text-slate-400 text-center">
-                app.dragflow.io/dashboard
+                app.aitomicflow.com/dashboard
               </div>
             </div>
 
@@ -312,8 +312,8 @@ function FeaturesSection() {
             <br className="hidden sm:block" /> to move faster
           </h2>
           <p className="text-lg text-slate-500 max-w-2xl mx-auto leading-relaxed">
-            From workflow design to real-time tracking — DragFlow covers the full lifecycle of every
-            approval process in your organization.
+            From workflow design to real-time tracking — Aitomic Flow covers the full lifecycle of
+            every approval process in your organization.
           </p>
         </div>
 
@@ -388,7 +388,7 @@ const PLAN_META: Record<
     priceNote: 'contact us',
     description: 'Unlimited scale, custom AI limits, and a dedicated support agreement.',
     cta: 'Contact us',
-    ctaHref: 'mailto:hello@dragflow.io',
+    ctaHref: 'mailto:hello@aitomicflow.com',
     highlighted: false,
   },
 }
@@ -602,7 +602,7 @@ async function PricingSection() {
         <p className="text-center text-sm text-slate-400 mt-10">
           All plans include unlimited team members on read-only tasks.{' '}
           <a
-            href="mailto:hello@dragflow.io"
+            href="mailto:hello@aitomicflow.com"
             className="text-indigo-500 hover:text-indigo-600 underline underline-offset-2"
           >
             Questions? Contact us.
@@ -657,7 +657,7 @@ function FAQSection() {
           <p className="text-lg text-slate-500">
             Can&apos;t find what you&apos;re looking for?{' '}
             <a
-              href="mailto:hello@dragflow.io"
+              href="mailto:hello@aitomicflow.com"
               className="text-indigo-600 hover:text-indigo-700 font-medium"
             >
               Ask us directly.
@@ -711,7 +711,7 @@ function CTASection() {
           Ready to streamline your workflows?
         </h2>
         <p className="text-indigo-200 text-lg mb-10 leading-relaxed">
-          Join teams already using DragFlow to cut approval times and gain full visibility over
+          Join teams already using Aitomic Flow to cut approval times and gain full visibility over
           every process.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -751,7 +751,7 @@ function LandingFooter() {
               <div className="h-8 w-8 rounded-xl bg-indigo-500 flex items-center justify-center">
                 <GitBranch className="h-4 w-4 text-white" />
               </div>
-              <span className="font-bold text-white text-lg tracking-tight">DragFlow</span>
+              <span className="font-bold text-white text-lg tracking-tight">Aitomic Flow</span>
             </Link>
             <p className="text-sm text-slate-400 leading-relaxed max-w-xs">
               Your AI workflow magic. Build, automate, and track approval workflows — without
@@ -802,7 +802,7 @@ function LandingFooter() {
               </li>
               <li>
                 <a
-                  href="mailto:support@bizflow.id.vn"
+                  href="mailto:support@aitomicflow.com"
                   className="hover:text-white transition-colors"
                 >
                   Contact us
@@ -813,7 +813,7 @@ function LandingFooter() {
         </div>
 
         <div className="border-t border-slate-800 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-600">
-          <p>© {year} DragFlow. All rights reserved.</p>
+          <p>© {year} Aitomic Flow. All rights reserved.</p>
           <div className="flex items-center gap-6">
             <Link href="/privacy" className="hover:text-slate-400 transition-colors">
               Privacy Policy

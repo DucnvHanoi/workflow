@@ -900,7 +900,7 @@ export async function triggerFlow(
       link: '/tasks',
     })
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.bizflow.id.vn'
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.aitomicflow.com'
     void sendWebhookNotification(tenantId, {
       type: 'step_assigned',
       flowName: (flow.name as string) ?? 'Flow',
@@ -1553,7 +1553,7 @@ async function advanceFlow(
       link: '/tasks',
     })
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.bizflow.id.vn'
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.aitomicflow.com'
     void sendWebhookNotification(tenantId, {
       type: 'step_assigned',
       flowName,

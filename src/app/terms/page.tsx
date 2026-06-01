@@ -4,9 +4,9 @@ import { type Metadata } from 'next'
 import { GitBranch } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'Terms of Service — DragFlow',
+  title: 'Terms of Service — Aitomic Flow',
   description:
-    'DragFlow Terms of Service. Read the terms governing your use of the DragFlow platform.',
+    'Aitomic Flow Terms of Service. Read the terms governing your use of the Aitomic Flow platform.',
 }
 
 const LAST_UPDATED = 'May 28, 2026'
@@ -39,7 +39,7 @@ export default function TermsPage() {
             <div className="h-7 w-7 rounded-lg bg-indigo-600 flex items-center justify-center">
               <GitBranch className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="font-bold text-slate-900 tracking-tight">DragFlow</span>
+            <span className="font-bold text-slate-900 tracking-tight">Aitomic Flow</span>
           </Link>
           <div className="flex items-center gap-4 text-sm">
             <Link href="/privacy" className="text-slate-500 hover:text-slate-900 transition-colors">
@@ -89,23 +89,23 @@ export default function TermsPage() {
 
             <div className="prose prose-slate max-w-none prose-headings:scroll-mt-24 prose-headings:font-semibold prose-h2:text-xl prose-h2:mt-10 prose-h2:mb-4 prose-p:text-slate-600 prose-li:text-slate-600 prose-strong:text-slate-800 prose-a:text-indigo-600">
               <p>
-                These Terms of Service ("Terms") govern your access to and use of DragFlow, a
-                workflow automation platform ("Service") operated by BizFlow ("we," "us," or "our").
-                By creating an account or using the Service, you agree to be bound by these Terms.
-                If you do not agree, do not use the Service.
+                These Terms of Service ("Terms") govern your access to and use of Aitomic Flow, a
+                workflow automation platform ("Service") operated by Aitomic Flow ("we," "us," or
+                "our"). By creating an account or using the Service, you agree to be bound by these
+                Terms. If you do not agree, do not use the Service.
               </p>
 
               <h2 id="acceptance">1. Acceptance of Terms</h2>
               <p>
-                By accessing or using DragFlow, you confirm that you are at least 18 years old, have
-                the legal capacity to enter into a binding agreement, and agree to these Terms. If
-                you are using the Service on behalf of an organisation, you represent that you have
-                authority to bind that organisation to these Terms.
+                By accessing or using Aitomic Flow, you confirm that you are at least 18 years old,
+                have the legal capacity to enter into a binding agreement, and agree to these Terms.
+                If you are using the Service on behalf of an organisation, you represent that you
+                have authority to bind that organisation to these Terms.
               </p>
 
               <h2 id="service">2. Description of Service</h2>
               <p>
-                DragFlow provides a cloud-based workflow automation platform that enables
+                Aitomic Flow provides a cloud-based workflow automation platform that enables
                 organisations to design, deploy, and track multi-step approval workflows with
                 AI-assisted features. The Service includes a drag-and-drop flow builder, task
                 assignment, SLA tracking, reporting, and customer support tooling.
@@ -135,8 +135,8 @@ export default function TermsPage() {
 
               <h2 id="billing">4. Subscription Plans and Billing</h2>
               <p>
-                DragFlow offers a Free plan and paid plans (Pro, Enterprise). Paid subscriptions are
-                billed on a monthly or annual basis as selected at checkout.
+                Aitomic Flow offers a Free plan and paid plans (Pro, Enterprise). Paid subscriptions
+                are billed on a monthly or annual basis as selected at checkout.
               </p>
               <ul>
                 <li>
@@ -186,8 +186,9 @@ export default function TermsPage() {
               <h2 id="ip">6. Intellectual Property</h2>
               <p>
                 <strong>Our IP.</strong> The Service, including its design, code, trademarks, and
-                content created by us, is owned by BizFlow and protected by applicable intellectual
-                property laws. These Terms do not grant you any ownership rights in the Service.
+                content created by us, is owned by Aitomic Flow and protected by applicable
+                intellectual property laws. These Terms do not grant you any ownership rights in the
+                Service.
               </p>
               <p>
                 <strong>Your Content.</strong> You retain ownership of all data, workflows, files,
@@ -241,7 +242,7 @@ export default function TermsPage() {
 
               <h2 id="indemnification">10. Indemnification</h2>
               <p>
-                You agree to defend, indemnify, and hold harmless BizFlow and its officers,
+                You agree to defend, indemnify, and hold harmless Aitomic Flow and its officers,
                 directors, employees, and agents from any claims, damages, losses, and expenses
                 (including reasonable legal fees) arising out of or related to: (a) your use of the
                 Service; (b) your Customer Data; (c) your violation of these Terms; or (d) your
@@ -266,7 +267,7 @@ export default function TermsPage() {
 
               <h2 id="governing-law">12. Governing Law and Disputes</h2>
               <p>
-                These Terms are governed by the laws of the jurisdiction in which BizFlow is
+                These Terms are governed by the laws of the jurisdiction in which Aitomic Flow is
                 incorporated, without regard to conflict-of-law principles. Any disputes shall first
                 be attempted to be resolved through good-faith negotiation. If unresolved within 30
                 days, disputes shall be submitted to binding arbitration under internationally
@@ -298,17 +299,19 @@ export default function TermsPage() {
               <h2 id="contact">14. Contact</h2>
               <p>Questions about these Terms should be sent to:</p>
               <p>
-                <strong>BizFlow</strong>
+                <strong>Aitomic Flow</strong>
                 <br />
-                Email: <a href="mailto:legal@bizflow.id.vn">legal@bizflow.id.vn</a>
+                Email: <a href="mailto:legal@aitomicflow.com">legal@aitomicflow.com</a>
                 <br />
-                Support: <a href="mailto:support@bizflow.id.vn">support@bizflow.id.vn</a>
+                Support: <a href="mailto:support@aitomicflow.com">support@aitomicflow.com</a>
               </p>
             </div>
 
             {/* Footer nav */}
             <div className="mt-16 pt-8 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-400">
-              <span>© {new Date().getFullYear()} DragFlow / BizFlow. All rights reserved.</span>
+              <span>
+                © {new Date().getFullYear()} Aitomic Flow / Aitomic Flow. All rights reserved.
+              </span>
               <div className="flex items-center gap-6">
                 <Link href="/privacy" className="hover:text-slate-700 transition-colors">
                   Privacy Policy

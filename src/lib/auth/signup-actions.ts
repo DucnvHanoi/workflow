@@ -107,7 +107,7 @@ export async function createTenantAccount(
   await resend.emails.send({
     from: FROM_EMAIL,
     to: email,
-    subject: 'Confirm your DragFlow account',
+    subject: 'Confirm your Aitomic Flow account',
     html: buildConfirmationEmail(confirmUrl),
   })
 
@@ -148,14 +148,14 @@ function buildConfirmationEmail(confirmUrl: string): string {
         <!-- Header -->
         <tr>
           <td style="background:#4f46e5;padding:28px 40px;text-align:center">
-            <span style="background:rgba(255,255,255,0.2);border-radius:10px;padding:8px 16px;color:#ffffff;font-size:18px;font-weight:700;letter-spacing:-0.5px">DragFlow</span>
+            <span style="background:rgba(255,255,255,0.2);border-radius:10px;padding:8px 16px;color:#ffffff;font-size:18px;font-weight:700;letter-spacing:-0.5px">Aitomic Flow</span>
           </td>
         </tr>
         <!-- Body -->
         <tr>
           <td style="padding:40px 40px 32px">
             <h1 style="margin:0 0 10px;font-size:22px;font-weight:700;color:#0f172a;letter-spacing:-0.3px">
-              Welcome to DragFlow!
+              Welcome to Aitomic Flow!
             </h1>
             <p style="margin:0 0 28px;font-size:15px;color:#64748b;line-height:1.6">
               Your workspace is ready. Confirm your email to get started, then follow the steps below to set up your first approval workflow.
@@ -176,7 +176,7 @@ function buildConfirmationEmail(confirmUrl: string): string {
               ${stepsHtml}
             </table>
             <p style="margin:28px 0 0;font-size:13px;color:#94a3b8;line-height:1.5">
-              This link expires in 24 hours. If you didn&apos;t create a DragFlow account, you can safely ignore this email.
+              This link expires in 24 hours. If you didn&apos;t create a Aitomic Flow account, you can safely ignore this email.
             </p>
           </td>
         </tr>
@@ -184,8 +184,8 @@ function buildConfirmationEmail(confirmUrl: string): string {
         <tr>
           <td style="padding:20px 40px;background:#f8fafc;border-top:1px solid #e2e8f0">
             <p style="margin:0;font-size:12px;color:#94a3b8;text-align:center">
-              &copy; ${new Date().getFullYear()} DragFlow &middot;
-              <a href="${SITE_URL}" style="color:#4f46e5;text-decoration:none">dragflow.io</a>
+              &copy; ${new Date().getFullYear()} Aitomic Flow &middot;
+              <a href="${SITE_URL}" style="color:#4f46e5;text-decoration:none">aitomicflow.com</a>
             </p>
           </td>
         </tr>

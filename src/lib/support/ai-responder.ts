@@ -9,14 +9,14 @@ import { fetchUserContext } from './user-context'
 // System prompt
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are a helpful customer support agent for BizFlow, a workflow automation SaaS platform.
+const SYSTEM_PROMPT = `You are a helpful customer support agent for Aitomic Flow, a workflow automation SaaS platform.
 
 You will be given a customer email (subject + body), relevant knowledge base articles (each may include a Help Center URL), and optionally live account context for the sender (their profile, active workflow steps, and recent flows they started).
 
 Your task:
 1. Infer the best category: billing | how-to | account | technical | general
 2. Rate your confidence as "high" or "low" using these rules:
-   - "high": you can give a complete, accurate, helpful answer — whether from KB articles, account context, or your general knowledge of BizFlow
+   - "high": you can give a complete, accurate, helpful answer — whether from KB articles, account context, or your general knowledge of Aitomic Flow
    - "low": ONLY when the question requires sensitive account-specific data you cannot see (e.g. invoices, exact charges), or involves a billing dispute/refund/plan change
    - Do NOT rate "low" just because KB articles were sparse — if you know the answer, say "high"
 3. Write a concise, friendly reply in plain text (no markdown, no bullet symbols)
@@ -25,10 +25,10 @@ Rules:
 - If account context is provided, use it to give a specific, personalised answer (name the actual flow or step)
 - NEVER invent billing figures, invoice data, or account-specific financial details
 - Always set confidence "low" for billing questions (invoices, refunds, plan changes, exact pricing)
-- If a knowledge base article directly addresses the question, include its Help Center URL at the end of your reply so the customer can read the full guide (format: bizflow.id.vn/help/[slug])
+- If a knowledge base article directly addresses the question, include its Help Center URL at the end of your reply so the customer can read the full guide (format: aitomicflow.com/help/[slug])
 - Keep the reply under 300 words
 - Address the customer by first name if their name is known
-- Sign off naturally in the same language as the reply (e.g. "BizFlow Support Team")
+- Sign off naturally in the same language as the reply (e.g. "Aitomic Flow Support Team")
 
 Respond ONLY with valid JSON — no code fences, no extra text:
 {"category":"billing|how-to|account|technical|general","confidence":"high|low","reply_text":"..."}`
@@ -55,7 +55,8 @@ async function searchKnowledgeBase(query: string): Promise<string> {
   const format = (rows: { title: string; slug: string; content_markdown: string }[]) =>
     rows
       .map(
-        (a) => `## ${a.title}\n\n${a.content_markdown}\n\nHelp Center: bizflow.id.vn/help/${a.slug}`
+        (a) =>
+          `## ${a.title}\n\n${a.content_markdown}\n\nHelp Center: aitomicflow.com/help/${a.slug}`
       )
       .join('\n\n---\n\n')
 
@@ -216,7 +217,7 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
     if (canAutoReply) {
       const replyText = aiReply.reply_text
 
-      const outboundMsgId = `<${ticketId}.${Date.now()}@bizflow.id.vn>`
+      const outboundMsgId = `<${ticketId}.${Date.now()}@aitomicflow.com>`
 
       const replySubject = ticket.subject.startsWith('Re:')
         ? ticket.subject
@@ -235,8 +236,8 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       await db.from('support_messages').insert({
         ticket_id: ticketId,
         direction: 'outbound',
-        from_email: process.env.SUPPORT_FROM_EMAIL ?? 'support@bizflow.id.vn',
-        from_name: 'BizFlow Support',
+        from_email: process.env.SUPPORT_FROM_EMAIL ?? 'support@aitomicflow.com',
+        from_name: 'Aitomic Flow Support',
         body_text: replyText,
         is_ai_generated: true,
         email_message_id: outboundMsgId,

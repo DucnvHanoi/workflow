@@ -4,9 +4,9 @@ import { type Metadata } from 'next'
 import { GitBranch } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — DragFlow',
+  title: 'Privacy Policy — Aitomic Flow',
   description:
-    'DragFlow Privacy Policy. Learn how we collect, use, and protect your personal data in compliance with GDPR and CCPA.',
+    'Aitomic Flow Privacy Policy. Learn how we collect, use, and protect your personal data in compliance with GDPR and CCPA.',
 }
 
 const LAST_UPDATED = 'May 28, 2026'
@@ -40,7 +40,7 @@ export default function PrivacyPage() {
             <div className="h-7 w-7 rounded-lg bg-indigo-600 flex items-center justify-center">
               <GitBranch className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="font-bold text-slate-900 tracking-tight">DragFlow</span>
+            <span className="font-bold text-slate-900 tracking-tight">Aitomic Flow</span>
           </Link>
           <div className="flex items-center gap-4 text-sm">
             <Link href="/terms" className="text-slate-500 hover:text-slate-900 transition-colors">
@@ -90,9 +90,9 @@ export default function PrivacyPage() {
 
             <div className="prose prose-slate max-w-none prose-headings:scroll-mt-24 prose-headings:font-semibold prose-h2:text-xl prose-h2:mt-10 prose-h2:mb-4 prose-h3:text-base prose-h3:mt-6 prose-h3:mb-3 prose-p:text-slate-600 prose-li:text-slate-600 prose-strong:text-slate-800 prose-a:text-indigo-600">
               <p>
-                At BizFlow ("we," "us," or "our"), we take your privacy seriously. This Privacy
+                At Aitomic Flow ("we," "us," or "our"), we take your privacy seriously. This Privacy
                 Policy explains how we collect, use, share, and protect personal data when you use
-                DragFlow (the "Service"). It applies to all users, whether you are a registered
+                Aitomic Flow (the "Service"). It applies to all users, whether you are a registered
                 customer, a team member added by an administrator, or simply visiting our website.
               </p>
               <p>
@@ -104,14 +104,15 @@ export default function PrivacyPage() {
 
               <h2 id="controller">1. Who We Are (Data Controller)</h2>
               <p>
-                BizFlow is the data controller for personal data processed through the DragFlow
-                platform. If you are using DragFlow as an employee or user of an organisation (a
-                "Tenant"), that organisation is a separate data controller for the workflows and
-                data they manage, and BizFlow acts as a data processor on their behalf.
+                Aitomic Flow is the data controller for personal data processed through the Aitomic
+                Flow platform. If you are using Aitomic Flow as an employee or user of an
+                organisation (a "Tenant"), that organisation is a separate data controller for the
+                workflows and data they manage, and Aitomic Flow acts as a data processor on their
+                behalf.
               </p>
               <p>
                 <strong>Contact:</strong>{' '}
-                <a href="mailto:privacy@bizflow.id.vn">privacy@bizflow.id.vn</a>
+                <a href="mailto:privacy@aitomicflow.com">privacy@aitomicflow.com</a>
               </p>
 
               <h2 id="data-collected">2. Personal Data We Collect</h2>
@@ -310,11 +311,11 @@ export default function PrivacyPage() {
               </ul>
               <p>
                 To exercise these rights, email{' '}
-                <a href="mailto:privacy@bizflow.id.vn">privacy@bizflow.id.vn</a>. We will respond
-                within 30 days. If you believe we have not adequately addressed your request, you
-                have the right to lodge a complaint with your local data protection authority (e.g.,
-                the CNIL in France, the ICO in the UK, or the relevant supervisory authority in your
-                EU member state).
+                <a href="mailto:privacy@aitomicflow.com">privacy@aitomicflow.com</a>. We will
+                respond within 30 days. If you believe we have not adequately addressed your
+                request, you have the right to lodge a complaint with your local data protection
+                authority (e.g., the CNIL in France, the ICO in the UK, or the relevant supervisory
+                authority in your EU member state).
               </p>
 
               <h3 id="ccpa-rights">California Residents — CCPA / CPRA Rights</h3>
@@ -349,9 +350,9 @@ export default function PrivacyPage() {
               </ul>
               <p>
                 To submit a CCPA request, email{' '}
-                <a href="mailto:privacy@bizflow.id.vn">privacy@bizflow.id.vn</a> with the subject
-                "California Privacy Request". We will verify your identity before processing the
-                request and respond within 45 days (extendable by an additional 45 days with
+                <a href="mailto:privacy@aitomicflow.com">privacy@aitomicflow.com</a> with the
+                subject "California Privacy Request". We will verify your identity before processing
+                the request and respond within 45 days (extendable by an additional 45 days with
                 notice).
               </p>
 
@@ -379,7 +380,7 @@ export default function PrivacyPage() {
 
               <h2 id="transfers">9. International Data Transfers</h2>
               <p>
-                DragFlow is hosted on infrastructure in the{' '}
+                Aitomic Flow is hosted on infrastructure in the{' '}
                 <strong>Asia-Pacific region (Singapore)</strong>. Some of our service providers are
                 located in the United States and other countries. When we transfer personal data
                 from the EEA or UK to countries without an EU adequacy decision, we rely on:
@@ -414,7 +415,7 @@ export default function PrivacyPage() {
                 collect personal data from children under 16. If we become aware that we have
                 collected such data without verified parental consent, we will delete it promptly.
                 If you believe a child has provided us with personal data, please contact us at{' '}
-                <a href="mailto:privacy@bizflow.id.vn">privacy@bizflow.id.vn</a>.
+                <a href="mailto:privacy@aitomicflow.com">privacy@aitomicflow.com</a>.
               </p>
 
               <h2 id="changes">12. Changes to This Policy</h2>
@@ -432,11 +433,11 @@ export default function PrivacyPage() {
                 practices, please contact:
               </p>
               <p>
-                <strong>BizFlow — Privacy Team</strong>
+                <strong>Aitomic Flow — Privacy Team</strong>
                 <br />
-                Email: <a href="mailto:privacy@bizflow.id.vn">privacy@bizflow.id.vn</a>
+                Email: <a href="mailto:privacy@aitomicflow.com">privacy@aitomicflow.com</a>
                 <br />
-                Support: <a href="mailto:support@bizflow.id.vn">support@bizflow.id.vn</a>
+                Support: <a href="mailto:support@aitomicflow.com">support@aitomicflow.com</a>
               </p>
               <p>
                 If you are in the EEA and we are required to appoint a Data Protection Officer (DPO)
@@ -456,7 +457,9 @@ export default function PrivacyPage() {
 
             {/* Footer nav */}
             <div className="mt-16 pt-8 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-400">
-              <span>© {new Date().getFullYear()} DragFlow / BizFlow. All rights reserved.</span>
+              <span>
+                © {new Date().getFullYear()} Aitomic Flow / Aitomic Flow. All rights reserved.
+              </span>
               <div className="flex items-center gap-6">
                 <Link href="/terms" className="hover:text-slate-700 transition-colors">
                   Terms of Service
