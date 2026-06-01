@@ -3001,3 +3001,92 @@ requires revision); skip-level provides final publication sign-off.
 - ON CONFLICT DO NOTHING: the migration is safe to re-run; it will skip
   rows if the table is ever repopulated (no unique constraint on name,
   so re-running on a fresh DB will insert again — use with care).
+
+45. DOMAIN MIGRATION & REBRAND — aitomicflow.com (COMPLETE ✅)
+
+New domain purchased: aitomicflow.com ("AI" + "tomic" portmanteau of atomic).
+Brand name changed from DragFlow / BizFlow → Aitomic Flow across the entire
+codebase, database, and all platform settings.
+
+─── Code changes (2 commits on master) ──────────────────────────────────────
+
+Commit d1074b9 — 16 source files updated:
+
+- src/app/layout.tsx: page title + description
+- src/app/page.tsx: all brand names, hello@dragflow.io, app.dragflow.io,
+  support@bizflow.id.vn
+- src/app/signup/page.tsx: brand name in nav
+- src/lib/auth/signup-actions.ts: confirmation email brand + footer link
+- src/app/privacy/page.tsx + terms/page.tsx: all brand names + email addresses
+  (privacy@, support@, legal@)
+- src/app/help/page.tsx + help/[slug]/page.tsx: brand + support email
+- src/lib/email/templates.ts: support team sign-off, contact email
+- src/lib/email/resend.ts: Reply-To fallback
+- src/lib/support/ai-responder.ts: system prompt, KB URL format, outbound
+  message ID domain, from_email fallback
+- src/app/platform/support/actions.ts: from_email, from_name, message ID domain
+- src/app/api/cron/sla/route.ts + lib/flows/actions.ts +
+  lib/flows/comment-actions.ts + lib/notifications/webhook.ts:
+  siteUrl fallback (https://www.bizflow.id.vn → https://www.aitomicflow.com)
+
+Commit 06d4dd8 — email template shell:
+
+- Email header brand: "Workflow" → "Aitomic Flow"
+- Email footer: "This email was sent by Workflow" → "...by Aitomic Flow"
+- Invite subject + body: "on Workflow" → "on Aitomic Flow"
+
+─── Database changes (Supabase — project qdngvdffqsnqikqbhkmw) ──────────────
+
+44 knowledge_base rows updated via direct SQL:
+
+- content_markdown: BizFlow → Aitomic Flow, bizflow.id.vn → aitomicflow.com
+- title: BizFlow → Aitomic Flow
+- slug: bizflow → aitomic-flow (4 slugs: what-is-bizflow,
+  what-is-bizflow-vi, user-roles-in-bizflow, user-roles-in-bizflow-vi)
+
+─── Platform settings updated ────────────────────────────────────────────────
+
+Vercel: aitomicflow.com + www.aitomicflow.com added as custom domains.
+Env vars updated in Vercel production: NEXT_PUBLIC_SITE_URL, RESEND_FROM_EMAIL,
+SUPPORT_FROM_EMAIL, SUPPORT_REPLY_TO_EMAIL.
+
+Supabase Auth (Authentication → URL Configuration):
+
+- Site URL: https://www.aitomicflow.com
+- Redirect URLs: https://aitomicflow.com/auth/callback,
+  https://www.aitomicflow.com/auth/callback
+
+Google Cloud Console (OAuth 2.0 Client):
+
+- Authorized JavaScript Origins: aitomicflow.com, www.aitomicflow.com
+- Authorized Redirect URIs: aitomicflow.com/auth/callback,
+  www.aitomicflow.com/auth/callback
+
+Resend: aitomicflow.com domain verified. noreply@aitomicflow.com confirmed
+sending (DKIM record resend.\_domainkey.aitomicflow.com active).
+DMARC: v=DMARC1; p=none on \_dmarc.aitomicflow.com.
+SPF TXT record added: v=spf1 include:spf.resend.com ~all.
+
+Postmark (inbound email):
+
+- MX record on aitomicflow.com → inbound.postmarkapp.com (priority 10).
+- Webhook URL updated in Postmark dashboard to:
+  https://www.aitomicflow.com/api/webhooks/email-inbound?secret=<SUPPORT_INBOUND_SECRET>
+
+─── Verification tests run ───────────────────────────────────────────────────
+
+- Resend outbound: test email to ducnv.hn@gmail.com accepted (id 706373ae),
+  delivered successfully.
+- Postmark inbound webhook: simulated POST with full payload returned
+  {"ok":true,"ticketId":"c6f6ade6-..."} — ticket created in DB.
+- Google OAuth flow: Supabase authorize URL resolves to accounts.google.com
+  with redirect_to=https://www.aitomicflow.com/auth/callback. Auth callback
+  redirects to www.aitomicflow.com/login (no old domain in chain).
+- DNS: MX, DKIM, DMARC, A, www CNAME all confirmed via nslookup.
+
+─── KNOWN GOTCHA — two brand names in legacy code ───────────────────────────
+
+The codebase previously used both "DragFlow" (landing page, metadata) and
+"BizFlow" (legal pages, email templates, support). Both are now replaced with
+"Aitomic Flow". If old brand names appear anywhere new, grep for both:
+grep -rn "bizflow\|dragflow\|BizFlow\|DragFlow" src/
