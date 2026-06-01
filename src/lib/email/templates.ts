@@ -31,7 +31,7 @@ function shell(title: string, body: string): string {
           <!-- Header -->
           <tr>
             <td style="background-color:#18181b;padding:24px 32px;">
-              <span style="color:#ffffff;font-size:18px;font-weight:600;letter-spacing:-0.3px;">Workflow</span>
+              <span style="color:#ffffff;font-size:18px;font-weight:600;letter-spacing:-0.3px;">Aitomic Flow</span>
             </td>
           </tr>
 
@@ -46,7 +46,7 @@ function shell(title: string, body: string): string {
           <tr>
             <td style="background-color:#f4f4f5;padding:20px 32px;border-top:1px solid #e4e4e7;">
               <p style="margin:0;font-size:12px;color:#71717a;text-align:center;">
-                This email was sent by Workflow. If you have questions, contact your administrator.
+                This email was sent by Aitomic Flow. If you have questions, contact your administrator.
               </p>
             </td>
           </tr>
@@ -171,7 +171,7 @@ export function buildInviteEmail(data: InviteEmailData): {
     </h2>
     <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
       Hi, <strong>${escHtml(data.inviterName)}</strong> has invited you to join
-      <strong>${escHtml(data.tenantName)}</strong> on Workflow.
+      <strong>${escHtml(data.tenantName)}</strong> on Aitomic Flow.
     </p>
 
     <p style="margin:0 0 8px;font-size:14px;color:#52525b;line-height:1.6;">
@@ -187,7 +187,7 @@ export function buildInviteEmail(data: InviteEmailData): {
   `
 
   return {
-    subject: `You've been invited to join ${data.tenantName} on Workflow`,
+    subject: `You've been invited to join ${data.tenantName} on Aitomic Flow`,
     html: shell(`Invitation to join ${data.tenantName}`, body),
   }
 }
