@@ -23,7 +23,13 @@ export default function ForgotPasswordPage() {
         redirectTo: `${window.location.origin}/auth/reset-password`,
       })
       if (error) {
-        setError(error.message)
+        if (error.message.toLowerCase().includes('rate limit')) {
+          setError(
+            'Too many reset emails sent recently. Please wait a few minutes and try again, or check your spam folder — the previous email may already be there.'
+          )
+        } else {
+          setError(error.message)
+        }
       } else {
         setSent(true)
       }
