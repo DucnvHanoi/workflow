@@ -31,6 +31,7 @@ export interface FlowStat {
   cancellationRate: number
   errorRate: number
   avgCycleTimeHours: number | null
+  lastTriggeredAt: string | null
   steps: StepStat[]
 }
 
@@ -58,7 +59,7 @@ async function getFlowPerformanceData(tenantId: string, period: string): Promise
     }
   }
 
-  // ── 1. Flow instances with flow context ──────────────────────────────────
+  // ── 1. Flow instances with flow context + all tenant flows + last-triggered ─
   type RawInstance = {
     id: string
     status: string
@@ -75,6 +76,16 @@ async function getFlowPerformanceData(tenantId: string, period: string): Promise
     } | null
   }
 
+  type LastInstRow = {
+    created_at: string
+    flow_versions:
+      | { flow_id: string; flows: { tenant_id: string } | null }
+      | { flow_id: string; flows: { tenant_id: string } | null }[]
+      | null
+  }
+
+  const oneYearAgoIso = new Date(Date.now() - 365 * 86_400_000).toISOString()
+
   let q = db.from('flow_instances').select(`
     id,
     status,
@@ -87,11 +98,37 @@ async function getFlowPerformanceData(tenantId: string, period: string): Promise
   `)
   if (periodStart) q = q.gte('created_at', periodStart)
 
-  const { data: rawInstances, error } = await q
+  const [{ data: rawInstances, error }, { data: allFlowsData }, { data: lastInstRows }] =
+    await Promise.all([
+      q,
+      db
+        .from('flows')
+        .select('id, name, status, latest_version_id')
+        .eq('tenant_id', tenantId)
+        .order('name'),
+      db
+        .from('flow_instances')
+        .select('created_at, flow_versions!flow_version_id(flow_id, flows!flow_id(tenant_id))')
+        .gte('created_at', oneYearAgoIso)
+        .order('created_at', { ascending: false }),
+    ])
+
   if (error) throw new Error(error.message)
 
   const instances = (rawInstances ?? []) as unknown as RawInstance[]
   const tenantInstances = instances.filter((i) => i.flow_versions?.flows?.tenant_id === tenantId)
+
+  // Build all-time last-triggered map from the 1-year lookback
+  const lastTriggeredMap = new Map<string, string>()
+  for (const row of (lastInstRows ?? []) as unknown as LastInstRow[]) {
+    const fv = Array.isArray(row.flow_versions) ? row.flow_versions[0] : row.flow_versions
+    if (!fv) continue
+    const flow = Array.isArray(fv.flows) ? fv.flows[0] : fv.flows
+    if (flow?.tenant_id !== tenantId) continue
+    if (!lastTriggeredMap.has(fv.flow_id)) {
+      lastTriggeredMap.set(fv.flow_id, row.created_at)
+    }
+  }
 
   // ── 2. Aggregate per-flow stats ──────────────────────────────────────────
   type FlowAccum = {
@@ -104,6 +141,7 @@ async function getFlowPerformanceData(tenantId: string, period: string): Promise
     error: number
     pending: number
     cycleTimes: number[]
+    periodLastCreatedAt: string | null
   }
 
   const flowMap = new Map<string, FlowAccum>()
@@ -124,10 +162,15 @@ async function getFlowPerformanceData(tenantId: string, period: string): Promise
         error: 0,
         pending: 0,
         cycleTimes: [],
+        periodLastCreatedAt: null,
       })
     }
     const acc = flowMap.get(flow.id)!
     acc.total++
+
+    if (!acc.periodLastCreatedAt || inst.created_at > acc.periodLastCreatedAt) {
+      acc.periodLastCreatedAt = inst.created_at
+    }
 
     if (inst.status === 'completed') {
       acc.completed++
@@ -143,6 +186,26 @@ async function getFlowPerformanceData(tenantId: string, period: string): Promise
       acc.error++
     } else {
       acc.pending++
+    }
+  }
+
+  // Add tenant flows that had no instances in the selected period
+  for (const f of allFlowsData ?? []) {
+    if (!flowMap.has(f.id)) {
+      flowMap.set(f.id, {
+        flowId: f.id,
+        flowName: f.name,
+        latestVersionId:
+          (f as { id: string; name: string; status: string; latest_version_id: string | null })
+            .latest_version_id ?? null,
+        total: 0,
+        completed: 0,
+        cancelled: 0,
+        error: 0,
+        pending: 0,
+        cycleTimes: [],
+        periodLastCreatedAt: null,
+      })
     }
   }
 
@@ -227,6 +290,7 @@ async function getFlowPerformanceData(tenantId: string, period: string): Promise
         cancellationRate: f.total > 0 ? f.cancelled / f.total : 0,
         errorRate: f.total > 0 ? f.error / f.total : 0,
         avgCycleTimeHours,
+        lastTriggeredAt: lastTriggeredMap.get(f.flowId) ?? f.periodLastCreatedAt ?? null,
         steps,
       }
     })

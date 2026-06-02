@@ -112,6 +112,13 @@ export const NAV_ITEMS: NavItem[] = [
     adminOnly: true,
     group: 'Reports',
   },
+  {
+    label: 'User Performance',
+    href: '/admin/reports/users',
+    icon: Users,
+    adminOnly: true,
+    group: 'Reports',
+  },
   // Settings group (admin only)
   { label: 'Settings', href: '/settings', icon: Settings, adminOnly: true, group: 'Settings' },
   // Help — visible to all roles

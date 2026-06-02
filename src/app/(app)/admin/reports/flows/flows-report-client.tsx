@@ -5,6 +5,28 @@ import Link from 'next/link'
 import { ChevronDown, ChevronRight, Lock } from 'lucide-react'
 import type { FlowStat } from './page'
 
+function LastTriggeredCell({ iso }: { iso: string | null }) {
+  if (!iso) {
+    return <span className="text-xs font-medium text-red-500">Never</span>
+  }
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+  let label: string
+  if (days === 0) label = 'Today'
+  else if (days === 1) label = '1d ago'
+  else if (days < 30) label = `${days}d ago`
+  else if (days < 365) label = `${Math.floor(days / 30)}mo ago`
+  else label = `${Math.floor(days / 365)}y ago`
+
+  const cls =
+    days >= 30
+      ? 'text-xs font-medium text-red-500'
+      : days >= 7
+        ? 'text-xs font-medium text-amber-600'
+        : 'text-xs text-muted-foreground'
+
+  return <span className={cls}>{label}</span>
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDuration(hours: number): string {
@@ -222,6 +244,7 @@ export default function FlowsReportClient({
                   <th className="px-4 py-3 text-right font-medium">Cancelled</th>
                   <th className="px-4 py-3 text-right font-medium">Errors</th>
                   <th className="px-4 py-3 text-right font-medium">Avg Cycle</th>
+                  <th className="px-4 py-3 text-right font-medium">Last Triggered</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -273,11 +296,14 @@ export default function FlowsReportClient({
                             ? formatDuration(flow.avgCycleTimeHours)
                             : '—'}
                         </td>
+                        <td className="px-4 py-3 text-right">
+                          <LastTriggeredCell iso={flow.lastTriggeredAt} />
+                        </td>
                       </tr>
 
                       {isExpanded && hasSteps && (
                         <tr>
-                          <td colSpan={7} className="bg-muted/10 p-0">
+                          <td colSpan={8} className="bg-muted/10 p-0">
                             <div className="px-14 py-3 space-y-2">
                               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                                 Step bottleneck — median wait time per step (sorted slowest first)

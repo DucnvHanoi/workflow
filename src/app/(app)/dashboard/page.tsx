@@ -21,6 +21,8 @@ import {
 
 type PeriodCounts = { triggered: number; completed: number; cancelled: number }
 
+type TrendPoint = { label: string; triggered: number; completed: number }
+
 type FlowRow = {
   id: string
   name: string
@@ -41,6 +43,61 @@ type PendingUserRow = {
   overdueCount: number
   dueSoonCount: number
   sparkline: number[] // 7 values: index 0 = 6 days ago, index 6 = today
+}
+
+// ─── Trend computation ────────────────────────────────────────────────────────
+
+function computeDailyTrend(
+  instances: { created_at: string; status: string }[],
+  periodStart: Date,
+  period: string,
+  now: Date
+): TrendPoint[] {
+  const totalMs = now.getTime() - periodStart.getTime()
+  const totalDays = Math.max(1, Math.ceil(totalMs / 86_400_000))
+  const useWeekly = period === '90d'
+
+  if (useWeekly) {
+    const numWeeks = Math.ceil(totalDays / 7)
+    const buckets: TrendPoint[] = Array.from({ length: numWeeks }, (_, i) => ({
+      label: new Date(periodStart.getTime() + i * 7 * 86_400_000).toLocaleDateString('en-GB', {
+        month: 'short',
+        day: 'numeric',
+      }),
+      triggered: 0,
+      completed: 0,
+    }))
+    for (const inst of instances) {
+      const dayDiff = Math.floor(
+        (new Date(inst.created_at).getTime() - periodStart.getTime()) / 86_400_000
+      )
+      const weekIdx = Math.floor(dayDiff / 7)
+      if (weekIdx >= 0 && weekIdx < numWeeks) {
+        buckets[weekIdx].triggered++
+        if (inst.status === 'completed') buckets[weekIdx].completed++
+      }
+    }
+    return buckets
+  }
+
+  const buckets: TrendPoint[] = Array.from({ length: totalDays }, (_, i) => ({
+    label: new Date(periodStart.getTime() + i * 86_400_000).toLocaleDateString('en-GB', {
+      month: 'short',
+      day: 'numeric',
+    }),
+    triggered: 0,
+    completed: 0,
+  }))
+  for (const inst of instances) {
+    const dayDiff = Math.floor(
+      (new Date(inst.created_at).getTime() - periodStart.getTime()) / 86_400_000
+    )
+    if (dayDiff >= 0 && dayDiff < totalDays) {
+      buckets[dayDiff].triggered++
+      if (inst.status === 'completed') buckets[dayDiff].completed++
+    }
+  }
+  return buckets
 }
 
 // ─── Period helpers ───────────────────────────────────────────────────────────
@@ -357,6 +414,8 @@ async function getDashboardData(tenantId: string, period: string) {
     }))
     .sort((a, b) => b.pendingCount - a.pendingCount)
 
+  const dailyTrend = computeDailyTrend(currentInstances, periodStart, period, now)
+
   return {
     totalFlows: (allFlows ?? []).length,
     totalOverdue,
@@ -366,6 +425,7 @@ async function getDashboardData(tenantId: string, period: string) {
     periodLabel: label,
     flowBreakdown,
     pendingByUser,
+    dailyTrend,
   }
 }
 
@@ -417,6 +477,129 @@ function Sparkline({ data }: { data: number[] }) {
         strokeLinejoin="round"
       />
     </svg>
+  )
+}
+
+function TrendChart({ data, periodLabel }: { data: TrendPoint[]; periodLabel: string }) {
+  const hasData = data.some((d) => d.triggered > 0)
+  if (!hasData) return null
+
+  const W = 600
+  const CHART_TOP = 6
+  const CHART_BOTTOM = 22
+  const H = CHART_TOP + 60 + CHART_BOTTOM // 88 total viewBox height
+  const chartH = H - CHART_TOP - CHART_BOTTOM
+  const n = data.length
+  const maxVal = Math.max(...data.map((d) => d.triggered), 1)
+
+  function getX(i: number): number {
+    return n <= 1 ? W / 2 : (i / (n - 1)) * W
+  }
+  function getY(val: number): number {
+    return CHART_TOP + chartH * (1 - val / maxVal)
+  }
+
+  const triggeredPts = data
+    .map((d, i) => `${getX(i).toFixed(1)},${getY(d.triggered).toFixed(1)}`)
+    .join(' ')
+  const completedPts = data
+    .map((d, i) => `${getX(i).toFixed(1)},${getY(d.completed).toFixed(1)}`)
+    .join(' ')
+  const areaBottom = (H - CHART_BOTTOM).toFixed(1)
+  const completedArea = `0,${areaBottom} ${completedPts} ${W.toFixed(1)},${areaBottom}`
+
+  const labelStep = Math.max(1, Math.round(n / 6))
+  const xLabels: { x: number; text: string }[] = data
+    .map((d, i) => ({ x: getX(i), text: d.label, show: i % labelStep === 0 || i === n - 1 }))
+    .filter((l) => l.show)
+
+  return (
+    <section>
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-base font-semibold text-foreground">Volume Trend</h2>
+          <span className="text-sm text-muted-foreground">— {periodLabel}</span>
+        </div>
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span
+              style={{
+                display: 'inline-block',
+                width: 14,
+                height: 2,
+                background: '#f59e0b',
+                borderRadius: 1,
+              }}
+            />
+            Triggered
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span
+              style={{
+                display: 'inline-block',
+                width: 14,
+                height: 2,
+                background: '#10b981',
+                borderRadius: 1,
+              }}
+            />
+            Completed
+          </span>
+        </div>
+      </div>
+      <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm px-4 pt-3 pb-1">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="none"
+          className="w-full"
+          style={{ height: '72px' }}
+          aria-hidden
+        >
+          {[0.33, 0.67].map((f) => (
+            <line
+              key={f}
+              x1="0"
+              y1={(CHART_TOP + chartH * f).toFixed(1)}
+              x2={W}
+              y2={(CHART_TOP + chartH * f).toFixed(1)}
+              stroke="#e5e7eb"
+              strokeWidth="0.5"
+              strokeDasharray="4,4"
+            />
+          ))}
+          <polygon points={completedArea} fill="#10b98112" />
+          <polyline
+            points={triggeredPts}
+            fill="none"
+            stroke="#f59e0b"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <polyline
+            points={completedPts}
+            fill="none"
+            stroke="#10b981"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {xLabels.map(({ x, text }) => (
+            <text
+              key={x}
+              x={x.toFixed(1)}
+              y={(H - 4).toFixed(1)}
+              textAnchor={x < 10 ? 'start' : x > W - 10 ? 'end' : 'middle'}
+              fontSize="7.5"
+              fill="#9ca3af"
+            >
+              {text}
+            </text>
+          ))}
+        </svg>
+      </div>
+    </section>
   )
 }
 
@@ -473,6 +656,7 @@ export default async function DashboardPage({
     periodLabel,
     flowBreakdown,
     pendingByUser,
+    dailyTrend,
   } = await getDashboardData(claims.tenant_id, period)
 
   return (
@@ -567,6 +751,9 @@ export default async function DashboardPage({
           description="Pending steps due within 24 hours"
         />
       </div>
+
+      {/* ── Volume trend chart ── */}
+      <TrendChart data={dailyTrend} periodLabel={periodLabel} />
 
       {/* ── Per-flow breakdown table ── */}
       <section>
