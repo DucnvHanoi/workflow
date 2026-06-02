@@ -3423,3 +3423,83 @@ email exists.
 Supabase redirect URL allowlist: https://www.aitomicflow.com/auth/reset-password
 must be in Supabase Dashboard → Authentication → URL Configuration → Redirect
 URLs, otherwise the recovery link redirect is blocked by Supabase.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 44. KNOWLEDGE BASE — COMPLETE ARTICLE INVENTORY (CURRENT STATE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+94 total rows in production (47 EN + 47 VI counterparts, suffix -vi).
+All articles active. Full-text search via GIN index on search_vector.
+Managed at /platform/support/knowledge. Public at /help/[slug].
+
+── account (7 EN) ────────────────────────────────────────────────────────────
+
+how-to-sign-up How to Sign Up
+how-to-accept-invitation How to Accept an Invitation
+how-to-update-profile How to Update Your Profile
+how-to-enable-mfa How to Enable Two-Factor Authentication
+how-to-sign-in-with-google How to Sign In with Google
+how-to-invite-users How to Invite Users
+reset-password Resetting Your Password
+
+── billing (3 EN) ────────────────────────────────────────────────────────────
+
+pricing-and-plans Pricing and Plans
+how-to-check-plan-usage How to Check Your Plan and Usage
+ai-features-and-credit-usage AI Features and Credit Usage
+
+── general (3 EN) ────────────────────────────────────────────────────────────
+
+what-is-aitomic-flow What is Aitomic Flow?
+user-roles-in-aitomic-flow User Roles in Aitomic Flow
+how-to-rename-organisation How to Rename Your Organisation
+
+── how-to (24 EN) ────────────────────────────────────────────────────────────
+
+how-to-create-workflow How to Create a Workflow
+how-to-start-workflow How to Start (Trigger) a Workflow
+how-to-complete-task How to Complete a Task
+how-to-view-flow-history How to View Your Flow History
+how-to-use-ai-flow-builder How to Use the AI Flow Builder
+how-to-manage-departments How to Manage Departments
+how-to-set-sla-deadlines How to Set Deadlines (SLA) on Workflow Steps
+how-to-view-reports How to View Analytics and Reports
+how-to-use-org-chart How to Use the Org Chart
+how-to-deactivate-user How to Deactivate and Reactivate a User
+how-to-use-flow-templates How to Use Flow Templates
+how-to-bulk-import-users How to Bulk Import Users via CSV
+how-to-configure-assignee-rules How to Configure Assignee Rules
+how-to-configure-branch-conditions How to Configure Branch Conditions
+how-to-setup-webhook-notifications How to Set Up Slack and Teams Notifications
+how-to-use-flow-comments How to Use Flow Instance Comments
+how-to-configure-ai-settings How to Configure AI Settings
+available-flow-templates Available Flow Templates (catalog of 20 templates)
+file-uploads-in-workflow-steps File Uploads in Workflow Steps
+required-vs-optional-fields Required vs Optional Form Fields ← §42
+choice-fields-guide Choice Fields: Dropdown, Radio, Checkbox ← §42
+date-and-datetime-fields Date and Date-Time Fields ← §42
+step-escalation-guide Step Escalation: Automatic Manager Notifications ← §42
+step-naming-best-practices Step Names and Descriptions: Best Practices ← §42
+
+── technical (10 EN) ─────────────────────────────────────────────────────────
+
+understanding-workflow-versions Understanding Workflow Versions
+understanding-audit-trail Understanding the Audit Trail
+understanding-notifications Understanding Notifications
+workflow-step-stuck-or-error What to Do If a Workflow Step is Stuck or Errors
+understanding-step-types Understanding the Four Step Types ← §42
+step-form-field-types Form Field Types Reference ← §42
+assignee-rule-types-reference All Assignee Rule Types Explained ← §42
+how-branch-conditions-work How Branch Conditions Work ← §42
+form-data-in-branch-conditions How Form Data Flows to Branch Conditions ← §42
+flow-loop-not-supported Can I Create a Loop in a Workflow? ← §43
+
+── Migration history ─────────────────────────────────────────────────────────
+
+20260415093000_knowledge_base_seed.sql Initial 22 EN articles
+20260415094000_knowledge_base_vietnamese.sql 27 VI translations
+20260529100000_knowledge_base_new_articles.sql Additional how-to articles
+20260529200000_kb_update_notifications_and_comments.sql Updates to notification/comments articles
+20260529210000_kb_vietnamese_missing_articles.sql Missing VI translations
+20260530110000_kb_flow_templates.sql Flow templates how-to + catalog article (EN + VI)
+20260602010000_kb_steps.sql 10 step reference articles (EN + VI) — §42
+20260602020000_kb_flow_loop_not_supported.sql Loop not supported correction (EN + VI) — §43
