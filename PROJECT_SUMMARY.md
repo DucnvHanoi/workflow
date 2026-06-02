@@ -3345,6 +3345,70 @@ the No path?", "What does escalation do?", "Who gets assigned this step?"
 Each article cross-links to related ones. VI counterparts use `-vi` slug suffix.
 All inserted with ON CONFLICT (slug) DO NOTHING (safe to re-run).
 
+43. KB: FLOW LOOP NOT SUPPORTED — CORRECTION & NEW ARTICLE (COMPLETE ✅)
+    Migration: supabase/migrations/20260602020000_kb_flow_loop_not_supported.sql
+    Applied to production (qdngvdffqsnqikqbhkmw) via Supabase MCP.
+    Committed: 43f5e9d.
+
+─── Background ───────────────────────────────────────────────────────────────
+
+User emailed support@aitomicflow.com asking whether loop/cycle flows were
+possible. The AI responder replied twice with detailed incorrect instructions
+saying loops ARE supported and explaining how to route a step back to an earlier
+node. The conversation (ticket f2d2689f) confirmed the bad answers.
+
+Root cause: no KB article existed covering this topic. The AI had no grounding
+and confabulated a plausible-sounding but wrong answer.
+
+─── What was verified in the codebase ───────────────────────────────────────
+
+FlowCanvas.tsx:173–187 — Rule 2 of isValidConnection runs BFS from the target
+node before accepting any new connection. If the BFS reaches the source node,
+the connection is rejected. This makes it impossible to draw a cycle in the UI.
+
+The runtime (advanceFlow in actions.ts) reads graph.edges to find the next step
+with no visited-node tracking — a cycle in the stored graph would produce
+infinite step_instance inserts until timeout. The data model (single
+current_step_id, append-only step_instances, no iteration counter) provides no
+support for loop semantics either.
+
+─── KB articles added (EN + VI) ─────────────────────────────────────────────
+
+slug: flow-loop-not-supported / flow-loop-not-supported-vi
+category: technical
+
+Content:
+
+- Clear "No" answer up front
+- Three-level explanation: canvas BFS check, runtime engine, data model
+- Three alternative patterns with canvas diagrams:
+  1. Rejection → Revise → Re-submit (explicit revision steps, recommended)
+  2. Re-trigger a new flow instance on rejection
+  3. Multi-round review as explicit steps on the same canvas
+
+─── Ticket correction ────────────────────────────────────────────────────────
+
+Ticket f2d2689f ("how to setup a flow with looping?", status was ai_replied):
+
+- Corrective outbound message inserted into the thread, apologising for both
+  incorrect AI replies and giving the correct answer with link to the new article
+- Ticket status set to pending_human so the admin can review before closing
+
+─── KNOWN GOTCHA — AI hallucination on missing KB topics ────────────────────
+
+When no KB article covers a topic and the AI cannot find a match via full-text
+search, it may fall through to its training-data knowledge and produce a
+plausible but incorrect answer. The fix is always to add a KB article — not to
+tune the confidence threshold. A "high confidence wrong answer" is worse than
+"low confidence routed to human".
+
+Pattern to follow when a bad AI reply is discovered:
+
+1. Read FlowCanvas / actions.ts to confirm the true behaviour
+2. Add a KB article with the correct answer + alternatives
+3. Correct the ticket thread and set status = pending_human
+4. Commit the migration so the correction is reproducible
+
 ─── KNOWN GOTCHAS ────────────────────────────────────────────────────────────
 
 PKCE vs implicit: @supabase/ssr uses PKCE by default — recovery URLs contain
