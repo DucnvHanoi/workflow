@@ -3174,3 +3174,74 @@ and returns early — no crash, no silent drop.
 platform_ai_config uses onConflict: 'singleton' for all upserts. The singleton
 column is the boolean PRIMARY KEY; its value is always TRUE. This pattern
 guarantees exactly one row without needing a sequence or known UUID.
+
+40. PASSWORD RESET FLOW (COMPLETE ✅)
+    Build: clean. Commits: e882773 (initial), b744181 (PKCE fix),
+    551da58 (rate-limit message), 90aa237 (Resend delivery).
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+Users can reset forgotten passwords via a "Forgot password?" link on the login
+page. Email is sent through Resend (same as invite emails) — Supabase's
+built-in SMTP is not used at all, avoiding rate limits and deliverability issues.
+
+─── Files ────────────────────────────────────────────────────────────────────
+
+src/app/auth/forgot-password/page.tsx (new)
+Email form → calls requestPasswordReset() server action → shows generic
+success state regardless of outcome (prevents user enumeration).
+No client-side Supabase auth calls; no error states shown to user.
+
+src/app/auth/forgot-password/actions.ts (new — 'use server')
+requestPasswordReset(email): calls admin.auth.admin.generateLink({ type:
+'recovery', redirectTo: SITE_URL/auth/reset-password }) → sends action_link
+via sendPasswordResetEmail() (Resend). Always returns { success: true }.
+If email not found, silently no-ops (logged server-side only).
+
+src/app/auth/reset-password/page.tsx (new)
+Handles the recovery session on page load — two flows supported:
+
+- PKCE (default for @supabase/ssr): reads ?code= from query string →
+  supabase.auth.exchangeCodeForSession(code)
+- Implicit fallback: reads #access_token= from hash → setSession()
+  Four states: loading → ready (password form) → success → error.
+  On success: calls updateUser({ password }), signs out, redirects to /login.
+  On error (expired/invalid link): shows "Request a new reset link" button.
+
+src/lib/email/templates.ts
+buildPasswordResetEmail({ actionLink }): branded HTML template with
+"Reset password" CTA button, 1-hour expiry note, and "didn't request
+this" safety copy.
+
+src/lib/email/resend.ts
+sendPasswordResetEmail({ recipientEmail, actionLink }): sends via
+ACCOUNT_EMAIL (noreply@aitomicflow.com). Returns bool, never throws.
+
+src/components/auth/login-form.tsx
+"Forgot password?" link added to the right of the Password label.
+
+src/middleware.ts
+/auth/forgot-password and /auth/reset-password added to PUBLIC_ROUTES.
+
+scripts/verify-password-reset.mjs (new)
+End-to-end verification script (no email required):
+
+- Admin generates a real recovery link
+- Tests PKCE path via verifyOtp(token_hash)
+- Tests implicit path via setSession(access_token, refresh_token)
+  Usage: node --env-file=.env.local scripts/verify-password-reset.mjs <email>
+
+─── KNOWN GOTCHAS ────────────────────────────────────────────────────────────
+
+PKCE vs implicit: @supabase/ssr uses PKCE by default — recovery URLs contain
+?code=xxx, not #access_token=xxx. The reset-password page handles both.
+Checking only the hash (old approach) causes "invalid reset link" on every
+real email link.
+
+User enumeration: server action always returns { success: true } and shows
+a generic "if this email has an account…" message. Never reveal whether an
+email exists.
+
+Supabase redirect URL allowlist: https://www.aitomicflow.com/auth/reset-password
+must be in Supabase Dashboard → Authentication → URL Configuration → Redirect
+URLs, otherwise the recovery link redirect is blocked by Supabase.
