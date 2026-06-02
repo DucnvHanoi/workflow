@@ -3231,6 +3231,120 @@ End-to-end verification script (no email required):
 - Tests implicit path via setSession(access_token, refresh_token)
   Usage: node --env-file=.env.local scripts/verify-password-reset.mjs <email>
 
+41. REPORTING ENRICHMENT — USER PERFORMANCE, VOLUME TREND, FLOW ADOPTION (COMPLETE ✅)
+    Build: clean (commit fd8f8b1). Three new reporting features added without breaking existing reports.
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+Three reporting gaps identified and filled in one session:
+
+1. No per-user performance data (only "pending at who" snapshot on dashboard).
+2. No visual trend showing whether volume is growing or declining over time.
+3. No way to see which flows are stale / never triggered.
+
+─── Feature 1: User Performance Report (/admin/reports/users) ───────────────
+
+New admin-only route following the same server + client component pattern as
+the existing Flow Performance and SLA Adherence reports.
+
+Data: step_instances for the tenant (1-year lookback for tenant isolation;
+period-filtered on step.created_at). Aggregated per user:
+
+- Total assigned, completed, currently pending
+- Avg completion time (hours from created_at to completed_at)
+- On-time rate (completed before due_at / total with due_at set)
+- Last active date (max completed_at in period)
+
+UI (users-report-client.tsx — 'use client'):
+
+- 4 summary stat cards: Active Users, Tasks Completed, Avg Completion Time,
+  On-time Rate (colour-coded green/amber/red by threshold).
+- Period tabs (7d / 30d / 90d / all-time) with plan lock gates matching other reports.
+- Per-user table: sortable by Most Done / Fastest / Late Rate.
+  Columns: User (name + email), Assigned, Completed (with %), Pending
+  (red ≥5 / amber ≥3), Avg Time, On-time %, Last Active.
+
+Nav: "User Performance" item added to the Reports group in nav-items.ts (Users icon).
+
+─── Feature 2: Dashboard Volume Trend Chart ─────────────────────────────────
+
+SVG line chart inserted between the stat cards and the Flow Breakdown table
+on the /dashboard page. No client component needed — rendered server-side as
+inline SVG math.
+
+Two series: Triggered (amber #f59e0b) and Completed (green #10b981).
+
+- 7d / month / 30d periods: daily buckets.
+- 90d period: weekly buckets (13 data points).
+- X-axis: smart label interval (≤6 labels regardless of bucket count).
+- Subtle area fill under the completed line for visual depth.
+- Hidden entirely when all data is zero (avoids flat-line noise).
+
+Implementation: computeDailyTrend() helper + TrendChart() component, both
+added to dashboard/page.tsx. dailyTrend is returned from getDashboardData()
+alongside the existing stat card data.
+
+─── Feature 3: Flow Adoption in Flow Performance Report ─────────────────────
+
+Two enhancements to /admin/reports/flows:
+
+1. Last Triggered column added to the per-flow table.
+   - All-time last triggered date fetched via a parallel query (1-year lookback,
+     ordered DESC — first occurrence per flow = most recent).
+   - Falls back to periodLastCreatedAt if the all-time query has no data for the
+     flow within the year window.
+   - Staleness colour coding: grey = < 7 days, amber = 7–29 days,
+     red = 30+ days, red "Never" for flows never triggered in 12 months.
+
+2. Zero-instance flows included. The per-flow table previously only showed
+   flows that had at least one instance in the selected period. Now all tenant
+   flows are fetched (allFlowsData query) and flows with no period activity are
+   added as rows with total=0, sorted last by run count. Admins can see stale /
+   unused flows even when filtering to a short period.
+
+FlowStat interface extended: lastTriggeredAt: string | null.
+FlowAccum extended: periodLastCreatedAt: string | null.
+flows-report-client.tsx: LastTriggeredCell component, colspan 7 → 8.
+
+─── Files changed ────────────────────────────────────────────────────────────
+
+New: src/app/(app)/admin/reports/users/page.tsx
+New: src/app/(app)/admin/reports/users/users-report-client.tsx
+Modified: src/components/shell/nav-items.ts
+Modified: src/app/(app)/dashboard/page.tsx
+Modified: src/app/(app)/admin/reports/flows/page.tsx
+Modified: src/app/(app)/admin/reports/flows/flows-report-client.tsx
+
+42. KB: STEP REFERENCE ARTICLES — 10 TOPICS EN + VI (COMPLETE ✅)
+    Migration: supabase/migrations/20260602010000_kb_steps.sql
+    Applied to production (qdngvdffqsnqikqbhkmw) via Supabase MCP.
+    Committed: 2898278.
+
+─── Gap filled ───────────────────────────────────────────────────────────────
+
+The knowledge base had zero articles explaining Steps — the core building block
+of every workflow. Users could not self-serve answers to: "What types of steps
+exist?", "What is a radio field vs dropdown?", "Why does my branch always take
+the No path?", "What does escalation do?", "Who gets assigned this step?"
+
+─── 10 articles added (EN + VI = 20 DB rows) ────────────────────────────────
+
+| Slug                           | Category  | Topic                                                                                       |
+| ------------------------------ | --------- | ------------------------------------------------------------------------------------------- |
+| understanding-step-types       | technical | Trigger, Action, Branch, Complete — what each is, config options, typical patterns          |
+| step-form-field-types          | technical | All 8 field types with use-case guidance and quick-reference table                          |
+| required-vs-optional-fields    | how-to    | Required flag behaviour, impact on branch routing (empty = false = No path), best practices |
+| choice-fields-guide            | how-to    | Dropdown vs Radio vs Checkbox — differences, branch operators, common mistakes              |
+| date-and-datetime-fields       | how-to    | Date-only vs date-time, branch operators (static values only), SLA independence             |
+| step-escalation-guide          | how-to    | Escalation vs SLA, config, fires-once behaviour, manager requirement, FAQ                   |
+| assignee-rule-types-reference  | technical | All 7 rule types with requirements, use cases, and failure troubleshooting table            |
+| how-branch-conditions-work     | technical | All operators, AND logic, empty field behaviour, testing before publish                     |
+| step-naming-best-practices     | how-to    | Label vs description, verb-noun format, naming Branch/Complete nodes                        |
+| form-data-in-branch-conditions | technical | Upstream data model, which field types evaluate in branches, design-first pattern           |
+
+Each article cross-links to related ones. VI counterparts use `-vi` slug suffix.
+All inserted with ON CONFLICT (slug) DO NOTHING (safe to re-run).
+
 ─── KNOWN GOTCHAS ────────────────────────────────────────────────────────────
 
 PKCE vs implicit: @supabase/ssr uses PKCE by default — recovery URLs contain
