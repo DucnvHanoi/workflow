@@ -9,12 +9,14 @@ import {
   LayoutTemplate,
   Headphones,
   BookOpen,
+  Bot,
 } from 'lucide-react'
 
 const NAV = [
   { href: '/platform/tenants', label: 'Tenants', icon: Users },
   { href: '/platform/plan-config', label: 'Plan Config', icon: Settings2 },
   { href: '/platform/ai-overrides', label: 'AI Overrides', icon: Zap },
+  { href: '/platform/ai-settings', label: 'AI Settings', icon: Bot },
   { href: '/platform/templates', label: 'Templates', icon: LayoutTemplate },
   { href: '/platform/support', label: 'Support', icon: Headphones },
   { href: '/platform/support/knowledge', label: 'Knowledge Base', icon: BookOpen },

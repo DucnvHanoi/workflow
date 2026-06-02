@@ -1,9 +1,12 @@
 'use server'
 
 import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendSupportReplyEmail, sendAgentAlertEmail } from '@/lib/email/resend'
 import { fetchUserContext } from './user-context'
+import { decryptApiKey } from '@/lib/ai/crypto'
+import { computeCost, DEFAULT_MODEL } from '@/lib/ai/pricing'
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -142,8 +145,6 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       (message.body_html ? message.body_html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') : '')
 
     // 2. Knowledge base search + user context (parallel) ---------------------
-    // Use subject + opening lines of body so vague subjects ("Help!", "Question")
-    // still produce relevant KB hits via the body content.
     const bodySnippet = bodyText.slice(0, 150)
     const kbQuery = `${ticket.subject} ${bodySnippet}`.slice(0, 300)
     const [kbArticles, userContext] = await Promise.all([
@@ -151,14 +152,41 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       fetchUserContext(ticket.sender_email as string),
     ])
 
-    // 3. Call Claude ----------------------------------------------------------
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    if (!apiKey) {
-      console.error('[support/ai] ANTHROPIC_API_KEY not configured')
+    // 3. Load platform AI config ---------------------------------------------
+    const { data: platformConfig } = await db
+      .from('platform_ai_config')
+      .select('ai_enabled, provider, model, anthropic_key_encrypted, openai_key_encrypted')
+      .maybeSingle()
+
+    if (!platformConfig?.ai_enabled) {
+      console.error('[support/ai] Platform AI not configured or disabled — escalating to human')
       await db.from('support_tickets').update({ status: 'pending_human' }).eq('id', ticketId)
       return
     }
 
+    const provider = (platformConfig.provider ?? 'anthropic') as 'anthropic' | 'openai'
+    const model = platformConfig.model ?? DEFAULT_MODEL[provider] ?? DEFAULT_MODEL['anthropic']
+    const keyEncrypted =
+      provider === 'openai'
+        ? platformConfig.openai_key_encrypted
+        : platformConfig.anthropic_key_encrypted
+
+    if (!keyEncrypted) {
+      console.error(`[support/ai] No ${provider} API key stored — escalating to human`)
+      await db.from('support_tickets').update({ status: 'pending_human' }).eq('id', ticketId)
+      return
+    }
+
+    let apiKey: string
+    try {
+      apiKey = decryptApiKey(keyEncrypted as string)
+    } catch {
+      console.error('[support/ai] Failed to decrypt platform API key')
+      await db.from('support_tickets').update({ status: 'pending_human' }).eq('id', ticketId)
+      return
+    }
+
+    // 4. Build user content --------------------------------------------------
     const senderLabel = ticket.sender_name
       ? `${ticket.sender_name} <${ticket.sender_email}>`
       : ticket.sender_email
@@ -177,26 +205,59 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       ...(userContext ? ['', '---', '', userContext] : []),
     ].join('\n')
 
-    const client = new Anthropic({ apiKey })
-    const aiMessage = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
+    // 5. Call the configured AI provider -------------------------------------
+    let rawText: string
+    let inputTokens: number
+    let outputTokens: number
+
+    if (provider === 'openai') {
+      const client = new OpenAI({ apiKey })
+      const completion = await client.chat.completions.create({
+        model,
+        max_tokens: 1024,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+      })
+      rawText = completion.choices[0]?.message?.content?.trim() ?? ''
+      inputTokens = completion.usage?.prompt_tokens ?? 0
+      outputTokens = completion.usage?.completion_tokens ?? 0
+    } else {
+      const client = new Anthropic({ apiKey })
+      const aiMessage = await client.messages.create({
+        model,
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userContent }],
+      })
+      rawText = aiMessage.content[0].type === 'text' ? aiMessage.content[0].text.trim() : ''
+      inputTokens = aiMessage.usage.input_tokens
+      outputTokens = aiMessage.usage.output_tokens
+    }
+
+    // 6. Log usage -----------------------------------------------------------
+    const costUsd = computeCost(model, inputTokens, outputTokens)
+    await db.from('platform_ai_usage_logs').insert({
+      feature: 'support_email',
+      provider,
+      model,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cost_usd: costUsd,
     })
 
-    const rawText = aiMessage.content[0].type === 'text' ? aiMessage.content[0].text.trim() : ''
+    // 7. Parse AI response ---------------------------------------------------
     const cleaned = rawText
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/, '')
       .trim()
 
-    // 4. Parse AI response ----------------------------------------------------
     let aiReply: AiResponseJson
     try {
       aiReply = JSON.parse(cleaned) as AiResponseJson
     } catch {
-      console.error('[support/ai] Failed to parse Claude response:', cleaned)
+      console.error('[support/ai] Failed to parse AI response:', cleaned)
       await db.from('support_tickets').update({ status: 'pending_human' }).eq('id', ticketId)
       await sendAgentAlertEmail({
         ticketId,
@@ -213,7 +274,7 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
     const isHighConfidence = aiReply.confidence === 'high' && !isBilling
     const canAutoReply = isHighConfidence || (aiReply.confidence === 'low' && !isBilling)
 
-    // 5a. Can auto-reply (high confidence, or low-confidence non-billing) -----
+    // 8a. Can auto-reply (high confidence, or low-confidence non-billing) ----
     if (canAutoReply) {
       const replyText = aiReply.reply_text
 
@@ -268,7 +329,7 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
         })
       }
 
-      // 5b. Billing or sensitive — escalate to human only ----------------------
+      // 8b. Billing or sensitive — escalate to human only --------------------
     } else {
       await db
         .from('support_tickets')
