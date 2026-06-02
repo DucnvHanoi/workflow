@@ -21,9 +21,27 @@ export default function ResetPasswordPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
-  // On mount: parse the recovery tokens from the URL hash and set the session
+  // On mount: establish a recovery session from the URL.
+  // Supabase @supabase/ssr uses PKCE by default → ?code=xxx in query string.
+  // Older implicit flow → #access_token=xxx in hash. Handle both.
   useEffect(() => {
     async function init() {
+      // ── PKCE flow: ?code=xxx ─────────────────────────────────────────────
+      const searchParams = new URLSearchParams(window.location.search)
+      const code = searchParams.get('code')
+
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (error) {
+          setInitError('Reset link has expired. Please request a new one.')
+          setPageState('error')
+          return
+        }
+        setPageState('ready')
+        return
+      }
+
+      // ── Implicit flow fallback: #access_token=xxx ────────────────────────
       const hash = window.location.hash
       const params = new URLSearchParams(hash.replace('#', ''))
       const accessToken = params.get('access_token')
@@ -38,24 +56,23 @@ export default function ResetPasswordPage() {
         return
       }
 
-      if (!accessToken || !refreshToken || type !== 'recovery') {
-        setInitError('Invalid or missing reset link. Please request a new one.')
-        setPageState('error')
+      if (accessToken && refreshToken && type === 'recovery') {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        })
+        if (error) {
+          setInitError('Reset link has expired. Please request a new one.')
+          setPageState('error')
+          return
+        }
+        setPageState('ready')
         return
       }
 
-      const { error } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      })
-
-      if (error) {
-        setInitError('Reset link has expired. Please request a new one.')
-        setPageState('error')
-        return
-      }
-
-      setPageState('ready')
+      // Nothing in query string or hash — link is invalid
+      setInitError('Invalid or missing reset link. Please request a new one.')
+      setPageState('error')
     }
 
     init()
