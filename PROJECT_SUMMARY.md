@@ -3090,3 +3090,87 @@ The codebase previously used both "DragFlow" (landing page, metadata) and
 "BizFlow" (legal pages, email templates, support). Both are now replaced with
 "Aitomic Flow". If old brand names appear anywhere new, grep for both:
 grep -rn "bizflow\|dragflow\|BizFlow\|DragFlow" src/
+
+39. PLATFORM AI SETTINGS — CONFIGURABLE INBOUND EMAIL RESPONDER (COMPLETE ✅)
+    Build: clean (commit 79d4a60). Migration applied to remote DB.
+
+─── Overview ─────────────────────────────────────────────────────────────────
+
+The AI model used to auto-respond to inbound support emails is now configurable
+by the platform owner via /platform/ai-settings. Previously hardcoded to
+claude-sonnet-4-6 + ANTHROPIC_API_KEY env var; now driven entirely from the DB.
+Supports both Anthropic (Claude) and OpenAI (GPT) with all available models.
+This is platform-owner only — no tenant involvement.
+
+─── Database ─────────────────────────────────────────────────────────────────
+
+supabase/migrations/20260602000000_platform_ai_config.sql
+
+platform_ai_config (singleton — boolean PRIMARY KEY + CHECK singleton = TRUE):
+ai_enabled bool (default false), provider text ('anthropic'|'openai'),
+model text (default 'claude-sonnet-4-6'),
+anthropic_key_encrypted text | null,
+openai_key_encrypted text | null.
+Both keys stored independently (AES-256-GCM via existing crypto.ts) so the
+owner can pre-enter both and switch providers without re-entering keys.
+No RLS — accessed via service role only.
+
+platform_ai_usage_logs (append-only):
+feature text (default 'support_email'), provider, model,
+input_tokens, output_tokens, cost_usd numeric(10,6), created_at.
+Indexed on created_at DESC. No RLS — service role only.
+
+─── Files ────────────────────────────────────────────────────────────────────
+
+src/lib/platform/ai-config-actions.ts (new — 'use server')
+
+requirePlatformAdmin(): checks user email against PLATFORM_ADMIN_EMAIL env var
+(same guard as middleware). Throws on mismatch.
+
+getPlatformAIConfig() → PlatformAIConfigData
+updatePlatformAIConfig({ aiEnabled?, provider?, model? }) — upserts on singleton
+savePlatformAPIKey(provider, key) — encrypts + upserts the correct key column
+removePlatformAPIKey(provider) — nulls the correct key column
+getPlatformAIUsageLogs(limit=50) → PlatformAIUsageEntry[]
+
+src/lib/support/ai-responder.ts (updated)
+
+Removed: hardcoded model string, ANTHROPIC_API_KEY env var check, direct
+Anthropic-only SDK instantiation.
+Added:
+
+- Loads platform_ai_config row; falls back to pending_human if ai_enabled=false
+  or the active provider's key is missing/unset.
+- Calls Anthropic or OpenAI based on provider column (OpenAI via openai@6 SDK,
+  already installed as a dependency of the tenant AI gateway).
+- Logs every call to platform_ai_usage_logs with tokens + computed cost.
+
+src/app/platform/ai-settings/page.tsx (new)
+src/components/platform/PlatformAISettingsCard.tsx (new — 'use client')
+
+Three sections:
+
+1. AI Email Responder — enable/disable toggle; provider dropdown
+   (Anthropic/OpenAI); model radio cards showing name, description, pricing
+   (all models from pricing.ts MODELS_BY_PROVIDER).
+2. API Keys — independent Anthropic + OpenAI key inputs; each shows an
+   "Active" badge when that provider is selected; Change/Remove buttons; both
+   keys can be stored simultaneously.
+3. Recent Usage — table of last 50 calls: date, provider/model, input tokens,
+   output tokens, cost in USD; aggregate total shown in header.
+
+src/app/platform/layout.tsx (updated)
+"AI Settings" nav item added (Bot icon from lucide-react), between
+"AI Overrides" and "Templates".
+
+─── Behaviour when AI is disabled or misconfigured ──────────────────────────
+
+If platform_ai_config row does not exist, ai_enabled=false, or the active
+provider has no key stored, ai-responder.ts sets the ticket to pending_human
+and returns early — no crash, no silent drop.
+
+─── KNOWN GOTCHA — singleton upsert ─────────────────────────────────────────
+
+platform_ai_config uses onConflict: 'singleton' for all upserts. The singleton
+column is the boolean PRIMARY KEY; its value is always TRUE. This pattern
+guarantees exactly one row without needing a sequence or known UUID.
