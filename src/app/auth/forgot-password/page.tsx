@@ -2,37 +2,23 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
+import { requestPasswordReset } from './actions'
 
 export default function ForgotPasswordPage() {
-  const supabase = createClient()
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setError(null)
     startTransition(async () => {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/auth/reset-password`,
-      })
-      if (error) {
-        if (error.message.toLowerCase().includes('rate limit')) {
-          setError(
-            'Too many reset emails sent recently. Please wait a few minutes and try again, or check your spam folder — the previous email may already be there.'
-          )
-        } else {
-          setError(error.message)
-        }
-      } else {
-        setSent(true)
-      }
+      await requestPasswordReset(email.trim())
+      // Always show success — server action never surfaces errors to prevent enumeration
+      setSent(true)
     })
   }
 
@@ -65,8 +51,8 @@ export default function ForgotPasswordPage() {
               <div className="space-y-4 text-center">
                 <div className="rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 px-4 py-3">
                   <p className="text-sm text-green-700 dark:text-green-400">
-                    Reset link sent to <span className="font-medium">{email}</span>. Check your
-                    inbox and follow the link to set a new password.
+                    If <span className="font-medium">{email}</span> has an account, a reset link is
+                    on its way. Check your inbox (and spam folder).
                   </p>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -96,12 +82,6 @@ export default function ForgotPasswordPage() {
                     disabled={isPending}
                   />
                 </div>
-
-                {error && (
-                  <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
-                    <p className="text-sm text-destructive">{error}</p>
-                  </div>
-                )}
 
                 <Button type="submit" className="w-full" disabled={isPending}>
                   {isPending ? 'Sending…' : 'Send reset link'}

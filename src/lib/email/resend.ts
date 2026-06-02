@@ -22,6 +22,7 @@ import {
   buildAssignmentEmail,
   buildCompletionEmail,
   buildInviteEmail,
+  buildPasswordResetEmail,
   buildSlaDigestEmail,
   buildEscalationEmail,
   buildSupportReplyEmail,
@@ -29,6 +30,7 @@ import {
   type AssignmentEmailData,
   type CompletionEmailData,
   type InviteEmailData,
+  type PasswordResetEmailData,
   type SlaDigestEmailData,
   type EscalationEmailData,
   type SupportReplyEmailData,
@@ -271,6 +273,44 @@ export async function sendInviteEmail(params: SendInviteEmailParams): Promise<vo
       status: 'failed',
       errorMessage: message,
     })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendPasswordResetEmail
+// ---------------------------------------------------------------------------
+
+export type SendPasswordResetEmailParams = PasswordResetEmailData & {
+  recipientEmail: string
+}
+
+/**
+ * Sends a password-reset email via Resend.
+ * Called from the forgot-password server action after admin.generateLink().
+ * Returns true on success, false on failure.
+ * Never throws — caller always shows a success message regardless (prevent enumeration).
+ */
+export async function sendPasswordResetEmail(
+  params: SendPasswordResetEmailParams
+): Promise<boolean> {
+  const { subject, html } = buildPasswordResetEmail(params)
+
+  try {
+    const { error } = await resend.emails.send({
+      from: ACCOUNT_EMAIL,
+      to: params.recipientEmail,
+      subject,
+      html,
+    })
+
+    if (error) {
+      console.error('[email] Resend API error (password-reset):', error)
+      return false
+    }
+    return true
+  } catch (err) {
+    console.error('[email] Unexpected error sending password-reset email:', err)
+    return false
   }
 }
 

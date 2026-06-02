@@ -358,7 +358,43 @@ export function buildSlaDigestEmail(data: SlaDigestEmailData): {
 }
 
 // ---------------------------------------------------------------------------
-// Template 6 — Support Reply (AI → customer)
+// Template 6 — Password Reset
+// ---------------------------------------------------------------------------
+
+export interface PasswordResetEmailData {
+  actionLink: string // Supabase recovery link (verify URL)
+}
+
+export function buildPasswordResetEmail(data: PasswordResetEmailData): {
+  subject: string
+  html: string
+} {
+  const body = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      Reset your password
+    </h2>
+    <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
+      We received a request to reset the password for your Aitomic Flow account.
+      Click the button below to choose a new password.
+      This link expires in <strong>1 hour</strong>.
+    </p>
+
+    ${ctaButton('Reset password', data.actionLink)}
+
+    <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">
+      If you didn&apos;t request a password reset, you can safely ignore this email.
+      Your password will not change.
+    </p>
+  `
+
+  return {
+    subject: 'Reset your Aitomic Flow password',
+    html: shell('Reset your password', body),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Template 7 — Support Reply (AI → customer)
 // ---------------------------------------------------------------------------
 
 export interface SupportReplyEmailData {
