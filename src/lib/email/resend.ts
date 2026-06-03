@@ -27,6 +27,10 @@ import {
   buildEscalationEmail,
   buildSupportReplyEmail,
   buildAgentAlertEmail,
+  buildDripConfirmEmail,
+  buildDripTeamWaitingEmail,
+  buildDripGoLiveEmail,
+  buildDripWeekTwoTipsEmail,
   type AssignmentEmailData,
   type CompletionEmailData,
   type InviteEmailData,
@@ -35,6 +39,10 @@ import {
   type EscalationEmailData,
   type SupportReplyEmailData,
   type AgentAlertEmailData,
+  type DripConfirmEmailData,
+  type DripTeamWaitingData,
+  type DripGoLiveData,
+  type DripWeekTwoTipsData,
 } from './templates'
 
 // ---------------------------------------------------------------------------
@@ -58,7 +66,16 @@ interface LogEmailParams {
   instanceId: string | null
   stepInstanceId?: string | null
   recipientEmail: string
-  emailType: 'step_assigned' | 'flow_completed' | 'invite' | 'sla_reminder' | 'sla_escalation'
+  emailType:
+    | 'step_assigned'
+    | 'flow_completed'
+    | 'invite'
+    | 'sla_reminder'
+    | 'sla_escalation'
+    | 'drip_day1_confirm_email'
+    | 'drip_day2_team_waiting'
+    | 'drip_day5_go_live'
+    | 'drip_week2_tips'
   status: 'sent' | 'failed'
   resendId?: string | null
   errorMessage?: string | null
@@ -457,6 +474,218 @@ export async function sendAgentAlertEmail(params: SendAgentAlertEmailParams): Pr
     if (error) console.error('[email] Resend API error (agent-alert):', error)
   } catch (err) {
     console.error('[email] Unexpected error sending agent alert:', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendDripConfirmEmail
+// ---------------------------------------------------------------------------
+
+export interface SendDripConfirmEmailParams extends DripConfirmEmailData {
+  recipientEmail: string
+  tenantId: string
+}
+
+export async function sendDripConfirmEmail(params: SendDripConfirmEmailParams): Promise<void> {
+  const { subject, html } = buildDripConfirmEmail(params)
+  try {
+    const { data, error } = await resend.emails.send({
+      from: ACCOUNT_EMAIL,
+      to: params.recipientEmail,
+      subject,
+      html,
+    })
+    if (error) {
+      console.error('[email] Resend API error (drip-confirm):', error)
+      await logEmail({
+        tenantId: params.tenantId,
+        instanceId: null,
+        recipientEmail: params.recipientEmail,
+        emailType: 'drip_day1_confirm_email',
+        status: 'failed',
+        errorMessage: error.message,
+      })
+      return
+    }
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'drip_day1_confirm_email',
+      status: 'sent',
+      resendId: data?.id ?? null,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[email] Unexpected error sending drip-confirm email:', message)
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'drip_day1_confirm_email',
+      status: 'failed',
+      errorMessage: message,
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendDripTeamWaitingEmail
+// ---------------------------------------------------------------------------
+
+export interface SendDripTeamWaitingEmailParams extends DripTeamWaitingData {
+  recipientEmail: string
+  tenantId: string
+}
+
+export async function sendDripTeamWaitingEmail(
+  params: SendDripTeamWaitingEmailParams
+): Promise<void> {
+  const { subject, html } = buildDripTeamWaitingEmail(params)
+  try {
+    const { data, error } = await resend.emails.send({
+      from: ACCOUNT_EMAIL,
+      to: params.recipientEmail,
+      subject,
+      html,
+    })
+    if (error) {
+      console.error('[email] Resend API error (drip-team-waiting):', error)
+      await logEmail({
+        tenantId: params.tenantId,
+        instanceId: null,
+        recipientEmail: params.recipientEmail,
+        emailType: 'drip_day2_team_waiting',
+        status: 'failed',
+        errorMessage: error.message,
+      })
+      return
+    }
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'drip_day2_team_waiting',
+      status: 'sent',
+      resendId: data?.id ?? null,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[email] Unexpected error sending drip-team-waiting email:', message)
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'drip_day2_team_waiting',
+      status: 'failed',
+      errorMessage: message,
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendDripGoLiveEmail
+// ---------------------------------------------------------------------------
+
+export interface SendDripGoLiveEmailParams extends DripGoLiveData {
+  recipientEmail: string
+  tenantId: string
+}
+
+export async function sendDripGoLiveEmail(params: SendDripGoLiveEmailParams): Promise<void> {
+  const { subject, html } = buildDripGoLiveEmail(params)
+  try {
+    const { data, error } = await resend.emails.send({
+      from: ACCOUNT_EMAIL,
+      to: params.recipientEmail,
+      subject,
+      html,
+    })
+    if (error) {
+      console.error('[email] Resend API error (drip-go-live):', error)
+      await logEmail({
+        tenantId: params.tenantId,
+        instanceId: null,
+        recipientEmail: params.recipientEmail,
+        emailType: 'drip_day5_go_live',
+        status: 'failed',
+        errorMessage: error.message,
+      })
+      return
+    }
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'drip_day5_go_live',
+      status: 'sent',
+      resendId: data?.id ?? null,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[email] Unexpected error sending drip-go-live email:', message)
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'drip_day5_go_live',
+      status: 'failed',
+      errorMessage: message,
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendDripWeekTwoTipsEmail
+// ---------------------------------------------------------------------------
+
+export interface SendDripWeekTwoTipsEmailParams extends DripWeekTwoTipsData {
+  recipientEmail: string
+  tenantId: string
+}
+
+export async function sendDripWeekTwoTipsEmail(
+  params: SendDripWeekTwoTipsEmailParams
+): Promise<void> {
+  const { subject, html } = buildDripWeekTwoTipsEmail(params)
+  try {
+    const { data, error } = await resend.emails.send({
+      from: ACCOUNT_EMAIL,
+      to: params.recipientEmail,
+      subject,
+      html,
+    })
+    if (error) {
+      console.error('[email] Resend API error (drip-week2-tips):', error)
+      await logEmail({
+        tenantId: params.tenantId,
+        instanceId: null,
+        recipientEmail: params.recipientEmail,
+        emailType: 'drip_week2_tips',
+        status: 'failed',
+        errorMessage: error.message,
+      })
+      return
+    }
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'drip_week2_tips',
+      status: 'sent',
+      resendId: data?.id ?? null,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[email] Unexpected error sending drip-week2-tips email:', message)
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'drip_week2_tips',
+      status: 'failed',
+      errorMessage: message,
+    })
   }
 }
 

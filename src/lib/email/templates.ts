@@ -484,6 +484,220 @@ export function buildAgentAlertEmail(data: AgentAlertEmailData): {
 }
 
 // ---------------------------------------------------------------------------
+// Templates 9–12 — Onboarding Drip Emails
+// ---------------------------------------------------------------------------
+
+export interface DripConfirmEmailData {
+  adminName: string
+  adminEmail: string
+}
+
+export function buildDripConfirmEmail(data: DripConfirmEmailData): {
+  subject: string
+  html: string
+} {
+  const loginUrl = `${BASE_URL}/auth/login`
+
+  const body = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      Please confirm your email address
+    </h2>
+    <p style="margin:0 0 16px;font-size:15px;color:#52525b;line-height:1.6;">
+      Hi ${escHtml(data.adminName)}, your Aitomic Flow workspace is almost ready.
+    </p>
+    <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
+      We sent a confirmation link to <strong>${escHtml(data.adminEmail)}</strong>.
+      Please check your inbox and click the link to activate your account.
+      If you can't find it, check your spam folder.
+    </p>
+
+    <table cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #e4e4e7;border-radius:6px;padding:16px;background-color:#fafafa;">
+      <tbody>
+        ${detailRow('Sent to', data.adminEmail)}
+        ${detailRow('From', 'noreply@aitomicflow.com')}
+        ${detailRow('Subject', 'Confirm your email address')}
+      </tbody>
+    </table>
+
+    <p style="margin:20px 0 0;font-size:14px;color:#71717a;line-height:1.6;">
+      Once confirmed, you can sign in and start building your first workflow.
+    </p>
+
+    ${ctaButton('Sign in to Aitomic Flow', loginUrl)}
+
+    <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">
+      If you didn&apos;t create this account, you can safely ignore this email.
+    </p>
+  `
+
+  return {
+    subject: 'Please confirm your email address',
+    html: shell('Confirm your email', body),
+  }
+}
+
+export interface DripTeamWaitingData {
+  adminName: string
+  pendingCount: number
+}
+
+export function buildDripTeamWaitingEmail(data: DripTeamWaitingData): {
+  subject: string
+  html: string
+} {
+  const inviteUrl = `${BASE_URL}/invite`
+  const plural = data.pendingCount === 1
+
+  const body = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      Your team is still waiting
+    </h2>
+    <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
+      Hi ${escHtml(data.adminName)}, you have
+      <strong>${data.pendingCount} pending invitation${plural ? '' : 's'}</strong>
+      that ${plural ? 'has' : 'have'} not been accepted yet.
+    </p>
+    <p style="margin:0 0 8px;font-size:15px;color:#52525b;line-height:1.6;">
+      Workflows on Aitomic Flow are most powerful when your whole team is on board.
+      Head to the Invitations page to resend ${plural ? 'it' : 'them'} or invite more colleagues.
+    </p>
+
+    ${ctaButton('Go to Invitations', inviteUrl)}
+
+    <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">
+      Once a team member accepts their invitation, they&apos;ll appear in your User Directory.
+    </p>
+  `
+
+  return {
+    subject: `Your team is waiting — ${data.pendingCount} invitation${plural ? '' : 's'} pending`,
+    html: shell('Your team is waiting', body),
+  }
+}
+
+export interface DripGoLiveData {
+  adminName: string
+  flowName: string
+}
+
+export function buildDripGoLiveEmail(data: DripGoLiveData): {
+  subject: string
+  html: string
+} {
+  const flowsUrl = `${BASE_URL}/flows`
+
+  const body = `
+    <div style="display:inline-block;background-color:#f0fdf4;border:1px solid #bbf7d0;border-radius:20px;padding:4px 12px;margin-bottom:16px;">
+      <span style="font-size:13px;color:#16a34a;font-weight:600;">Flow published ✓</span>
+    </div>
+
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      You&apos;re one click away from going live
+    </h2>
+    <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
+      Hi ${escHtml(data.adminName)}, your flow
+      <strong>&ldquo;${escHtml(data.flowName)}&rdquo;</strong> is published and ready.
+      The only thing left is to trigger it for the first time.
+    </p>
+
+    <p style="margin:0 0 8px;font-size:15px;color:#52525b;line-height:1.6;">
+      Go to the Flows page, click <strong>Start</strong> next to your flow, and your first
+      workflow instance will be created instantly.
+    </p>
+
+    ${ctaButton('Trigger your first flow', flowsUrl)}
+
+    <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">
+      You can also share the Flows page link with your team so they can trigger flows themselves.
+    </p>
+  `
+
+  return {
+    subject: `"${data.flowName}" is ready — trigger your first run`,
+    html: shell('Go live with your first flow', body),
+  }
+}
+
+export interface DripWeekTwoTipsData {
+  adminName: string
+  orgName: string
+}
+
+export function buildDripWeekTwoTipsEmail(data: DripWeekTwoTipsData): {
+  subject: string
+  html: string
+} {
+  const slaUrl = `${BASE_URL}/flows`
+  const deptUrl = `${BASE_URL}/departments`
+  const templatesUrl = `${BASE_URL}/templates`
+
+  const tip = (icon: string, title: string, desc: string, linkLabel: string, href: string) => `
+    <tr>
+      <td style="padding:16px 0;border-bottom:1px solid #f4f4f5;vertical-align:top;">
+        <table cellpadding="0" cellspacing="0" style="width:100%;">
+          <tr>
+            <td style="width:36px;vertical-align:top;padding-top:2px;">
+              <span style="font-size:20px;">${icon}</span>
+            </td>
+            <td style="vertical-align:top;">
+              <p style="margin:0 0 4px;font-size:14px;font-weight:600;color:#18181b;">${escHtml(title)}</p>
+              <p style="margin:0 0 6px;font-size:13px;color:#52525b;line-height:1.5;">${escHtml(desc)}</p>
+              <a href="${escHtml(href)}" style="font-size:13px;color:#18181b;font-weight:600;text-decoration:underline;">${escHtml(linkLabel)} →</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  `
+
+  const body = `
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      3 features you might have missed
+    </h2>
+    <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
+      Hi ${escHtml(data.adminName)}, now that ${escHtml(data.orgName)} has been running for
+      a couple of weeks, here are three features that help teams get the most out of Aitomic Flow.
+    </p>
+
+    <table cellpadding="0" cellspacing="0" style="width:100%;">
+      <tbody>
+        ${tip(
+          '⏰',
+          'Set SLA deadlines on steps',
+          'Add a deadline to any workflow step. Assignees get a daily digest of overdue tasks, and their manager is notified automatically when a step is missed.',
+          'Add deadlines to your flows',
+          slaUrl
+        )}
+        ${tip(
+          '🏢',
+          'Route steps to departments',
+          'Instead of assigning steps to a specific person, assign them to a department. The step automatically goes to the department head — great for approval flows.',
+          'Set up your departments',
+          deptUrl
+        )}
+        ${tip(
+          '📋',
+          'Start from a template',
+          'Aitomic Flow includes 20 ready-made workflow templates — leave requests, expense approvals, onboarding checklists, and more. Clone one and customise it in minutes.',
+          'Browse templates',
+          templatesUrl
+        )}
+      </tbody>
+    </table>
+
+    <p style="margin:24px 0 0;font-size:13px;color:#71717a;line-height:1.6;">
+      Have a question? Reply to this email or visit our
+      <a href="${BASE_URL}/help" style="color:#71717a;">Help Centre</a>.
+    </p>
+  `
+
+  return {
+    subject: `3 features to get more from Aitomic Flow`,
+    html: shell('Tips for your workspace', body),
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Template 8 — Escalation (to manager)
 // ---------------------------------------------------------------------------
 
