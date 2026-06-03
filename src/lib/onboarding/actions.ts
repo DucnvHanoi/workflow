@@ -33,9 +33,11 @@ export async function markOnboardingStep(stepKey: string): Promise<void> {
 }
 
 export interface AdminChecklistState {
-  invitedUser: boolean
+  renamedOrg: boolean
   createdFlow: boolean
   publishedFlow: boolean
+  invitedUser: boolean
+  triggeredFlow: boolean
   setupDepartment: boolean
   enabledAi: boolean
   dismissed: boolean
@@ -55,6 +57,8 @@ export async function getAdminChecklistState(): Promise<AdminChecklistState | nu
     { count: deptCount },
     { data: aiConfig },
     { data: dismissedRows },
+    { data: tenantRow },
+    { count: instanceCount },
   ] = await Promise.all([
     db
       .from('users')
@@ -74,12 +78,19 @@ export async function getAdminChecklistState(): Promise<AdminChecklistState | nu
       .select('step_key')
       .eq('user_id', user.id)
       .eq('step_key', 'checklist_dismissed'),
+    db.from('tenants').select('name').eq('id', tenantId).single(),
+    db
+      .from('flow_instances')
+      .select('id', { count: 'exact', head: true })
+      .eq('triggered_by', user.id),
   ])
 
   return {
-    invitedUser: (userCount ?? 0) > 0,
+    renamedOrg: (tenantRow?.name as string | null) !== 'My Organization',
     createdFlow: (flowCount ?? 0) > 0,
     publishedFlow: (publishedCount ?? 0) > 0,
+    invitedUser: (userCount ?? 0) > 0,
+    triggeredFlow: (instanceCount ?? 0) > 0,
     setupDepartment: (deptCount ?? 0) > 0,
     enabledAi: !!aiConfig,
     dismissed: (dismissedRows ?? []).length > 0,

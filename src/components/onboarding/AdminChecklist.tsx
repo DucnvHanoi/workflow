@@ -16,6 +16,14 @@ interface Step {
 
 const STEPS: Step[] = [
   {
+    key: 'renamedOrg',
+    label: 'Name your organisation',
+    description:
+      'Your workspace is currently called "My Organization". Update it to your company name.',
+    href: '/settings',
+    cta: 'Go to Settings',
+  },
+  {
     key: 'createdFlow',
     label: 'Create your first flow',
     description: 'Use the Flow Builder to design an approval workflow.',
@@ -35,6 +43,13 @@ const STEPS: Step[] = [
     description: 'Bring in colleagues so they can participate in workflows.',
     href: '/invite',
     cta: 'Invite someone',
+  },
+  {
+    key: 'triggeredFlow',
+    label: 'Trigger your first flow',
+    description: 'Start a flow to experience the end-to-end approval process yourself.',
+    href: '/flows',
+    cta: 'View flows',
   },
   {
     key: 'setupDepartment',

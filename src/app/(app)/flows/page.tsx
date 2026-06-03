@@ -8,12 +8,14 @@ import { getFlows } from '@/lib/flows/actions'
 import { getCategories } from '@/lib/flows/category-actions'
 import { getAvailableFlowSummaries } from '@/lib/ai/trigger-assistant'
 import { getPublishedTemplates } from '@/lib/flows/template-actions'
+import { getAdminChecklistState } from '@/lib/onboarding/actions'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { redirect } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { PlusIcon } from 'lucide-react'
+import { PlusIcon, Sparkles } from 'lucide-react'
 import { FlowsClient } from '@/components/flows/flows-client'
 import { FlowTriggerAssistant } from '@/components/my-flows/FlowTriggerAssistant'
+import { AdminChecklist } from '@/components/onboarding/AdminChecklist'
 
 export default async function FlowsPage({
   searchParams,
@@ -25,16 +27,26 @@ export default async function FlowsPage({
 
   const isAdmin = claims.role === 'admin'
 
-  // Parallel fetch — flows, categories, AI summaries, and templates
-  const [{ flows, error: flowsError }, { categories, error: catsError }, { summaries }, templates] =
-    await Promise.all([
-      getFlows(),
-      getCategories(),
-      getAvailableFlowSummaries(),
-      getPublishedTemplates(),
-    ])
+  // Parallel fetch — flows, categories, AI summaries, templates, and checklist state
+  const [
+    { flows, error: flowsError },
+    { categories, error: catsError },
+    { summaries },
+    templates,
+    adminChecklist,
+  ] = await Promise.all([
+    getFlows(),
+    getCategories(),
+    getAvailableFlowSummaries(),
+    getPublishedTemplates(),
+    isAdmin ? getAdminChecklistState() : Promise.resolve(null),
+  ])
 
   const error = flowsError ?? catsError ?? searchParams?.error ?? null
+
+  // Show sample flow banner when all existing flows are the pre-loaded sample
+  const hasSampleOnly =
+    isAdmin && flows.length > 0 && flows.every((f) => f.name.includes('(Sample)'))
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -59,6 +71,25 @@ export default async function FlowsPage({
       {error && (
         <div className="mb-4 rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
+        </div>
+      )}
+
+      {/* ── Onboarding checklist — admins only ── */}
+      {adminChecklist && !adminChecklist.dismissed && <AdminChecklist state={adminChecklist} />}
+
+      {/* ── Sample flow callout — shown until the admin creates a real flow ── */}
+      {hasSampleOnly && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3.5 dark:border-violet-800 dark:bg-violet-950/30">
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
+          <div>
+            <p className="text-sm font-medium text-violet-900 dark:text-violet-200">
+              We preloaded a sample Leave Request flow for you
+            </p>
+            <p className="mt-0.5 text-xs text-violet-700 dark:text-violet-400">
+              Open it in the builder to explore how flows are structured, then create your own from
+              scratch or choose a template.
+            </p>
+          </div>
         </div>
       )}
 
