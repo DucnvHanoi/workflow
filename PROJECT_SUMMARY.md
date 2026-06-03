@@ -3424,10 +3424,40 @@ Supabase redirect URL allowlist: https://www.aitomicflow.com/auth/reset-password
 must be in Supabase Dashboard → Authentication → URL Configuration → Redirect
 URLs, otherwise the recovery link redirect is blocked by Supabase.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 44. KNOWLEDGE BASE — COMPLETE ARTICLE INVENTORY (CURRENT STATE)
+45. KB: FLOW LIFECYCLE ARTICLES — 8 TOPICS EN + VI (COMPLETE ✅)
+    Migration: supabase/migrations/20260603010000_kb_flow_lifecycle.sql
+    Applied to production (qdngvdffqsnqikqbhkmw) via Supabase MCP.
+
+─── Gap filled ───────────────────────────────────────────────────────────────
+
+The AI support responder self-rates "high" confidence even when KB articles are
+sparse, falling back to general workflow-tool knowledge. These 8 articles cover
+the highest-risk app-specific behaviours where that general knowledge produces
+wrong or misleading answers.
+
+─── 8 articles added (EN + VI = 16 DB rows) ─────────────────────────────────
+
+| Slug                              | Category  | Topic                                                               |
+| --------------------------------- | --------- | ------------------------------------------------------------------- |
+| flow-draft-vs-published           | how-to    | Draft vs Published state; why a flow can't be triggered             |
+| flow-instance-statuses            | technical | Pending/Completed/Cancelled/Error — what each means, what to do     |
+| flow-editing-and-active-instances | technical | Republishing never affects running instances (versioning behaviour) |
+| how-to-cancel-a-flow-instance     | how-to    | Admin-only; permanent; what happens to pending steps                |
+| how-to-reassign-a-pending-step    | how-to    | Single-step and bulk reassign; admin-only; offboarding pattern      |
+| why-flow-not-visible              | how-to    | Draft / dept restriction / no dept / deactivated / wrong page       |
+| export-instance-data-csv          | how-to    | Instances + attachments export; filters; 7-day signed URLs          |
+| sla-calendar-hours                | technical | Calendar hours 24/7; UTC storage; planning table; escalation same   |
+
+KNOWN GOTCHA — AI hallucination on app-specific behaviour: the responder's
+system prompt instructs Claude to rate "high" confidence whenever it believes it
+knows the answer — even with no KB match. Articles must exist for every
+non-obvious, app-specific behaviour. "No KB article" is never the right fix;
+adding the article is.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 46. KNOWLEDGE BASE — COMPLETE ARTICLE INVENTORY (CURRENT STATE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-94 total rows in production (47 EN + 47 VI counterparts, suffix -vi).
+110 total rows in production (55 EN + 55 VI counterparts, suffix -vi).
 All articles active. Full-text search via GIN index on search_vector.
 Managed at /platform/support/knowledge. Public at /help/[slug].
 
@@ -3453,7 +3483,7 @@ what-is-aitomic-flow What is Aitomic Flow?
 user-roles-in-aitomic-flow User Roles in Aitomic Flow
 how-to-rename-organisation How to Rename Your Organisation
 
-── how-to (24 EN) ────────────────────────────────────────────────────────────
+── how-to (32 EN) ────────────────────────────────────────────────────────────
 
 how-to-create-workflow How to Create a Workflow
 how-to-start-workflow How to Start (Trigger) a Workflow
@@ -3479,8 +3509,13 @@ choice-fields-guide Choice Fields: Dropdown, Radio, Checkbox ← §42
 date-and-datetime-fields Date and Date-Time Fields ← §42
 step-escalation-guide Step Escalation: Automatic Manager Notifications ← §42
 step-naming-best-practices Step Names and Descriptions: Best Practices ← §42
+flow-draft-vs-published Flow Draft vs Published: Why Can't I Trigger My Flow? ← §45
+how-to-cancel-a-flow-instance How to Cancel a Running Flow Instance ← §45
+how-to-reassign-a-pending-step How to Reassign a Pending Step to Another User ← §45
+why-flow-not-visible Why a Flow Is Not Visible or Not Available to Trigger ← §45
+export-instance-data-csv How to Export Flow Instance Data to CSV ← §45
 
-── technical (10 EN) ─────────────────────────────────────────────────────────
+── technical (14 EN) ─────────────────────────────────────────────────────────
 
 understanding-workflow-versions Understanding Workflow Versions
 understanding-audit-trail Understanding the Audit Trail
@@ -3492,6 +3527,9 @@ assignee-rule-types-reference All Assignee Rule Types Explained ← §42
 how-branch-conditions-work How Branch Conditions Work ← §42
 form-data-in-branch-conditions How Form Data Flows to Branch Conditions ← §42
 flow-loop-not-supported Can I Create a Loop in a Workflow? ← §43
+flow-instance-statuses Understanding Flow Instance Statuses ← §45
+flow-editing-and-active-instances What Happens to Running Flows When You Edit and Republish ← §45
+sla-calendar-hours How SLA Due Dates Are Calculated (Calendar Hours) ← §45
 
 ── Migration history ─────────────────────────────────────────────────────────
 
@@ -3503,3 +3541,4 @@ flow-loop-not-supported Can I Create a Loop in a Workflow? ← §43
 20260530110000_kb_flow_templates.sql Flow templates how-to + catalog article (EN + VI)
 20260602010000_kb_steps.sql 10 step reference articles (EN + VI) — §42
 20260602020000_kb_flow_loop_not_supported.sql Loop not supported correction (EN + VI) — §43
+20260603010000_kb_flow_lifecycle.sql 8 flow lifecycle articles (EN + VI) — §45
