@@ -31,6 +31,8 @@ import {
   buildDripTeamWaitingEmail,
   buildDripGoLiveEmail,
   buildDripWeekTwoTipsEmail,
+  buildCancellationConfirmEmail,
+  buildCancellationReversedEmail,
   type AssignmentEmailData,
   type CompletionEmailData,
   type InviteEmailData,
@@ -43,7 +45,10 @@ import {
   type DripTeamWaitingData,
   type DripGoLiveData,
   type DripWeekTwoTipsData,
+  type CancellationConfirmEmailData,
+  type CancellationReversedEmailData,
 } from './templates'
+import type { ExportCsvs } from './export-builder'
 
 // ---------------------------------------------------------------------------
 // Client
@@ -76,6 +81,8 @@ interface LogEmailParams {
     | 'drip_day2_team_waiting'
     | 'drip_day5_go_live'
     | 'drip_week2_tips'
+    | 'account_cancellation_confirmed'
+    | 'account_cancellation_reversed'
   status: 'sent' | 'failed'
   resendId?: string | null
   errorMessage?: string | null
@@ -745,6 +752,120 @@ export async function sendEscalationEmail(params: SendEscalationEmailParams): Pr
       stepInstanceId: params.stepInstanceId,
       recipientEmail: params.managerEmail,
       emailType: 'sla_escalation',
+      status: 'failed',
+      errorMessage: message,
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendCancellationConfirmEmail
+// ---------------------------------------------------------------------------
+
+export interface SendCancellationConfirmEmailParams extends CancellationConfirmEmailData {
+  recipientEmail: string
+  tenantId: string
+  csvs: ExportCsvs
+}
+
+export async function sendCancellationConfirmEmail(
+  params: SendCancellationConfirmEmailParams
+): Promise<void> {
+  const { subject, html } = buildCancellationConfirmEmail(params)
+  try {
+    const { data, error } = await resend.emails.send({
+      from: ACCOUNT_EMAIL,
+      to: params.recipientEmail,
+      subject,
+      html,
+      attachments: [
+        { filename: 'users.csv', content: Buffer.from(params.csvs.users) },
+        { filename: 'flow-instances.csv', content: Buffer.from(params.csvs.flowInstances) },
+        { filename: 'departments.csv', content: Buffer.from(params.csvs.departments) },
+      ],
+    })
+    if (error) {
+      console.error('[email] Resend API error (cancellation-confirm):', error)
+      await logEmail({
+        tenantId: params.tenantId,
+        instanceId: null,
+        recipientEmail: params.recipientEmail,
+        emailType: 'account_cancellation_confirmed',
+        status: 'failed',
+        errorMessage: error.message,
+      })
+      return
+    }
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'account_cancellation_confirmed',
+      status: 'sent',
+      resendId: data?.id ?? null,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[email] Unexpected error sending cancellation-confirm email:', message)
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'account_cancellation_confirmed',
+      status: 'failed',
+      errorMessage: message,
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendCancellationReversedEmail
+// ---------------------------------------------------------------------------
+
+export interface SendCancellationReversedEmailParams extends CancellationReversedEmailData {
+  recipientEmail: string
+  tenantId: string
+}
+
+export async function sendCancellationReversedEmail(
+  params: SendCancellationReversedEmailParams
+): Promise<void> {
+  const { subject, html } = buildCancellationReversedEmail(params)
+  try {
+    const { data, error } = await resend.emails.send({
+      from: ACCOUNT_EMAIL,
+      to: params.recipientEmail,
+      subject,
+      html,
+    })
+    if (error) {
+      console.error('[email] Resend API error (cancellation-reversed):', error)
+      await logEmail({
+        tenantId: params.tenantId,
+        instanceId: null,
+        recipientEmail: params.recipientEmail,
+        emailType: 'account_cancellation_reversed',
+        status: 'failed',
+        errorMessage: error.message,
+      })
+      return
+    }
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'account_cancellation_reversed',
+      status: 'sent',
+      resendId: data?.id ?? null,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[email] Unexpected error sending cancellation-reversed email:', message)
+    await logEmail({
+      tenantId: params.tenantId,
+      instanceId: null,
+      recipientEmail: params.recipientEmail,
+      emailType: 'account_cancellation_reversed',
       status: 'failed',
       errorMessage: message,
     })

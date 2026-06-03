@@ -16,8 +16,10 @@ export type AuditAction =
   | 'user_deactivated'
   | 'user_reactivated'
   | 'tasks_bulk_reassigned'
+  | 'account_cancellation_initiated'
+  | 'account_cancellation_reversed'
 
-export type AuditTargetType = 'user' | 'flow' | 'step_instance'
+export type AuditTargetType = 'user' | 'flow' | 'step_instance' | 'tenant'
 
 export async function logAuditEvent(
   db: SupabaseClient,

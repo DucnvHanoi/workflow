@@ -484,7 +484,110 @@ export function buildAgentAlertEmail(data: AgentAlertEmailData): {
 }
 
 // ---------------------------------------------------------------------------
-// Templates 9–12 — Onboarding Drip Emails
+// Templates 9–10 — Account Cancellation
+// ---------------------------------------------------------------------------
+
+export interface CancellationConfirmEmailData {
+  adminName: string
+  orgName: string
+  cancelAt: Date
+}
+
+export function buildCancellationConfirmEmail(data: CancellationConfirmEmailData): {
+  subject: string
+  html: string
+} {
+  const settingsUrl = `${BASE_URL}/settings`
+  const deletionDate = data.cancelAt.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+  const daysLeft = Math.ceil((data.cancelAt.getTime() - Date.now()) / 86_400_000)
+
+  const body = `
+    <div style="display:inline-block;background-color:#fef2f2;border:1px solid #fecaca;border-radius:20px;padding:4px 12px;margin-bottom:16px;">
+      <span style="font-size:13px;color:#dc2626;font-weight:600;">Account cancellation scheduled</span>
+    </div>
+
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      Your workspace will be deleted on ${escHtml(deletionDate)}
+    </h2>
+    <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
+      Hi ${escHtml(data.adminName)}, your request to cancel the
+      <strong>${escHtml(data.orgName)}</strong> workspace has been received.
+      You have <strong>${daysLeft} day${daysLeft === 1 ? '' : 's'}</strong> to reverse this decision.
+    </p>
+
+    <table cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #fecaca;border-radius:6px;padding:16px;background-color:#fef2f2;margin-bottom:24px;">
+      <tbody>
+        <tr><td style="padding:4px 0;font-size:13px;color:#dc2626;font-weight:600;">On ${escHtml(deletionDate)}, all of the following will be permanently deleted:</td></tr>
+        <tr><td style="padding:2px 0 2px 12px;font-size:13px;color:#dc2626;">&bull; All users and their accounts</td></tr>
+        <tr><td style="padding:2px 0 2px 12px;font-size:13px;color:#dc2626;">&bull; All workflows and their history</td></tr>
+        <tr><td style="padding:2px 0 2px 12px;font-size:13px;color:#dc2626;">&bull; All form submissions and attached files</td></tr>
+        <tr><td style="padding:2px 0 2px 12px;font-size:13px;color:#dc2626;">&bull; All departments and organisational data</td></tr>
+        <tr><td style="padding:6px 0 0;font-size:13px;color:#dc2626;font-weight:600;">This action cannot be undone after ${escHtml(deletionDate)}.</td></tr>
+      </tbody>
+    </table>
+
+    <p style="margin:0 0 8px;font-size:15px;color:#52525b;line-height:1.6;">
+      We have attached a full export of your data to this email (3 CSV files) so you have a copy before deletion.
+    </p>
+
+    <p style="margin:0 0 24px;font-size:14px;color:#71717a;line-height:1.6;">
+      To reverse this cancellation, go to <strong>Settings &rarr; General</strong> and click
+      <strong>Undo cancellation</strong>. This option disappears on ${escHtml(deletionDate)}.
+    </p>
+
+    ${ctaButton('Undo cancellation', settingsUrl)}
+
+    <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">
+      If you intended to cancel, no further action is needed. Your data export is attached above.
+    </p>
+  `
+
+  return {
+    subject: `Important: ${data.orgName} workspace scheduled for deletion on ${deletionDate}`,
+    html: shell('Account cancellation scheduled', body),
+  }
+}
+
+export interface CancellationReversedEmailData {
+  adminName: string
+  orgName: string
+}
+
+export function buildCancellationReversedEmail(data: CancellationReversedEmailData): {
+  subject: string
+  html: string
+} {
+  const settingsUrl = `${BASE_URL}/settings`
+
+  const body = `
+    <div style="display:inline-block;background-color:#f0fdf4;border:1px solid #bbf7d0;border-radius:20px;padding:4px 12px;margin-bottom:16px;">
+      <span style="font-size:13px;color:#16a34a;font-weight:600;">&check; Cancellation reversed</span>
+    </div>
+
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:600;color:#18181b;">
+      Your account is active again
+    </h2>
+    <p style="margin:0 0 24px;font-size:15px;color:#52525b;line-height:1.6;">
+      Hi ${escHtml(data.adminName)}, the cancellation for
+      <strong>${escHtml(data.orgName)}</strong> has been reversed.
+      Your workspace, users, and all data are intact &mdash; nothing has been deleted.
+    </p>
+
+    ${ctaButton('Go to Settings', settingsUrl)}
+  `
+
+  return {
+    subject: `Cancellation reversed — ${data.orgName} is active again`,
+    html: shell('Cancellation reversed', body),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Templates 11–14 — Onboarding Drip Emails
 // ---------------------------------------------------------------------------
 
 export interface DripConfirmEmailData {

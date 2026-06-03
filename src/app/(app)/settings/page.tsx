@@ -10,6 +10,8 @@ import { Users, GitBranch, Building2, Zap, ArrowRight } from 'lucide-react'
 import { TenantNameForm } from '@/components/settings/TenantNameForm'
 import { WebhookSettingsCard } from '@/components/settings/WebhookSettingsCard'
 import { getWebhookUrls } from '@/lib/settings/webhook-actions'
+import { CancellationBanner } from '@/components/settings/CancellationBanner'
+import { CancelAccountDialog } from '@/components/settings/CancelAccountDialog'
 
 // ─── AI tab helpers ───────────────────────────────────────────────────────────
 
@@ -191,12 +193,20 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
           ? 'integrations'
           : 'general'
 
-  // General tab — tenant name
+  // General tab — tenant name + cancellation state
   let tenantName = ''
+  let tenantStatus = 'active'
+  let cancelAt: string | null = null
   if (tab === 'general') {
     const db = createAdminClient()
-    const { data } = await db.from('tenants').select('name').eq('id', tenantId).single()
+    const { data } = await db
+      .from('tenants')
+      .select('name, status, cancel_at')
+      .eq('id', tenantId)
+      .single()
     tenantName = data?.name ?? ''
+    tenantStatus = data?.status ?? 'active'
+    cancelAt = data?.cancel_at ?? null
   }
 
   // Fetch data for active tab only
@@ -292,14 +302,34 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
 
       {/* ── General tab ── */}
       {tab === 'general' && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            Organisation
-          </h2>
-          <div className="rounded-xl border bg-card p-6">
-            <TenantNameForm currentName={tenantName} />
-          </div>
-        </section>
+        <>
+          {tenantStatus === 'cancelling' && cancelAt && <CancellationBanner cancelAt={cancelAt} />}
+
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              Organisation
+            </h2>
+            <div className="rounded-xl border bg-card p-6">
+              <TenantNameForm currentName={tenantName} />
+            </div>
+          </section>
+
+          {tenantStatus !== 'cancelling' && (
+            <section className="space-y-2">
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                Danger Zone
+              </h2>
+              <div className="rounded-xl border border-destructive/30 bg-card p-6 space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">Cancel account</h3>
+                <p className="text-sm text-muted-foreground">
+                  Permanently delete this workspace and all its data after a 7-day cooling-off
+                  period. A full data export will be emailed to you immediately.
+                </p>
+                <CancelAccountDialog orgName={tenantName} />
+              </div>
+            </section>
+          )}
+        </>
       )}
 
       {/* ── AI tab ── */}

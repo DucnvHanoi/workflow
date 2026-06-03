@@ -3724,3 +3724,96 @@ Flows triggered by the offboarded user that are still running continue to
 completion. The flow engine does not check the triggerer's active status
 at runtime — only the current step's assignee must be active to receive
 task assignments. Deactivating a triggerer never orphans a running flow.
+
+51. USER OFFBOARDING — LEVEL 2: TENANT CANCELLATION (COMPLETE ✅)
+    Migrations:
+    supabase/migrations/20260604040000_tenant_cancellation.sql
+    supabase/migrations/20260604050000_kb_tenant_offboarding.sql
+    Applied to production (qdngvdffqsnqikqbhkmw) via Supabase MCP.
+
+Admins can schedule permanent workspace deletion from Settings → General.
+A 7-day cooling-off period gives time to reverse the decision or export data.
+On day 7 (±24 h), a Vercel cron job hard-deletes the tenant and all its data.
+
+─── Schema changes ────────────────────────────────────────────────────────────
+
+tenants.cancel_at (timestamptz, nullable) — deletion timestamp
+tenants.status CHECK extended: 'active' | 'trial' | 'suspended' | 'cancelling'
+audit_log.action CHECK extended: + 'account_cancellation_initiated' + 'account_cancellation_reversed'
+notification_logs.email_type CHECK extended: + 'account_cancellation_confirmed' + 'account_cancellation_reversed'
+
+The existing inline CHECK on tenants.status had an auto-generated name
+(e.g. tenants_status_check3). The migration uses a DO block with a
+pg_constraint query to find and DROP it before adding the new constraint.
+Same DROP + re-ADD pattern applies to audit_log and notification_logs.
+
+─── Flow ──────────────────────────────────────────────────────────────────────
+
+1. Admin clicks "Cancel account" in Settings → General → Danger Zone
+2. CancelAccountDialog (confirmation modal) lists all data that will be deleted
+3. On confirm → initiateAccountCancellation() server action:
+   - Sets tenants.status = 'cancelling', cancel_at = now() + 7 days
+   - Calls buildExportCsvs() to generate users/flow-instances/departments CSVs
+   - Sends cancellation confirmation email with CSV attachments via Resend
+   - Logs account_cancellation_initiated in audit_log
+4. CancellationBanner appears on Settings page with days-remaining countdown
+   and "Undo cancellation" button
+5. If admin clicks Undo → undoCancellation() server action:
+   - Sets status = 'active', cancel_at = null
+   - Sends cancellation-reversed email
+   - Logs account_cancellation_reversed in audit_log
+6. Nightly cron /api/cron/tenant-cleanup (0 2 \* \* \*) queries
+   status = 'cancelling' AND cancel_at < now(), then for each tenant:
+   a. Collects all user IDs from public.users
+   b. Deletes each Supabase Auth user via db.auth.admin.deleteUser()
+   c. Deletes tenant row — cascades to all public schema tables
+
+─── Implementation ────────────────────────────────────────────────────────────
+
+src/lib/settings/cancellation-actions.ts — 3 server actions:
+getCancellationState() — returns { status, cancelAt }
+initiateAccountCancellation() — schedules deletion, sends email + CSV
+undoCancellation() — reverts to active, sends reversal email
+
+src/lib/email/export-builder.ts — buildExportCsvs(db, tenantId)
+Returns { users, flowInstances, departments } as CSV strings
+Used as Buffer attachments by sendCancellationConfirmEmail()
+
+src/lib/email/templates.ts — 2 new builder functions:
+buildCancellationConfirmEmail() — deletion date, what gets deleted, undo CTA
+buildCancellationReversedEmail() — active-again confirmation
+
+src/lib/email/resend.ts — 2 new send functions:
+sendCancellationConfirmEmail() — attaches 3 CSVs via Buffer.from(csvStr)
+sendCancellationReversedEmail() — plain confirmation
+
+src/lib/audit/log.ts — AuditAction + AuditTargetType extended:
+AuditTargetType: + 'tenant'
+AuditAction: + 'account_cancellation_initiated' + 'account_cancellation_reversed'
+
+src/components/settings/CancellationBanner.tsx
+— Amber warning banner with countdown and undo button
+— Hides itself via useState after successful undo (no page reload needed)
+
+src/components/settings/CancelAccountDialog.tsx
+— Destructive "Cancel account" button + confirmation Dialog
+— Lists all data categories being deleted
+
+src/app/(app)/settings/page.tsx — General tab updated:
+
+- Tenant query expanded: select('name, status, cancel_at')
+- Shows CancellationBanner if status = 'cancelling'
+- Shows Danger Zone with CancelAccountDialog if status ≠ 'cancelling'
+
+src/app/api/cron/tenant-cleanup/route.ts — nightly hard-delete cron
+Same CRON_SECRET Bearer guard as /api/cron/sla and /api/cron/drip
+
+vercel.json — third cron entry: /api/cron/tenant-cleanup at 0 2 \* \* \*
+
+─── KB articles added (122 total) ────────────────────────────────────────────
+
+how-to-cancel-account (EN) — wizard walkthrough, cooling-off, undo steps
+how-to-cancel-account-vi (VI)
+data-after-cancellation (EN) — deletion timeline table, what gets deleted,
+CSV export contents, how to export form data
+data-after-cancellation-vi (VI)
