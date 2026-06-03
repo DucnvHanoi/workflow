@@ -2,6 +2,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
+import { createNotification } from '@/lib/notifications/create'
 
 /**
  * Called from account-setup-form after the user sets their password.
@@ -41,4 +42,32 @@ export async function markInvitationAccepted(fullName: string): Promise<void> {
       app_metadata: { tenant_id: userRow.tenant_id, role: userRow.role },
     }),
   ])
+
+  // M3-1: notify admins when the first team member joins
+  const { count: activeOthers } = await db
+    .from('users')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', userRow.tenant_id)
+    .eq('is_active', true)
+    .neq('id', user.id)
+
+  if ((activeOthers ?? 0) === 1) {
+    const { data: admins } = await db
+      .from('users')
+      .select('id')
+      .eq('tenant_id', userRow.tenant_id)
+      .eq('role', 'admin')
+      .eq('is_active', true)
+
+    for (const admin of admins ?? []) {
+      void createNotification({
+        tenantId: userRow.tenant_id,
+        userId: admin.id as string,
+        type: 'first_user_joined',
+        title: 'Your first team member has joined',
+        body: `${fullName} has accepted their invitation and joined your workspace.`,
+        link: '/users',
+      })
+    }
+  }
 }

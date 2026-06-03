@@ -10,6 +10,8 @@ export type NotificationType =
   | 'sla_reminder'
   | 'step_escalated'
   | 'comment_added'
+  | 'first_user_joined'
+  | 'flow_first_completed'
 
 export interface CreateNotificationParams {
   tenantId: string

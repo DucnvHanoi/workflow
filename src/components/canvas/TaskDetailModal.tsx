@@ -246,7 +246,11 @@ export function TaskDetailModal({
         if (result.error) {
           toast.error(result.error)
         } else {
-          toast.success('Step completed.')
+          toast.success(
+            result.milestone === 'first_task'
+              ? '🎉 You completed your first task!'
+              : 'Step completed.'
+          )
           onSubmitted()
           onClose()
         }

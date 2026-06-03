@@ -1137,7 +1137,7 @@ export async function saveDraftStep(
 export async function submitStep(
   stepInstanceId: string,
   formData: Record<string, unknown>
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; milestone?: 'first_task' }> {
   const gate = await requireAuthWithTenant()
   if (!gate.ok) return { error: gate.error }
 
@@ -1226,7 +1226,64 @@ export async function submitStep(
     )
   }
 
-  return { error: null }
+  // M3-3: detect non-admin's first ever submitted task
+  let milestone: 'first_task' | undefined
+  if (role !== 'admin') {
+    const { data: existing } = await db
+      .from('user_onboarding')
+      .select('step_key')
+      .eq('user_id', userId)
+      .eq('step_key', 'first_task_completed')
+      .maybeSingle()
+
+    if (!existing) {
+      await db
+        .from('user_onboarding')
+        .upsert(
+          { user_id: userId, step_key: 'first_task_completed' },
+          { onConflict: 'user_id,step_key', ignoreDuplicates: true }
+        )
+      milestone = 'first_task'
+    }
+  }
+
+  return { error: null, milestone }
+}
+
+// ─── notifyFirstFlowCompletion ───────────────────────────────────────────────
+// Fires once per tenant when the very first flow instance completes.
+// De-duped via the notifications table — safe to call on every completion.
+async function notifyFirstFlowCompletion(
+  db: ReturnType<typeof createAdminClient>,
+  tenantId: string,
+  instanceId: string,
+  flowName: string
+): Promise<void> {
+  const { count } = await db
+    .from('notifications')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .eq('type', 'flow_first_completed')
+
+  if ((count ?? 0) > 0) return
+
+  const { data: admins } = await db
+    .from('users')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('role', 'admin')
+    .eq('is_active', true)
+
+  for (const admin of admins ?? []) {
+    void createNotification({
+      tenantId,
+      userId: admin.id as string,
+      type: 'flow_first_completed',
+      title: 'First workflow completed!',
+      body: `"${flowName}" just ran end-to-end successfully. Your workspace is live!`,
+      link: `/tasks?open=${instanceId}`,
+    })
+  }
 }
 
 // ─── advanceFlow ─────────────────────────────────────────────────────────────
@@ -1288,6 +1345,7 @@ async function advanceFlow(
       body: 'A flow you started has completed successfully.',
       link: `/tasks?open=${instanceId}`,
     })
+    void notifyFirstFlowCompletion(db, tenantId, instanceId, flowName)
     return
   }
 
@@ -1463,6 +1521,7 @@ async function advanceFlow(
       body: 'A flow you started has completed successfully.',
       link: `/tasks?open=${instanceId}`,
     })
+    void notifyFirstFlowCompletion(db, tenantId, instanceId, flowName)
     return
   }
 

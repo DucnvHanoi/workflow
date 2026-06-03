@@ -24,6 +24,8 @@ const TYPE_ICON: Record<string, string> = {
   sla_reminder: '⏰',
   step_escalated: '⚠️',
   comment_added: '💬',
+  first_user_joined: '👋',
+  flow_first_completed: '🎉',
 }
 
 export function NotificationBell({ userId, initialNotifications }: NotificationBellProps) {
