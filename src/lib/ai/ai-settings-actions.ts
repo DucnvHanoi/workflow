@@ -80,6 +80,20 @@ export async function updateAISettings(updates: {
   if (claims.role !== 'admin') return { error: 'Admin access required' }
 
   const db = createAdminClient()
+
+  if (updates.aiEnabled === true) {
+    const { data: tenant } = await db
+      .from('tenants')
+      .select('plan')
+      .eq('id', claims.tenant_id)
+      .single()
+    if (tenant?.plan === 'free') {
+      return {
+        error: 'AI features are not available on the Free plan. Upgrade to Pro to enable them.',
+      }
+    }
+  }
+
   const patch: Record<string, unknown> = { tenant_id: claims.tenant_id }
   if (updates.aiEnabled !== undefined) patch.ai_enabled = updates.aiEnabled
   if (updates.provider !== undefined) patch.provider = updates.provider

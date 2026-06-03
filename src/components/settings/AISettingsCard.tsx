@@ -1,15 +1,18 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { updateAISettings, saveAPIKey, removeAPIKey } from '@/lib/ai/ai-settings-actions'
 import type { AISettingsData } from '@/lib/ai/ai-settings-actions'
 import { MODELS_BY_PROVIDER, DEFAULT_MODEL } from '@/lib/ai/pricing'
 
 interface Props {
   initial: AISettingsData
+  plan: string
 }
 
-export function AISettingsCard({ initial }: Props) {
+export function AISettingsCard({ initial, plan }: Props) {
+  const isFreePlan = plan === 'free'
   const [aiEnabled, setAiEnabled] = useState(initial.aiEnabled)
   const [provider, setProvider] = useState<'anthropic' | 'openai'>(initial.provider)
   const [model, setModel] = useState(initial.model)
@@ -126,6 +129,20 @@ export function AISettingsCard({ initial }: Props) {
 
   return (
     <div className="space-y-5">
+      {/* Free-plan upgrade notice */}
+      {isFreePlan && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          AI features are not available on the Free plan.{' '}
+          <Link
+            href="?tab=billing"
+            className="font-semibold underline underline-offset-2 hover:text-amber-900"
+          >
+            Upgrade to Pro
+          </Link>{' '}
+          to enable them.
+        </div>
+      )}
+
       {/* Enable / disable AI */}
       <div className="flex items-center justify-between gap-4">
         <div>
@@ -138,15 +155,15 @@ export function AISettingsCard({ initial }: Props) {
           type="button"
           role="switch"
           aria-checked={aiEnabled}
-          disabled={isPending}
-          onClick={() => handleToggleAI(!aiEnabled)}
+          disabled={isPending || isFreePlan}
+          onClick={() => !isFreePlan && handleToggleAI(!aiEnabled)}
           className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
-            aiEnabled ? 'bg-primary' : 'bg-muted-foreground/30'
+            aiEnabled && !isFreePlan ? 'bg-primary' : 'bg-muted-foreground/30'
           }`}
         >
           <span
             className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-              aiEnabled ? 'translate-x-6' : 'translate-x-1'
+              aiEnabled && !isFreePlan ? 'translate-x-6' : 'translate-x-1'
             }`}
           />
         </button>

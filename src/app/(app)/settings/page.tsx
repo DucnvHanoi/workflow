@@ -212,11 +212,18 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
   // Fetch data for active tab only
   let aiSettings: Awaited<ReturnType<typeof getAISettings>>['data'] = null
   let usageLogs: AIUsageLogEntry[] = []
+  let aiPlan = 'free'
 
   if (tab === 'ai') {
-    const [aiRes, logsRes] = await Promise.all([getAISettings(), getAIUsageLogs(100)])
+    const db = createAdminClient()
+    const [aiRes, logsRes, tenantRes] = await Promise.all([
+      getAISettings(),
+      getAIUsageLogs(100),
+      db.from('tenants').select('plan').eq('id', tenantId).single(),
+    ])
     aiSettings = aiRes.data
     usageLogs = (logsRes.data as AIUsageLogEntry[]) ?? []
+    aiPlan = tenantRes.data?.plan ?? 'free'
   }
 
   const defaultAISettings = {
@@ -340,7 +347,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
               AI Configuration
             </h2>
             <div className="rounded-xl border bg-card p-6">
-              <AISettingsCard initial={aiSettings ?? defaultAISettings} />
+              <AISettingsCard initial={aiSettings ?? defaultAISettings} plan={aiPlan} />
             </div>
           </section>
 
