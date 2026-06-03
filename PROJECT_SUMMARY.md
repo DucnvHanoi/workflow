@@ -3457,7 +3457,7 @@ adding the article is.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 46. KNOWLEDGE BASE — COMPLETE ARTICLE INVENTORY (CURRENT STATE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-116 total rows in production (58 EN + 58 VI counterparts, suffix -vi).
+118 total rows in production (59 EN + 59 VI counterparts, suffix -vi).
 All articles active. Full-text search via GIN index on search_vector.
 Managed at /platform/support/knowledge. Public at /help/[slug].
 
@@ -3485,7 +3485,7 @@ what-is-aitomic-flow What is Aitomic Flow?
 user-roles-in-aitomic-flow User Roles in Aitomic Flow
 how-to-rename-organisation How to Rename Your Organisation
 
-── how-to (33 EN) ────────────────────────────────────────────────────────────
+── how-to (34 EN) ────────────────────────────────────────────────────────────
 
 how-to-create-workflow How to Create a Workflow
 how-to-start-workflow How to Start (Trigger) a Workflow
@@ -3517,6 +3517,7 @@ how-to-reassign-a-pending-step How to Reassign a Pending Step to Another User �
 why-flow-not-visible Why a Flow Is Not Visible or Not Available to Trigger ← §45
 export-instance-data-csv How to Export Flow Instance Data to CSV ← §45
 getting-started-as-a-team-member Getting Started as a New Team Member ← §47
+how-to-offboard-user How to Offboard a Team Member ← §50
 
 ── technical (14 EN) ─────────────────────────────────────────────────────────
 
@@ -3548,6 +3549,7 @@ sla-calendar-hours How SLA Due Dates Are Calculated (Calendar Hours) ← §45
 20260603020000_kb_onboarding_checklist.sql Getting started checklist article (EN + VI) — §47
 20260603040000_kb_milestone_moments.sql Getting started as a team member (EN + VI) — §47
 20260604020000_kb_onboarding_emails.sql Onboarding drip emails explained (EN + VI) — §49
+20260604030000_kb_user_offboarding.sql User offboarding wizard guide (EN + VI) — §50
 
 47. TENANT ONBOARDING — SETUP CHECKLIST & MILESTONE MOMENTS (COMPLETE ✅)
     Commits: 10e4171 (checklist), 98efda2 (M3 milestone moments)
@@ -3678,3 +3680,47 @@ interface in resend.ts) AND a SQL migration to DROP + re-ADD the CHECK
 constraint on notification_logs.email_type. Adding the type in code without
 the migration causes a DB constraint violation at send time (silent failure
 logged to console, not surfaced to user).
+
+50. USER OFFBOARDING — LEVEL 1 (COMPLETE ✅)
+    Migration: supabase/migrations/20260604030000_kb_user_offboarding.sql
+    Applied to production (qdngvdffqsnqikqbhkmw) via Supabase MCP.
+
+The full offboarding wizard was already implemented in the codebase.
+This section documents it for completeness.
+
+─── What was already built ───────────────────────────────────────────────────
+
+Component: src/components/users/offboarding-wizard.tsx
+Entry point: src/components/users/user-profile-actions.tsx → "Offboard" button
+Wired in: src/app/(app)/users/[id]/page.tsx
+
+The wizard is shown on each user's profile page to admins when the target
+user is active and is not the current admin themselves.
+
+Steps (dynamic — only shown when applicable):
+
+1. Overview — summary of all actions, confirm to start
+2. Reassign pending tasks — pick replacement; calls bulkReassignTasks()
+   from src/lib/flows/actions.ts; logs tasks_bulk_reassigned in audit_log
+3. Clear direct reports — calls clearManagerRelationships() in users/actions.ts
+4. Remove dept head roles — calls removeDeptHeadRoles() in users/actions.ts
+5. Deactivate — calls deactivateUser() which: bans in Supabase Auth
+   (876000h), sets is_active = false, logs user_deactivated in audit_log
+
+Wizard snapshots the step list on open to prevent prop updates from
+revalidatePath mid-flow shrinking the array and stranding currentStepIdx.
+
+─── What was added in this session ──────────────────────────────────────────
+
+KB article: how-to-offboard-user (EN + VI)
+
+- Step-by-step wizard walkthrough
+- "After offboarding" behaviour (flows continue, history preserved, reactivate anytime)
+- Offboarding checklist including out-of-band steps (Slack, email access revocation)
+
+─── KNOWN BEHAVIOUR ──────────────────────────────────────────────────────────
+
+Flows triggered by the offboarded user that are still running continue to
+completion. The flow engine does not check the triggerer's active status
+at runtime — only the current step's assignee must be active to receive
+task assignments. Deactivating a triggerer never orphans a running flow.
