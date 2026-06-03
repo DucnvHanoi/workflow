@@ -63,7 +63,10 @@
       "Bash(sed -n '/CREATE TABLE IF NOT EXISTS public.flow_versions/,/^\\);/p' supabase/migrations/20260425150000_create_runtime_tables.sql)",
       "Bash(sed -n '/CREATE TABLE IF NOT EXISTS public.departments/,/^\\);/p' supabase/migrations/20260425143000_create_users_and_departments.sql)",
       "PowerShell(\\(Get-Content \"C:\\\\PPrj\\\\workflow\\\\PROJECT_SUMMARY.md\" | Measure-Object -Line\\).Lines)",
-      "mcp__claude_ai_Supabase__list_migrations"
+      "mcp__claude_ai_Supabase__list_migrations",
+      "Bash(whois google.com)",
+      "Bash(whois xyznotarealfakedomainzzz99.com)",
+      "PowerShell(git commit *)"
     ]
   }
 }

@@ -3457,11 +3457,11 @@ adding the article is.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 46. KNOWLEDGE BASE — COMPLETE ARTICLE INVENTORY (CURRENT STATE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-110 total rows in production (55 EN + 55 VI counterparts, suffix -vi).
+116 total rows in production (58 EN + 58 VI counterparts, suffix -vi).
 All articles active. Full-text search via GIN index on search_vector.
 Managed at /platform/support/knowledge. Public at /help/[slug].
 
-── account (7 EN) ────────────────────────────────────────────────────────────
+── account (9 EN) ────────────────────────────────────────────────────────────
 
 how-to-sign-up How to Sign Up
 how-to-accept-invitation How to Accept an Invitation
@@ -3470,6 +3470,8 @@ how-to-enable-mfa How to Enable Two-Factor Authentication
 how-to-sign-in-with-google How to Sign In with Google
 how-to-invite-users How to Invite Users
 reset-password Resetting Your Password
+onboarding-emails-explained Why Am I Receiving Onboarding Emails? ← §49
+getting-started-checklist Getting Started Checklist (admin) ← §47
 
 ── billing (3 EN) ────────────────────────────────────────────────────────────
 
@@ -3483,7 +3485,7 @@ what-is-aitomic-flow What is Aitomic Flow?
 user-roles-in-aitomic-flow User Roles in Aitomic Flow
 how-to-rename-organisation How to Rename Your Organisation
 
-── how-to (32 EN) ────────────────────────────────────────────────────────────
+── how-to (33 EN) ────────────────────────────────────────────────────────────
 
 how-to-create-workflow How to Create a Workflow
 how-to-start-workflow How to Start (Trigger) a Workflow
@@ -3514,6 +3516,7 @@ how-to-cancel-a-flow-instance How to Cancel a Running Flow Instance ← §45
 how-to-reassign-a-pending-step How to Reassign a Pending Step to Another User ← §45
 why-flow-not-visible Why a Flow Is Not Visible or Not Available to Trigger ← §45
 export-instance-data-csv How to Export Flow Instance Data to CSV ← §45
+getting-started-as-a-team-member Getting Started as a New Team Member ← §47
 
 ── technical (14 EN) ─────────────────────────────────────────────────────────
 
@@ -3542,3 +3545,136 @@ sla-calendar-hours How SLA Due Dates Are Calculated (Calendar Hours) ← §45
 20260602010000_kb_steps.sql 10 step reference articles (EN + VI) — §42
 20260602020000_kb_flow_loop_not_supported.sql Loop not supported correction (EN + VI) — §43
 20260603010000_kb_flow_lifecycle.sql 8 flow lifecycle articles (EN + VI) — §45
+20260603020000_kb_onboarding_checklist.sql Getting started checklist article (EN + VI) — §47
+20260603040000_kb_milestone_moments.sql Getting started as a team member (EN + VI) — §47
+20260604020000_kb_onboarding_emails.sql Onboarding drip emails explained (EN + VI) — §49
+
+47. TENANT ONBOARDING — SETUP CHECKLIST & MILESTONE MOMENTS (COMPLETE ✅)
+    Commits: 10e4171 (checklist), 98efda2 (M3 milestone moments)
+    Migrations applied: 20260603020000, 20260603030000, 20260603040000
+
+─── Admin setup checklist (M1) ──────────────────────────────────────────────
+
+Component: src/components/onboarding/AdminChecklist.tsx
+Actions: src/lib/onboarding/actions.ts → getAdminChecklistState()
+
+7-step checklist shown to admins on /tasks and /flows pages until dismissed.
+Steps are live-derived from DB counts — no stored boolean flags.
+
+| #   | step_key      | Label                   | Destination  |
+| --- | ------------- | ----------------------- | ------------ |
+| 1   | renamedOrg    | Name your organisation  | /settings    |
+| 2   | createdFlow   | Create your first flow  | /flows       |
+| 3   | publishedFlow | Publish a flow          | /flows       |
+| 4   | invitedUser   | Invite a team member    | /invite      |
+| 5   | triggeredFlow | Trigger your first flow | /flows       |
+| 6   | setupDept     | Set up a department     | /departments |
+| 7   | enabledAi     | Enable AI features      | /settings    |
+
+Dismiss button writes step_key='checklist_dismissed' to user_onboarding.
+renamedOrg: checks tenants.name !== 'My Organization'.
+triggeredFlow: checks flow_instances.triggered_by = current user id.
+
+Sample flow banner: shown on /flows when all flows have "(Sample)" in name.
+Disappears automatically when admin creates a real flow.
+
+─── Milestone moments (M3) ──────────────────────────────────────────────────
+
+Three one-time hooks that fire at meaningful lifecycle moments:
+
+M3-1 — First user joins (src/lib/auth/invitation-actions.ts)
+After markInvitationAccepted() completes, count active users in tenant
+excluding the new joiner. If count === 1 (only the original admin), this is
+the first team member — fire 'first_user_joined' notification to all admins.
+Dedup: count is naturally 1 only once.
+
+M3-2 — First flow completes (src/lib/flows/actions.ts)
+notifyFirstFlowCompletion() helper wired into both completion paths in
+advanceFlow(). Before firing, queries notification_logs for any existing
+'flow_first_completed' row for the tenant. If count > 0, skip.
+Admins see: "🎉 [FlowName] just ran end-to-end successfully. Your workspace is live!"
+
+M3-3 — Non-admin first task (src/lib/flows/actions.ts + TaskDetailModal/StepFormModal)
+submitStep() checks user_onboarding for step_key='first_task_completed'.
+If absent, inserts it and returns milestone: 'first_task' in the response.
+Both modal components detect milestone and show: "🎉 You completed your first task!"
+Admin users are excluded (role check before the upsert).
+
+New notification types: 'first_user_joined', 'flow_first_completed'
+Migration 20260603030000: DROP + re-ADD notifications.type CHECK constraint.
+KB article: getting-started-as-a-team-member (EN + VI) — non-admin first-session guide.
+
+48. SECURITY — RLS ENABLED ON ADMIN-ONLY TABLES (COMPLETE ✅)
+    Migration: supabase/migrations/20260604000000_enable_rls_admin_only_tables.sql
+    Applied to production (qdngvdffqsnqikqbhkmw) via Supabase MCP.
+    Commit: 6ef40e0
+
+Three tables exposed to PostgREST without RLS — flagged as ERROR by Supabase
+security advisor.
+
+All three are accessed exclusively via createAdminClient() (service role),
+which bypasses RLS entirely. Fix: enable RLS with no policies.
+Result: service role access unchanged; direct PostgREST access via anon/
+authenticated roles now returns 403.
+
+| Table                  | Used by                                                 |
+| ---------------------- | ------------------------------------------------------- |
+| rate_limit_log         | src/lib/rate-limit.ts                                   |
+| platform_ai_config     | src/lib/platform/ai-config-actions.ts + ai-responder.ts |
+| platform_ai_usage_logs | src/lib/platform/ai-config-actions.ts + ai-responder.ts |
+
+KNOWN PATTERN: any table accessed only via the admin/service-role client
+should have RLS enabled with zero policies. Never leave public tables
+without RLS even if they are "write-only" or "internal-only".
+
+49. M2 — ONBOARDING EMAIL DRIP SEQUENCE (COMPLETE ✅)
+    Commit: 4b66f41
+    Migrations applied: 20260604010000, 20260604020000
+
+Four timed emails sent to the workspace admin after signup. Each fires at
+most once per tenant, deduped via notification*logs (email_type LIKE 'drip*%').
+Cron route: GET /api/cron/drip — same CRON_SECRET guard as /api/cron/sla.
+Runs daily at 1am UTC (added to vercel.json alongside SLA cron).
+
+─── Email schedule ──────────────────────────────────────────────────────────
+
+| email_type              | Window     | Condition                                        |
+| ----------------------- | ---------- | ------------------------------------------------ |
+| drip_day1_confirm_email | Days 1–3   | Admin's email_confirmed_at IS NULL in auth.users |
+| drip_day2_team_waiting  | Days 2–5   | ≥1 pending invitation AND only 1 active user     |
+| drip_day5_go_live       | Days 5–9   | ≥1 published flow AND zero flow_instances ever   |
+| drip_week2_tips         | Days 14–20 | Unconditional — any active tenant                |
+
+─── Implementation ───────────────────────────────────────────────────────────
+
+Cron route: src/app/api/cron/drip/route.ts
+
+- Fetches only tenants created within the last 20 days (windowStart filter)
+- 7 parallel bulk queries upfront — no N+1 per tenant
+- Builds in-memory Maps for: sentSet, adminByTenant, confirmMap,
+  pendingInviteCount, activeUserCount, firstPublishedFlow, hasInstances
+- auth.users email confirmation checked via db.auth.admin.listUsers()
+  (service-role admin client only)
+
+Templates: src/lib/email/templates.ts — 4 new builder functions:
+buildDripConfirmEmail, buildDripTeamWaitingEmail,
+buildDripGoLiveEmail, buildDripWeekTwoTipsEmail
+
+Send functions: src/lib/email/resend.ts — 4 new sendDrip\*Email() functions.
+logEmail() emailType union extended to include all 4 drip types.
+All use ACCOUNT_EMAIL (not NOTIFICATION_EMAIL) — onboarding sender.
+
+Migration 20260604010000: DROP + re-ADD notification_logs.email_type CHECK
+to include drip_day1_confirm_email, drip_day2_team_waiting,
+drip_day5_go_live, drip_week2_tips.
+
+KB article: onboarding-emails-explained (EN + VI) — explains what each email
+is, when it fires, and that each is sent at most once.
+
+─── KNOWN GOTCHA — notification_logs.email_type CHECK ───────────────────────
+
+Every new email type requires both a TypeScript type update (logEmail
+interface in resend.ts) AND a SQL migration to DROP + re-ADD the CHECK
+constraint on notification_logs.email_type. Adding the type in code without
+the migration causes a DB constraint violation at send time (silent failure
+logged to console, not surfaced to user).
