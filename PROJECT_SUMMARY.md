@@ -3817,3 +3817,37 @@ how-to-cancel-account-vi (VI)
 data-after-cancellation (EN) — deletion timeline table, what gets deleted,
 CSV export contents, how to export form data
 data-after-cancellation-vi (VI)
+
+52. AI FREE-PLAN GATE (COMPLETE ✅)
+    Migration: supabase/migrations/20260604060000_kb_ai_plan_requirements.sql
+    Applied to production (qdngvdffqsnqikqbhkmw) via Supabase MCP.
+
+Tenant admins on the Free plan cannot enable AI features from Settings → AI.
+The toggle is disabled and an amber upgrade callout is shown. Pro/Enterprise
+admins are unaffected.
+
+─── Changes ───────────────────────────────────────────────────────────────────
+
+src/lib/ai/ai-settings-actions.ts — updateAISettings() server action:
+Added plan guard: if aiEnabled=true is requested, queries tenants.plan first.
+Returns error and aborts if plan = 'free'. Defence-in-depth — the UI also
+blocks the call, but the server never trusts the client.
+
+src/app/(app)/settings/page.tsx — AI tab data fetch:
+Added tenants.plan query (parallel with getAISettings + getAIUsageLogs).
+Passes plan={aiPlan} to AISettingsCard.
+
+src/components/settings/AISettingsCard.tsx — UI gate:
+Added plan: string prop + isFreePlan = plan === 'free' derived flag.
+Amber notice rendered above the toggle when isFreePlan is true, with a
+"Upgrade to Pro" link pointing to ?tab=billing.
+Toggle disabled={isPending || isFreePlan}; toggle visually stays off.
+Provider/model/key controls remain hidden (inside aiEnabled && block which
+can never be entered when isFreePlan is true).
+
+─── KB articles added (124 total) ────────────────────────────────────────────
+
+ai-features-plan-requirements (EN) — what AI includes, who can enable it,
+why toggle is disabled, credit usage,
+own-key setup
+ai-features-plan-requirements-vi (VI)
