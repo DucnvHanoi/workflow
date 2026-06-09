@@ -25,10 +25,13 @@ type ExportGraph = { nodes?: ExportNode[] }
 // ─── CSV helpers ──────────────────────────────────────────────────────────────
 
 function escapeCsv(value: string): string {
-  if (/[",\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`
+  // Neutralise spreadsheet formula injection: prefix cells that start with
+  // a formula-trigger character so Excel/LibreOffice treat them as text.
+  const sanitized = /^[=+\-@\t]/.test(value) ? `'${value}` : value
+  if (/[",\r\n]/.test(sanitized)) {
+    return `"${sanitized.replace(/"/g, '""')}"`
   }
-  return value
+  return sanitized
 }
 
 function toCsv(headers: string[], rows: string[][]): string {

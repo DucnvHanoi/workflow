@@ -28,8 +28,18 @@ export type WebhookEvent =
 // ── Platform detection ────────────────────────────────────────────────────────
 
 function detectPlatform(url: string): 'slack' | 'teams' | null {
-  if (url.includes('hooks.slack.com')) return 'slack'
-  if (url.includes('webhook.office.com')) return 'teams'
+  try {
+    const { hostname } = new URL(url)
+    if (hostname === 'hooks.slack.com') return 'slack'
+    if (
+      hostname === 'outlook.office.com' ||
+      hostname === 'prod-xx.westus.logic.azure.com' ||
+      hostname.endsWith('.webhook.office.com')
+    )
+      return 'teams'
+  } catch {
+    // invalid URL
+  }
   return null
 }
 

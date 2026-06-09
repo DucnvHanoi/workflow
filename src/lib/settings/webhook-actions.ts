@@ -5,7 +5,16 @@ import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { testWebhookUrl } from '@/lib/notifications/webhook'
 
 function isValidWebhookUrl(url: string): boolean {
-  return url.includes('hooks.slack.com') || url.includes('webhook.office.com')
+  try {
+    const { hostname } = new URL(url)
+    return (
+      hostname === 'hooks.slack.com' ||
+      hostname === 'outlook.office.com' ||
+      hostname.endsWith('.webhook.office.com')
+    )
+  } catch {
+    return false
+  }
 }
 
 export async function getWebhookUrls(): Promise<{

@@ -56,6 +56,15 @@ export async function deleteUser(targetUserId: string) {
 
   const adminClient = createAdminClient()
 
+  const { data: target } = await adminClient
+    .from('users')
+    .select('id')
+    .eq('id', targetUserId)
+    .eq('tenant_id', claims.tenant_id)
+    .maybeSingle()
+
+  if (!target) throw new Error('User not found')
+
   const { error } = await adminClient.auth.admin.deleteUser(targetUserId)
   if (error) throw new Error('Failed to delete user')
 
