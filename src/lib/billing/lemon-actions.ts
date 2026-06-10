@@ -1,5 +1,3 @@
-'use server'
-
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidateTag } from 'next/cache'
 
