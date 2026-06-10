@@ -39,7 +39,7 @@ export function MfaCard() {
 
     const { data, error } = await supabase.auth.mfa.enroll({
       factorType: 'totp',
-      issuer: 'Workflow',
+      issuer: 'Aitomic Flow',
       friendlyName: 'Authenticator App',
     })
     if (error || !data) {

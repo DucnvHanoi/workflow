@@ -62,7 +62,7 @@ export function Sidebar({ role }: SidebarProps) {
               <Workflow className="h-4 w-4 text-primary-foreground" />
             </div>
             <span className={cn('text-sm font-semibold tracking-tight', collapsed && 'md:hidden')}>
-              Workflow
+              Aitomic Flow
             </span>
           </div>
 
