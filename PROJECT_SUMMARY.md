@@ -3851,3 +3851,65 @@ ai-features-plan-requirements (EN) — what AI includes, who can enable it,
 why toggle is disabled, credit usage,
 own-key setup
 ai-features-plan-requirements-vi (VI)
+
+53. PHASE 17 — LEMON SQUEEZY PAYMENT INTEGRATION (IN PROGRESS)
+    Goal: enable self-service paid subscriptions via Lemon Squeezy (individual
+    account — no business registration or tax code required). Pricing model:
+    flat-rate (not per-seat). Free $0 / Pro $29/mo / Enterprise contact.
+
+    Lemon Squeezy acts as Merchant of Record — handles all tax/VAT collection and
+    remittance globally. Payouts to personal bank account or Wise.
+
+M1 — Lemon Squeezy account & store setup 🔜 MANUAL (owner)
+Steps: create account → complete payout profile (personal ID, not business
+tax code) → create Store "Aitomic Flow" → create Subscription Product
+"Aitomic Flow Pro" at $29/month flat → enable test mode → generate API key + webhook secret → copy Pro variant checkout URL.
+Env vars to add (.env.local + Vercel):
+LEMONSQUEEZY_API_KEY
+LEMONSQUEEZY_WEBHOOK_SECRET
+NEXT_PUBLIC_LS_PRO_CHECKOUT_URL
+Webhook events to subscribe: subscription_created, subscription_updated,
+subscription_cancelled, subscription_expired, order_created.
+Webhook URL: https://<domain>/api/webhooks/lemon-squeezy
+
+M2 — Landing page: flat-rate pricing + checkout URL ✅ COMPLETE
+src/app/page.tsx: - PLAN_META.pro.priceNote changed from "per user / month" → "/ month" - PLAN_META.pro.ctaHref now reads NEXT_PUBLIC_LS_PRO_CHECKOUT_URL env var
+(falls back to /signup if unset — safe for dev with no env var) - PricingSection: Pro price hardcoded to "$29" (no longer reads
+plan_configs.price_per_user_cents from DB) - CTA rendering: added https:// branch → renders <a target="_blank"> for
+external Lemon Squeezy checkout link; mailto: and /signup paths unchanged - FAQ "How does Pro billing work?" updated to flat-rate ($29/mo, up to 50
+users, cancel anytime)
+NOTE: update plan_configs Pro max_users to 50 via /platform/plan-config so
+the feature list on the landing page shows "Up to 50 users" (reads from DB).
+
+M3 — Database migration: Lemon Squeezy fields on tenants 🔜 PLANNED
+New migration: supabase/migrations/YYYYMMDD_add_lemon_squeezy_to_tenants.sql
+ADD COLUMN lemon_customer_id TEXT, lemon_subscription_id TEXT,
+lemon_renews_at TIMESTAMPTZ to tenants table (all nullable).
+Existing stripe_customer_id / stripe_subscription_id columns kept (unused).
+
+M4 — Webhook handler: receive subscription events 🔜 PLANNED
+New: src/app/api/webhooks/lemon-squeezy/route.ts - HMAC-SHA256 signature verification (X-Signature header vs raw body) - Events handled: subscription_created → plan='pro'; subscription_updated →
+update plan/renews_at; subscription_cancelled → status='cancelling';
+subscription_expired → plan='free'; order_created → no-op - Tenant lookup via meta.custom_data.tenant_id (passed from checkout URL) - Calls revalidateTag('plan-limits') after every plan change
+New: src/lib/billing/lemon-actions.ts - upgradeTenantToPro() / downgradeTenantToFree() — admin client writes
+Modify: src/middleware.ts — add /api/webhooks/lemon-squeezy to PUBLIC_ROUTES
+
+M5 — In-app upgrade flow: enable upgrade button + portal link 🔜 PLANNED
+src/app/(app)/settings/page.tsx — billing tab: - Replace disabled "Upgrade to Pro" button with <a> link to checkout URL
+with ?checkout[custom][tenant_id]= appended (identifies tenant in webhook) - Pro subscribers: show "Renews on [date]" (from lemon_renews_at) and
+"Manage billing" link to Lemon Squeezy customer portal
+
+M6 — End-to-end verification 🔜 PLANNED
+Test mode checkout → plan switches to 'pro' in Supabase → Pro limits unlock
+→ simulate cancelled/expired webhooks → verify plan reverts to free
+→ wrong HMAC returns 401 → npm run build clean → deploy to Vercel
+
+    KNOWN TRAP — tenant_id in checkout: the custom data field
+    ?checkout[custom][tenant_id]= is the only way for the webhook to know which
+    tenant to upgrade. If this param is missing (e.g. user navigates directly to
+    LS checkout URL without the param), the webhook will receive no tenant_id and
+    must log an error rather than silently fail.
+
+    PRICING NOTE — plan_configs DB vs display: plan_configs.price_per_user_cents
+    is no longer used for the landing page display (hardcoded to $29 in page.tsx).
+    The field still controls limits (maxUsers, maxFlows, etc.) — do NOT remove it.

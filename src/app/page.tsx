@@ -376,10 +376,10 @@ const PLAN_META: Record<
   },
   pro: {
     name: 'Pro',
-    priceNote: 'per user / month',
+    priceNote: '/ month',
     description: 'For growing teams that need unlimited flows, AI, and deep analytics.',
     cta: 'Start Pro',
-    ctaHref: '/signup',
+    ctaHref: process.env.NEXT_PUBLIC_LS_PRO_CHECKOUT_URL ?? '/signup',
     highlighted: true,
     badge: 'Most popular',
   },
@@ -457,7 +457,7 @@ async function PricingSection() {
     },
     {
       ...PLAN_META.pro,
-      price: pro.pricePerUserCents > 0 ? `$${pro.pricePerUserCents / 100}` : '$0',
+      price: '$29',
       features: buildFeatures('pro', pro),
     },
     {
@@ -548,6 +548,20 @@ async function PricingSection() {
                   <Mail className="h-4 w-4" />
                   {plan.cta}
                 </a>
+              ) : plan.ctaHref.startsWith('https') ? (
+                <a
+                  href={plan.ctaHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`inline-flex items-center justify-center gap-2 w-full py-3 rounded-xl font-semibold text-sm transition-colors ${
+                    plan.highlighted
+                      ? 'bg-white text-indigo-700 hover:bg-indigo-50'
+                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  }`}
+                >
+                  {plan.cta}
+                  <ArrowRight className="h-4 w-4" />
+                </a>
               ) : (
                 <Link
                   href={plan.ctaHref}
@@ -622,7 +636,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How does Pro billing work?',
-    a: 'Pro is $5 per active user per month, billed monthly. You only pay for users who have accepted their invitation and can log in. You can cancel or downgrade at any time — your data stays intact.',
+    a: 'Pro is $29/month flat, billed monthly — for up to 50 users. No per-seat surprises. You can cancel anytime; your plan reverts to Free at the end of the billing period and your data stays intact.',
   },
   {
     q: 'Can I upgrade or downgrade my plan anytime?',

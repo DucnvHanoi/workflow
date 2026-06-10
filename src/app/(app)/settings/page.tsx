@@ -243,12 +243,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
     userCount: number
     flowCount: number
     deptCount: number
+    lemonRenewsAt: string | null
   } | null = null
 
   if (tab === 'billing') {
     const db = createAdminClient()
     const [{ data: tenant }, userRes, flowRes, deptRes] = await Promise.all([
-      db.from('tenants').select('plan, status').eq('id', tenantId).single(),
+      db.from('tenants').select('plan, status, lemon_renews_at').eq('id', tenantId).single(),
       db.from('users').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId),
       db.from('flows').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId),
       db.from('departments').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId),
@@ -259,10 +260,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
       userCount: userRes.count ?? 0,
       flowCount: flowRes.count ?? 0,
       deptCount: deptRes.count ?? 0,
+      lemonRenewsAt: tenant?.lemon_renews_at ?? null,
     }
   }
 
   const limits = tab === 'billing' && billingData ? await getTenantLimits(tenantId) : null
+
+  const checkoutBase = process.env.NEXT_PUBLIC_LS_PRO_CHECKOUT_URL
+  const upgradeHref = checkoutBase
+    ? `${checkoutBase}?checkout[custom][tenant_id]=${tenantId}`
+    : null
 
   // Integrations tab — webhook URLs
   let webhookUrls: { slackUrl: string | null; teamsUrl: string | null } = {
@@ -409,21 +416,33 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
                     {billingData.plan === 'free' &&
                       'Limited to 10 users, 2 flows, and 5 departments.'}
                     {billingData.plan === 'pro' &&
-                      '$5 per user / month · Up to 100 users · Full feature access.'}
+                      '$29 / month · Up to 50 users · Full feature access.'}
                     {billingData.plan === 'enterprise' &&
                       'Custom limits and AI configuration managed by your account team.'}
                   </p>
                 </div>
                 {billingData.plan === 'free' && (
                   <div className="text-right space-y-1">
-                    <button
-                      disabled
-                      className="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
-                    >
-                      Upgrade to Pro
-                      <ArrowRight className="h-4 w-4" />
-                    </button>
-                    <p className="text-xs text-muted-foreground">Payment coming soon</p>
+                    {upgradeHref ? (
+                      <a
+                        href={upgradeHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+                      >
+                        Upgrade to Pro
+                        <ArrowRight className="h-4 w-4" />
+                      </a>
+                    ) : (
+                      <button
+                        disabled
+                        className="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
+                      >
+                        Upgrade to Pro
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    )}
+                    <p className="text-xs text-muted-foreground">$29 / month · cancel anytime</p>
                   </div>
                 )}
               </div>
@@ -475,12 +494,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
                 Unlock Pro features
               </h3>
               <p className="text-sm text-indigo-700 dark:text-indigo-300 mb-4">
-                Upgrade to Pro for up to 100 users, unlimited flows and departments, full report
-                history, and AI-powered flow building.
+                Upgrade to Pro for up to 50 users, unlimited flows and departments, full report
+                history, and AI-powered flow building — $29 flat per month.
               </p>
               <ul className="text-sm text-indigo-700 dark:text-indigo-300 space-y-1 mb-4">
                 {[
-                  '100 users (vs 10 on Free)',
+                  '50 users (vs 10 on Free)',
                   'Unlimited flows and departments',
                   'Full report history (30d, 90d, all-time)',
                   'AI integration in flow builder',
@@ -491,27 +510,56 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
                   </li>
                 ))}
               </ul>
-              <button
-                disabled
-                className="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
-              >
-                Upgrade to Pro — $5 / user / month
-                <ArrowRight className="h-4 w-4" />
-              </button>
+              {upgradeHref ? (
+                <a
+                  href={upgradeHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  Upgrade to Pro — $29 / month
+                  <ArrowRight className="h-4 w-4" />
+                </a>
+              ) : (
+                <button
+                  disabled
+                  className="inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
+                >
+                  Upgrade to Pro — $29 / month
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              )}
               <p className="text-xs text-indigo-500 mt-2">
-                Online payment coming soon. Contact us to upgrade manually.
+                Secure checkout via Lemon Squeezy · cancel anytime
               </p>
             </section>
           )}
 
           {/* Pro / Enterprise info */}
           {billingData.plan === 'pro' && (
-            <section className="rounded-xl border bg-card p-6 space-y-2">
+            <section className="rounded-xl border bg-card p-6 space-y-3">
               <h3 className="text-sm font-semibold text-foreground">Manage subscription</h3>
-              <p className="text-sm text-muted-foreground">
-                Billing portal and invoice management coming soon. Contact us for any billing
-                queries.
-              </p>
+              {billingData.lemonRenewsAt && (
+                <p className="text-sm text-muted-foreground">
+                  Renews on{' '}
+                  <span className="font-medium text-foreground">
+                    {new Date(billingData.lemonRenewsAt).toLocaleDateString('en-GB', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </span>
+                </p>
+              )}
+              <a
+                href="https://app.lemonsqueezy.com/my-orders"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+              >
+                Manage billing &amp; invoices
+                <ArrowRight className="h-3.5 w-3.5" />
+              </a>
             </section>
           )}
 
