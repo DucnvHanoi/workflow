@@ -1,5 +1,6 @@
 // FILE PATH: src/app/login/page.tsx
 
+import Image from 'next/image'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { LoginForm } from '@/components/auth/login-form'
@@ -18,23 +19,14 @@ export default async function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Brand mark */}
         <div className="mb-8 text-center">
-          <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-foreground mb-4">
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M4 5h8M4 10h12M4 15h6"
-                stroke="hsl(var(--background))"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Aitomic Flow</h1>
+          <Image
+            src="/logo.png"
+            alt="Aitomic Flow"
+            width={200}
+            height={200}
+            className="mx-auto mb-3 h-28 w-28 object-contain"
+            priority
+          />
           <p className="text-sm text-muted-foreground mt-1">Sign in to your workspace</p>
         </div>
 

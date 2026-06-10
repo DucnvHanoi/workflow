@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { getNavItems } from './nav-items'
 import { cn } from '@/lib/utils'
-import { Workflow, PanelLeftClose, PanelLeftOpen, Menu, X } from 'lucide-react'
+import Image from 'next/image'
+import { PanelLeftClose, PanelLeftOpen, Menu, X } from 'lucide-react'
 
 interface SidebarProps {
   role: string
@@ -58,9 +59,14 @@ export function Sidebar({ role }: SidebarProps) {
           <div
             className={cn('flex items-center gap-2', collapsed && 'md:w-full md:justify-center')}
           >
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary">
-              <Workflow className="h-4 w-4 text-primary-foreground" />
-            </div>
+            <Image
+              src="/logo_icon.png"
+              alt="Aitomic Flow"
+              width={28}
+              height={28}
+              className="h-7 w-7 shrink-0 rounded-md"
+              priority
+            />
             <span className={cn('text-sm font-semibold tracking-tight', collapsed && 'md:hidden')}>
               Aitomic Flow
             </span>
