@@ -3902,3 +3902,109 @@ Verified: - Test checkout (card 4242...) → webhook fires → tenants.plan = 'p
     PRICING NOTE — plan_configs.price_per_user_cents is no longer used for
     landing page display (hardcoded $29) but still controls limits (maxUsers
     etc.) — do NOT remove it.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 54. PHASE 18 — PRODUCT HUNT LAUNCH (IN PROGRESS)
+Goal: acquire first organic users and build public awareness via a
+Product Hunt launch. Pricing advantage over Base.vn / MISA: flat $29/mo
+vs per-seat billing. Target: Vietnamese SMBs + global English-speaking
+ops/HR teams.
+
+── Phase 1 — Prepare assets 🔜 IN PROGRESS ─────────────────────────────────
+
+LOGO (done ✅)
+public/logo.png — full logo with wordmark (transparent background)
+public/logo_icon.png — icon-only square for sidebar / favicon
+src/app/icon.png — Next.js app favicon (copy of logo_icon.png)
+Deployed: commit cf3a022 + fbde9db
+
+GALLERY IMAGES (5 screenshots) 🔜 TODO
+Tool: GoFullPage Chrome extension → screely.com for browser frame
+Browser: Chrome at 1440×900, 100% zoom 1. aitomicflow.com — hero section + pricing 2. aitomicflow.com — pricing cards (Free vs Pro) 3. /flows — flow canvas list view 4. /flows/[id]/edit — drag-and-drop canvas builder (most important) 5. /tasks — task inbox (daily user view)
+
+TAGLINE (60 chars max) — draft:
+"Visual workflow builder for teams that outgrew spreadsheets"
+
+DESCRIPTION (200 words) — draft:
+Aitomic Flow is a no-code workflow and BPM tool that lets any team
+design, run, and track business processes — without an IT department.
+Most small and mid-size teams manage approvals, onboarding, and
+operations through email threads, spreadsheets, and chat. Things get
+missed. Deadlines slip. Nobody knows who owns what.
+Aitomic Flow fixes that with a visual canvas where you drag and drop
+steps, assign owners, set deadlines, and let the system do the chasing.
+Key features:
+→ Visual flow builder (drag-and-drop, no code)
+→ Task inbox — every assignee sees exactly what to do next
+→ SLA tracking and escalations
+→ Slack and Teams notifications
+→ AI-assisted flow building (Pro)
+→ Role-based access, multi-department support
+Free plan available. Pro is $29/month flat for up to 50 users.
+Built for growing teams in operations, HR, finance, and customer service.
+
+FIRST COMMENT / MAKER STORY — draft:
+"Hey PH! I'm Duc, a solo developer from Hanoi, Vietnam. I built
+Aitomic Flow after watching small businesses around me lose deals and
+frustrate employees because their internal processes lived in WhatsApp
+threads and Excel files. I wanted something powerful enough to replace
+tools like monday.com or Kissflow — but simple enough that a
+non-technical operations manager could set it up in an afternoon.
+It's been in development for 6 months. Today it's live, free to try,
+and $29/month flat for Pro (no per-seat pricing). Happy to answer
+any questions about the build — it's Next.js + Supabase. 🛠️"
+
+── Phase 2 — Create account and submit 🔜 TODO ──────────────────────────────
+
+    1. Create maker account at producthunt.com (real photo, bio required)
+    2. Go to producthunt.com/posts/new
+    3. Fill in all fields:
+       Name: Aitomic Flow
+       Tagline: see draft above
+       Website: https://aitomicflow.com
+       Topics: Productivity, SaaS, No-Code, Project Management
+       Pricing: Freemium
+       Gallery: 5 screenshots from Phase 1
+    4. Choose "Schedule for later" — DO NOT submit immediately
+
+── Phase 3 — Pick launch time 🔜 TODO ───────────────────────────────────────
+
+    Product Hunt resets at 12:01 AM PT (Pacific Time) daily.
+    Best days: Tuesday or Wednesday
+    Best time to launch: 2:01 PM Vietnam time (= 12:01 AM PDT, UTC-7)
+    This gives the full 24-hour voting window.
+
+── Phase 4 — Launch day playbook 🔜 TODO ────────────────────────────────────
+
+    Hour 0 (2:01 PM Vietnam time):
+    - Post in Vietnamese Facebook groups (startup, HR, ops communities)
+    - Share on personal LinkedIn with genuine story post (not "go vote")
+    - Message existing users directly (email or in-app)
+
+    Hour 1:
+    - Reply to every PH comment personally (engagement boosts ranking)
+    - Post in Slack/Discord indie hacker and no-code communities
+
+    Hours 2–8:
+    - Keep replying to comments
+    - Share in WhatsApp/Zalo groups of founders and ops professionals
+
+    RULES:
+    - Never say "upvote" — ask people to "check it out" or "leave feedback"
+      (PH detects and discounts coordinated upvotes from inactive accounts)
+    - Post the PH link with context, not as a bare link in groups
+
+── Phase 5 — After launch 🔜 TODO ───────────────────────────────────────────
+
+    - Answer every comment even outside top 5 (builds SEO and trust)
+    - Screenshot ranking and post on LinkedIn next day regardless of result
+    - Add "Featured on Product Hunt" badge to aitomicflow.com landing page
+      (badge available at producthunt.com/badges)
+
+── Landing page pre-launch checklist 🔜 TODO ────────────────────────────────
+
+    Before sending any traffic to the landing page:
+    - Add a short demo video (90-second Loom minimum — SaaS buyers need
+      to see it working before signing up)
+    - Add Vietnamese copy option or at least Vietnamese hero section text
+      (primary target market is Vietnamese SMBs)
+    - Add "Book a demo" CTA alongside free signup
