@@ -3852,7 +3852,7 @@ why toggle is disabled, credit usage,
 own-key setup
 ai-features-plan-requirements-vi (VI)
 
-53. PHASE 17 — LEMON SQUEEZY PAYMENT INTEGRATION (IN PROGRESS)
+53. PHASE 17 — LEMON SQUEEZY PAYMENT INTEGRATION (COMPLETE ✅)
     Goal: enable self-service paid subscriptions via Lemon Squeezy (individual
     account — no business registration or tax code required). Pricing model:
     flat-rate (not per-seat). Free $0 / Pro $29/mo / Enterprise contact.
@@ -3860,56 +3860,45 @@ ai-features-plan-requirements-vi (VI)
     Lemon Squeezy acts as Merchant of Record — handles all tax/VAT collection and
     remittance globally. Payouts to personal bank account or Wise.
 
-M1 — Lemon Squeezy account & store setup 🔜 MANUAL (owner)
-Steps: create account → complete payout profile (personal ID, not business
-tax code) → create Store "Aitomic Flow" → create Subscription Product
-"Aitomic Flow Pro" at $29/month flat → enable test mode → generate API key + webhook secret → copy Pro variant checkout URL.
-Env vars to add (.env.local + Vercel):
-LEMONSQUEEZY_API_KEY
-LEMONSQUEEZY_WEBHOOK_SECRET
-NEXT_PUBLIC_LS_PRO_CHECKOUT_URL
-Webhook events to subscribe: subscription_created, subscription_updated,
-subscription_cancelled, subscription_expired, order_created.
-Webhook URL: https://<domain>/api/webhooks/lemon-squeezy
+    Completed: 2026-06-10. All 6 milestones shipped and verified in test mode.
+    Commits: f1e8966 (M2–M5), 9a1a8c7 (fix use-server directive)
+
+M1 — Lemon Squeezy account & store setup ✅ COMPLETE (manual)
+Owner completed: account created, payout profile (Techcombank via CITAD),
+Store "Aitomic Flow", Pro subscription product at $29/month flat, test mode
+enabled, API key + webhook secret generated, 3 env vars added to .env.local
+and Vercel dashboard.
+Webhook URL: https://aitomicflow.com/api/webhooks/lemon-squeezy
+Events: subscription_created, subscription_updated, subscription_cancelled,
+subscription_expired, order_created.
 
 M2 — Landing page: flat-rate pricing + checkout URL ✅ COMPLETE
-src/app/page.tsx: - PLAN_META.pro.priceNote changed from "per user / month" → "/ month" - PLAN_META.pro.ctaHref now reads NEXT_PUBLIC_LS_PRO_CHECKOUT_URL env var
-(falls back to /signup if unset — safe for dev with no env var) - PricingSection: Pro price hardcoded to "$29" (no longer reads
-plan_configs.price_per_user_cents from DB) - CTA rendering: added https:// branch → renders <a target="_blank"> for
-external Lemon Squeezy checkout link; mailto: and /signup paths unchanged - FAQ "How does Pro billing work?" updated to flat-rate ($29/mo, up to 50
-users, cancel anytime)
-NOTE: update plan_configs Pro max_users to 50 via /platform/plan-config so
-the feature list on the landing page shows "Up to 50 users" (reads from DB).
+src/app/page.tsx: - Pro price hardcoded to "$29" (removed dynamic DB read) - priceNote: "per user / month" → "/ month" - ctaHref reads NEXT_PUBLIC_LS_PRO_CHECKOUT_URL (falls back to /signup) - CTA renders <a target="_blank"> for https:// links (LS checkout) - FAQ updated to flat-rate copy
+NOTE: update plan_configs Pro max_users to 50 via /platform/plan-config.
 
-M3 — Database migration: Lemon Squeezy fields on tenants 🔜 PLANNED
-New migration: supabase/migrations/YYYYMMDD_add_lemon_squeezy_to_tenants.sql
-ADD COLUMN lemon_customer_id TEXT, lemon_subscription_id TEXT,
-lemon_renews_at TIMESTAMPTZ to tenants table (all nullable).
-Existing stripe_customer_id / stripe_subscription_id columns kept (unused).
+M3 — Database migration: Lemon Squeezy fields on tenants ✅ COMPLETE
+supabase/migrations/20260610000000_add_lemon_squeezy_to_tenants.sql
+Columns added to tenants: lemon_customer_id TEXT, lemon_subscription_id TEXT,
+lemon_renews_at TIMESTAMPTZ (all nullable). Applied to production Supabase.
 
-M4 — Webhook handler: receive subscription events 🔜 PLANNED
-New: src/app/api/webhooks/lemon-squeezy/route.ts - HMAC-SHA256 signature verification (X-Signature header vs raw body) - Events handled: subscription_created → plan='pro'; subscription_updated →
-update plan/renews_at; subscription_cancelled → status='cancelling';
-subscription_expired → plan='free'; order_created → no-op - Tenant lookup via meta.custom_data.tenant_id (passed from checkout URL) - Calls revalidateTag('plan-limits') after every plan change
-New: src/lib/billing/lemon-actions.ts - upgradeTenantToPro() / downgradeTenantToFree() — admin client writes
-Modify: src/middleware.ts — add /api/webhooks/lemon-squeezy to PUBLIC_ROUTES
+M4 — Webhook handler: receive subscription events ✅ COMPLETE
+src/app/api/webhooks/lemon-squeezy/route.ts: - HMAC-SHA256 + timingSafeEqual signature verification - Tenant resolved via meta.custom_data.tenant_id - subscription_created/updated → upgradeTenantToPro() - subscription_expired → downgradeTenantToFree() - subscription_cancelled → no-op (Pro kept until period ends) - Returns 500 on DB error (triggers LS retry), 401 on bad signature
+src/lib/billing/lemon-actions.ts: - upgradeTenantToPro() / downgradeTenantToFree() via createAdminClient() - revalidateTag('plan-limits') called after every plan change
+Middleware: /api/webhooks already in PUBLIC_ROUTES — no change needed.
 
-M5 — In-app upgrade flow: enable upgrade button + portal link 🔜 PLANNED
-src/app/(app)/settings/page.tsx — billing tab: - Replace disabled "Upgrade to Pro" button with <a> link to checkout URL
-with ?checkout[custom][tenant_id]= appended (identifies tenant in webhook) - Pro subscribers: show "Renews on [date]" (from lemon_renews_at) and
-"Manage billing" link to Lemon Squeezy customer portal
+M5 — In-app upgrade flow: enable upgrade button + portal link ✅ COMPLETE
+src/app/(app)/settings/page.tsx — billing tab: - "Upgrade to Pro" buttons replaced with active <a> links to LS checkout
+with ?checkout[custom][tenant_id]=${tenantId} appended - Falls back to disabled button if NEXT_PUBLIC_LS_PRO_CHECKOUT_URL unset - Pro subscribers: "Renews on [date]" + "Manage billing & invoices" link
+→ https://app.lemonsqueezy.com/my-orders
 
-M6 — End-to-end verification 🔜 PLANNED
-Test mode checkout → plan switches to 'pro' in Supabase → Pro limits unlock
-→ simulate cancelled/expired webhooks → verify plan reverts to free
-→ wrong HMAC returns 401 → npm run build clean → deploy to Vercel
+M6 — End-to-end verification ✅ COMPLETE (2026-06-10, test mode)
+Verified: - Test checkout (card 4242...) → webhook fires → tenants.plan = 'pro' - lemon_subscription_id and lemon_renews_at populated in Supabase - Settings billing tab shows Pro badge + renew date + portal link - Wrong HMAC signature → 401 confirmed - subscription_expired webhook → plan reverts to 'free' - npm run build passes clean
 
-    KNOWN TRAP — tenant_id in checkout: the custom data field
-    ?checkout[custom][tenant_id]= is the only way for the webhook to know which
-    tenant to upgrade. If this param is missing (e.g. user navigates directly to
-    LS checkout URL without the param), the webhook will receive no tenant_id and
-    must log an error rather than silently fail.
+    KNOWN TRAP — tenant_id in checkout: ?checkout[custom][tenant_id]= must be
+    present in the URL or the webhook cannot identify the tenant. Users who
+    navigate directly to the LS checkout URL bypass this — webhook logs a warning
+    and acks without upgrading.
 
-    PRICING NOTE — plan_configs DB vs display: plan_configs.price_per_user_cents
-    is no longer used for the landing page display (hardcoded to $29 in page.tsx).
-    The field still controls limits (maxUsers, maxFlows, etc.) — do NOT remove it.
+    PRICING NOTE — plan_configs.price_per_user_cents is no longer used for
+    landing page display (hardcoded $29) but still controls limits (maxUsers
+    etc.) — do NOT remove it.
