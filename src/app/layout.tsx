@@ -15,7 +15,25 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   title: 'Aitomic Flow',
-  description: 'AI-powered workflow automation platform',
+  description:
+    'Your team always knows what to do next. Visual workflow builder for teams — no code required.',
+  metadataBase: new URL('https://aitomicflow.com'),
+  openGraph: {
+    title: 'Aitomic Flow',
+    description:
+      'Your team always knows what to do next. Visual workflow builder for teams — no code required.',
+    url: 'https://aitomicflow.com',
+    siteName: 'Aitomic Flow',
+    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'Aitomic Flow' }],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Aitomic Flow',
+    description:
+      'Your team always knows what to do next. Visual workflow builder for teams — no code required.',
+    images: ['/og.png'],
+  },
 }
 
 export default function RootLayout({
