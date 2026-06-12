@@ -16,11 +16,18 @@ import { bulkImportUsers, type BulkImportRow, type BulkImportResult } from '../a
 
 const TEMPLATE_CSV = `email,full_name,role,password,invite\nalice@company.com,Alice Smith,user,TempPass123!,no\nbob@company.com,Bob Jones,admin,,yes\n`
 
+const MAX_IMPORT_ROWS = 100
+
 type Stage = 'idle' | 'preview' | 'results'
 
-function parseCSV(text: string): { rows: BulkImportRow[]; errors: string[] } {
+function parseCSV(text: string): {
+  rows: BulkImportRow[]
+  errors: string[]
+  truncated: boolean
+  totalRows: number
+} {
   const lines = text.split(/\r?\n/).filter((l) => l.trim())
-  if (!lines.length) return { rows: [], errors: ['File is empty.'] }
+  if (!lines.length) return { rows: [], errors: ['File is empty.'], truncated: false, totalRows: 0 }
 
   const header = lines[0]
     .toLowerCase()
@@ -32,7 +39,13 @@ function parseCSV(text: string): { rows: BulkImportRow[]; errors: string[] } {
   const passwordIdx = header.indexOf('password')
   const inviteIdx = header.indexOf('invite')
 
-  if (emailIdx === -1) return { rows: [], errors: ['CSV must have an "email" column.'] }
+  if (emailIdx === -1)
+    return {
+      rows: [],
+      errors: ['CSV must have an "email" column.'],
+      truncated: false,
+      totalRows: 0,
+    }
 
   const rows: BulkImportRow[] = []
   const errors: string[] = []
@@ -53,7 +66,9 @@ function parseCSV(text: string): { rows: BulkImportRow[]; errors: string[] } {
     rows.push({ email, role, full_name, password, invite })
   }
 
-  return { rows, errors }
+  const totalRows = rows.length
+  const truncated = totalRows > MAX_IMPORT_ROWS
+  return { rows: truncated ? rows.slice(0, MAX_IMPORT_ROWS) : rows, errors, truncated, totalRows }
 }
 
 export function BulkImportClient() {
@@ -63,6 +78,7 @@ export function BulkImportClient() {
   const [preview, setPreview] = useState<BulkImportRow[]>([])
   const [results, setResults] = useState<BulkImportResult[]>([])
   const [loading, setLoading] = useState(false)
+  const [truncatedFrom, setTruncatedFrom] = useState<number | null>(null)
 
   function downloadTemplate() {
     const blob = new Blob([TEMPLATE_CSV], { type: 'text/csv' })
@@ -81,9 +97,10 @@ export function BulkImportClient() {
     const reader = new FileReader()
     reader.onload = (evt) => {
       const text = evt.target?.result as string
-      const { rows, errors } = parseCSV(text)
+      const { rows, errors, truncated, totalRows } = parseCSV(text)
       setParseErrors(errors)
       setPreview(rows)
+      setTruncatedFrom(truncated ? totalRows : null)
       if (rows.length > 0) setStage('preview')
     }
     reader.readAsText(file)
@@ -106,6 +123,7 @@ export function BulkImportClient() {
     setPreview([])
     setResults([])
     setParseErrors([])
+    setTruncatedFrom(null)
     if (inputRef.current) inputRef.current.value = ''
   }
 
@@ -167,6 +185,14 @@ export function BulkImportClient() {
       {/* Preview stage */}
       {stage === 'preview' && (
         <div className="space-y-4">
+          {truncatedFrom !== null && (
+            <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+              Your file contains <strong>{truncatedFrom} rows</strong> but bulk import is limited to{' '}
+              <strong>{MAX_IMPORT_ROWS} users</strong> per upload. Only the first{' '}
+              <strong>{MAX_IMPORT_ROWS}</strong> rows will be imported — split your file into
+              smaller batches to import the rest.
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium">
               {preview.length} user{preview.length !== 1 ? 's' : ''} ready to import

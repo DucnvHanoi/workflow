@@ -3909,7 +3909,7 @@ Product Hunt launch. Pricing advantage over Base.vn / MISA: flat $29/mo
 vs per-seat billing. Target: Vietnamese SMBs + global English-speaking
 ops/HR teams.
 
-── Phase 1 — Prepare assets 🔜 IN PROGRESS ─────────────────────────────────
+── Phase 1 — Prepare assets ✅ COMPLETE ─────────────────────────────────
 
 LOGO (done ✅)
 public/logo.png — full logo with wordmark (transparent background)
@@ -3917,12 +3917,12 @@ public/logo_icon.png — icon-only square for sidebar / favicon
 src/app/icon.png — Next.js app favicon (copy of logo_icon.png)
 Deployed: commit cf3a022 + fbde9db
 
-GALLERY IMAGES (5 screenshots) 🔜 TODO
-Tool: GoFullPage Chrome extension → screely.com for browser frame
+GALLERY IMAGES (5 screenshots) ✅ DONE (2026-06-10)
+Tool: GoFullPage Chrome extension → shots.so for browser frame
 Browser: Chrome at 1440×900, 100% zoom 1. aitomicflow.com — hero section + pricing 2. aitomicflow.com — pricing cards (Free vs Pro) 3. /flows — flow canvas list view 4. /flows/[id]/edit — drag-and-drop canvas builder (most important) 5. /tasks — task inbox (daily user view)
 
-TAGLINE (60 chars max) — draft:
-"Visual workflow builder for teams that outgrew spreadsheets"
+TAGLINE (60 chars max) — final:
+"Your team always knows what to do next"
 
 DESCRIPTION (200 words) — draft:
 Aitomic Flow is a no-code workflow and BPM tool that lets any team
@@ -3942,16 +3942,29 @@ Key features:
 Free plan available. Pro is $29/month flat for up to 50 users.
 Built for growing teams in operations, HR, finance, and customer service.
 
-FIRST COMMENT / MAKER STORY — draft:
-"Hey PH! I'm Duc, a solo developer from Hanoi, Vietnam. I built
-Aitomic Flow after watching small businesses around me lose deals and
-frustrate employees because their internal processes lived in WhatsApp
-threads and Excel files. I wanted something powerful enough to replace
-tools like monday.com or Kissflow — but simple enough that a
-non-technical operations manager could set it up in an afternoon.
-It's been in development for 6 months. Today it's live, free to try,
-and $29/month flat for Pro (no per-seat pricing). Happy to answer
-any questions about the build — it's Next.js + Supabase. 🛠️"
+FIRST COMMENT / MAKER STORY — final:
+"Hey PH! I'm Danny, and I built Aitomic Flow.
+
+I kept seeing the same problem: smart, well-run teams were dropping the
+ball — not because people were lazy, but because their processes lived
+in email threads, WhatsApp groups, and 'just ask Sarah.' Approvals
+stalled. Onboarding was inconsistent. Nobody knew what stage something
+was at.
+
+I wanted a tool that was powerful enough to replace monday.com or
+Kissflow for real business workflows, but approachable enough that an
+ops manager could set it up in an afternoon — no IT ticket required.
+
+Aitomic Flow is the result: a visual canvas where you design your
+process once, assign owners, set SLAs, and let the system handle the
+follow-up. Every person on your team sees exactly what they need to do
+next — nothing more, nothing less.
+
+It's free to try. Pro is $29/month flat for up to 50 users — no
+per-seat surprises.
+
+Happy to answer anything about the product or the build
+(Next.js + Supabase). 🛠️"
 
 ── Phase 2 — Create account and submit 🔜 TODO ──────────────────────────────
 

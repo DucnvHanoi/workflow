@@ -928,6 +928,192 @@ export async function triggerFlow(
   return { instanceId: instance.id, error: null }
 }
 
+// ─── triggerFlowForInitiation ─────────────────────────────────────────────────
+// Like triggerFlow but designed for the initiation modal:
+//   • First step is ALWAYS assigned to the triggerer (ignores assigneeRule)
+//   • No notification/email for step-1 (the user is filling it right now)
+//   • Returns the step IDs + field schema so the modal can render the form
+//   • The caller must follow up with submitStep(stepInstanceId, formData)
+//     to complete the step and advance the flow.
+
+export async function triggerFlowForInitiation(flowId: string): Promise<{
+  instanceId: string | null
+  stepInstanceId: string | null
+  stepNodeId: string | null
+  stepLabel: string
+  stepDescription: string | null
+  fields: import('@/store/canvas-store').FormField[]
+  tenantId: string | null
+  flowName: string
+  error: string | null
+}> {
+  const EMPTY = {
+    instanceId: null,
+    stepInstanceId: null,
+    stepNodeId: null,
+    stepLabel: '',
+    stepDescription: null,
+    fields: [],
+    tenantId: null,
+    flowName: '',
+  }
+
+  const gate = await requireAuthWithTenant()
+  if (!gate.ok) return { ...EMPTY, error: gate.error }
+
+  const { userId, tenantId, db } = gate
+
+  const { data: flow, error: flowError } = await db
+    .from('flows')
+    .select('id, name, status, latest_version_id, allowed_department_ids')
+    .eq('id', flowId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  if (flowError || !flow) return { ...EMPTY, error: 'Flow not found.' }
+  if (flow.status !== 'published') return { ...EMPTY, error: 'Flow is not published.' }
+  if (!flow.latest_version_id) return { ...EMPTY, error: 'Flow has no published version.' }
+
+  const flowName = (flow.name as string) ?? 'Flow'
+
+  // Department restriction check
+  const allowedDeptIds = flow.allowed_department_ids as string[] | null
+  if (allowedDeptIds && allowedDeptIds.length > 0) {
+    const { data: callerUser } = await db
+      .from('users')
+      .select('department_id')
+      .eq('id', userId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+    const callerDeptId = (callerUser as { department_id: string | null } | null)?.department_id
+    if (!callerDeptId || !allowedDeptIds.includes(callerDeptId)) {
+      return {
+        ...EMPTY,
+        flowName,
+        error: 'Your department is not authorised to trigger this flow.',
+      }
+    }
+  }
+
+  const { data: version, error: versionError } = await db
+    .from('flow_versions')
+    .select('id, graph')
+    .eq('id', flow.latest_version_id)
+    .single()
+
+  if (versionError || !version) return { ...EMPTY, flowName, error: 'Could not load flow version.' }
+
+  const graph = version.graph as SerializedGraph
+  const triggerNode = graph.nodes.find((n) => n.type === 'trigger')
+  if (!triggerNode) return { ...EMPTY, flowName, error: 'Flow has no trigger node.' }
+
+  const { data: instance, error: instanceError } = await db
+    .from('flow_instances')
+    .insert({
+      flow_version_id: version.id,
+      triggered_by: userId,
+      current_step_id: null,
+      status: 'pending',
+    })
+    .select('id')
+    .single()
+
+  if (instanceError || !instance) {
+    return { ...EMPTY, flowName, error: instanceError?.message ?? 'Could not create instance.' }
+  }
+
+  const triggererName = await resolveUserName(db, userId)
+  await writeEventLog(db, {
+    instanceId: instance.id,
+    tenantId,
+    actorId: userId,
+    eventType: 'flow_triggered',
+    description: `${triggererName} started this flow.`,
+    metadata: { flowId, versionId: version.id },
+  })
+
+  const firstEdge = graph.edges.find((e) => e.source === triggerNode.id)
+  const firstNode = firstEdge ? graph.nodes.find((n) => n.id === firstEdge.target) : null
+
+  // Trivial flow (no first action step): complete immediately, no form needed
+  if (!firstNode || firstNode.type === 'complete') {
+    await db
+      .from('flow_instances')
+      .update({ status: 'completed', updated_at: new Date().toISOString() })
+      .eq('id', instance.id)
+    await writeEventLog(db, {
+      instanceId: instance.id,
+      tenantId,
+      actorId: null,
+      eventType: 'flow_completed',
+      description: 'Flow completed instantly (no steps configured).',
+    })
+    return {
+      ...EMPTY,
+      instanceId: instance.id,
+      tenantId,
+      flowName,
+      error: null,
+    }
+  }
+
+  // Create step-1 always assigned to the triggerer (ignoring any assigneeRule)
+  const { data: stepInstance, error: stepError } = await db
+    .from('step_instances')
+    .insert({
+      instance_id: instance.id,
+      step_id: firstNode.id,
+      assigned_to: userId,
+      form_data: {},
+      status: 'pending',
+      due_at: computeDueAt(firstNode.data?.slaHours as number | undefined),
+      escalate_after_hours: (firstNode.data?.escalateAfterHours as number | undefined) ?? null,
+    })
+    .select('id')
+    .single()
+
+  if (stepError || !stepInstance) {
+    return {
+      ...EMPTY,
+      instanceId: instance.id,
+      tenantId,
+      flowName,
+      error: stepError?.message ?? 'Could not create step.',
+    }
+  }
+
+  await db
+    .from('flow_instances')
+    .update({ current_step_id: stepInstance.id, updated_at: new Date().toISOString() })
+    .eq('id', instance.id)
+
+  const stepLabel = (firstNode.data?.label as string | undefined) ?? 'Step'
+  await writeEventLog(db, {
+    instanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    tenantId,
+    actorId: null,
+    eventType: 'step_assigned',
+    description: `"${stepLabel}" assigned to ${triggererName} (initiator).`,
+    metadata: { stepId: firstNode.id, assignedTo: userId },
+  })
+
+  const fields = (firstNode.data?.formSchema as import('@/store/canvas-store').FormField[]) ?? []
+  const stepDescription = (firstNode.data?.description as string | undefined) ?? null
+
+  return {
+    instanceId: instance.id,
+    stepInstanceId: stepInstance.id,
+    stepNodeId: firstNode.id,
+    stepLabel,
+    stepDescription,
+    fields,
+    tenantId,
+    flowName,
+    error: null,
+  }
+}
+
 // ─── getMyInstances ──────────────────────────────────────────────────────────
 
 export async function getMyInstances(): Promise<{

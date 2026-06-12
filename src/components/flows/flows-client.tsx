@@ -7,7 +7,6 @@
 // CHANGED: Added inline description editing for admins; description displayed for all users.
 
 import { useState, useMemo, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -16,8 +15,9 @@ import { Input } from '@/components/ui/input'
 import { FlowRowActions } from '@/components/flows/flow-row-actions'
 import { ManageCategoriesDialog } from '@/components/flows/manage-categories-dialog'
 import { TemplateGalleryModal } from '@/components/flows/TemplateGalleryModal'
+import { FlowInitiationModal } from '@/components/flows/FlowInitiationModal'
 import { PlusIcon, SearchIcon, XIcon, PlayIcon, LayoutTemplate } from 'lucide-react'
-import { triggerFlow, updateFlowDescription } from '@/lib/flows/actions'
+import { updateFlowDescription } from '@/lib/flows/actions'
 import type { FlowListItem } from '@/lib/flows/actions'
 import type { FlowCategory } from '@/lib/flows/category-actions'
 import type { PublishedTemplate } from '@/lib/flows/template-actions'
@@ -494,111 +494,105 @@ function FlowTableRow({
   onDescriptionUpdated: (flowId: string, description: string | null) => void
   onDeleted: (flowId: string) => void
 }) {
-  const router = useRouter()
-  const [isPending, startTransition] = useTransition()
-
-  function handleStart() {
-    startTransition(async () => {
-      const result = await triggerFlow(flow.id)
-      if (result.error) {
-        toast.error(result.error)
-        return
-      }
-      router.push(`/tasks?open=${result.instanceId}`)
-    })
-  }
+  const [modalOpen, setModalOpen] = useState(false)
 
   return (
-    <tr className="transition-colors hover:bg-muted/30 align-top">
-      {/* Name + description */}
-      <td className="px-4 py-3">
-        <div className="flex items-start gap-2">
-          {flow.categoryColor && (
-            <span
-              className="mt-1 h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: flow.categoryColor }}
-              title={flow.categoryName ?? ''}
-            />
-          )}
-          <div className="flex flex-col gap-0.5 min-w-0">
-            {/* Flow name */}
-            <div className="font-medium">
-              {isAdmin ? (
-                <Link href={`/flows/${flow.id}/edit`} className="text-foreground hover:underline">
-                  {flow.name}
-                </Link>
-              ) : (
-                <span className="text-foreground">{flow.name}</span>
-              )}
+    <>
+      <FlowInitiationModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        flowId={flow.id}
+        flowName={flow.name}
+      />
+      <tr className="transition-colors hover:bg-muted/30 align-top">
+        {/* Name + description */}
+        <td className="px-4 py-3">
+          <div className="flex items-start gap-2">
+            {flow.categoryColor && (
+              <span
+                className="mt-1 h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: flow.categoryColor }}
+                title={flow.categoryName ?? ''}
+              />
+            )}
+            <div className="flex flex-col gap-0.5 min-w-0">
+              {/* Flow name */}
+              <div className="font-medium">
+                {isAdmin ? (
+                  <Link href={`/flows/${flow.id}/edit`} className="text-foreground hover:underline">
+                    {flow.name}
+                  </Link>
+                ) : (
+                  <span className="text-foreground">{flow.name}</span>
+                )}
+              </div>
+              {/* Description (inline editable for admin, read-only for users) */}
+              <FlowDescription
+                flow={flow}
+                isAdmin={isAdmin}
+                onSaved={(desc) => onDescriptionUpdated(flow.id, desc)}
+              />
             </div>
-            {/* Description (inline editable for admin, read-only for users) */}
-            <FlowDescription
-              flow={flow}
-              isAdmin={isAdmin}
-              onSaved={(desc) => onDescriptionUpdated(flow.id, desc)}
-            />
           </div>
-        </div>
-      </td>
+        </td>
 
-      {/* Status */}
-      <td className="px-4 py-3">
-        <Badge
-          variant={flow.status === 'published' ? 'default' : 'secondary'}
-          className={
-            flow.status === 'published'
-              ? 'border-emerald-200 bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
-              : ''
-          }
-        >
-          {flow.status === 'published' ? 'Published' : 'Draft'}
-        </Badge>
-      </td>
+        {/* Status */}
+        <td className="px-4 py-3">
+          <Badge
+            variant={flow.status === 'published' ? 'default' : 'secondary'}
+            className={
+              flow.status === 'published'
+                ? 'border-emerald-200 bg-emerald-100 text-emerald-800 hover:bg-emerald-100'
+                : ''
+            }
+          >
+            {flow.status === 'published' ? 'Published' : 'Draft'}
+          </Badge>
+        </td>
 
-      {/* Version */}
-      <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
-        {flow.versionNumber != null ? `v${flow.versionNumber}` : '—'}
-      </td>
+        {/* Version */}
+        <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
+          {flow.versionNumber != null ? `v${flow.versionNumber}` : '—'}
+        </td>
 
-      {/* Last Published */}
-      <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
-        {flow.publishedAt ? formatDate(flow.publishedAt) : '—'}
-      </td>
+        {/* Last Published */}
+        <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
+          {flow.publishedAt ? formatDate(flow.publishedAt) : '—'}
+        </td>
 
-      {/* Updated */}
-      <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
-        {formatRelative(flow.updatedAt)}
-      </td>
+        {/* Updated */}
+        <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
+          {formatRelative(flow.updatedAt)}
+        </td>
 
-      {/* Actions */}
-      <td className="px-4 py-3">
-        {isAdmin ? (
-          <FlowRowActions
-            flowId={flow.id}
-            flowName={flow.name}
-            status={flow.status}
-            currentCategoryId={flow.categoryId}
-            categories={categories}
-            onCategoryUpdated={onCategoryUpdated}
-            onDeleted={onDeleted}
-          />
-        ) : (
-          // Regular users: "Start" button on published flows only
-          flow.status === 'published' && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleStart}
-              disabled={isPending}
-              className="gap-1.5"
-            >
-              <PlayIcon className="h-3.5 w-3.5" />
-              {isPending ? 'Starting…' : 'Start'}
-            </Button>
-          )
-        )}
-      </td>
-    </tr>
+        {/* Actions */}
+        <td className="px-4 py-3">
+          {isAdmin ? (
+            <FlowRowActions
+              flowId={flow.id}
+              flowName={flow.name}
+              status={flow.status}
+              currentCategoryId={flow.categoryId}
+              categories={categories}
+              onCategoryUpdated={onCategoryUpdated}
+              onDeleted={onDeleted}
+            />
+          ) : (
+            flow.status === 'published' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setModalOpen(true)}
+                className="gap-1.5"
+              >
+                <PlayIcon className="h-3.5 w-3.5" />
+                Start
+              </Button>
+            )
+          )}
+        </td>
+      </tr>
+    </>
   )
 }
 
