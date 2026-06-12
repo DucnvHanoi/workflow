@@ -1,6 +1,6 @@
 'use client'
 
-import { Play, CheckSquare, GitBranch, Flag, Sparkles } from 'lucide-react'
+import { Play, CheckSquare, GitBranch, Flag, GitMerge, Sparkles } from 'lucide-react'
 import { useCanvasStore } from '@/store/canvas-store'
 
 const NODE_TYPES: { type: string; label: string; icon: React.ReactNode; color: string }[] = [
@@ -27,6 +27,12 @@ const NODE_TYPES: { type: string; label: string; icon: React.ReactNode; color: s
     label: 'Complete',
     icon: <Flag className="h-4 w-4" />,
     color: 'text-purple-600 hover:bg-purple-50 border-purple-200',
+  },
+  {
+    type: 'subflow',
+    label: 'Sub-flow',
+    icon: <GitMerge className="h-4 w-4" />,
+    color: 'text-orange-600 hover:bg-orange-50 border-orange-200',
   },
 ]
 

@@ -12,6 +12,7 @@ import FormBuilderPanel from './FormBuilderPanel'
 import AssigneePanel from './AssigneePanel'
 import VersionListPanel from './VersionListPanel'
 import PublishPanel from './PublishPanel'
+import SubflowConfigPanel from './SubflowConfigPanel'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -111,6 +112,7 @@ export default function ConfigSidebar({
   const { setSelectedNodeId } = useCanvasStore()
 
   const hasFormAndAssignee = selectedNode?.type === 'action' || selectedNode?.type === 'branch'
+  const isSubflow = selectedNode?.type === 'subflow'
 
   return (
     // FIX: removed translate-x-full / isOpen logic.
@@ -134,22 +136,28 @@ export default function ConfigSidebar({
           </div>
 
           <div className="flex flex-col gap-4 p-3 overflow-y-auto flex-1">
-            <StepConfigPanel node={selectedNode} />
-
-            {hasFormAndAssignee && (
+            {isSubflow ? (
+              <SubflowConfigPanel node={selectedNode} />
+            ) : (
               <>
-                <div className="border-t border-border" />
-                <FormBuilderPanel node={selectedNode} flowName={flowName} />
+                <StepConfigPanel node={selectedNode} />
 
-                <div className="border-t border-border" />
-                <AssigneePanel node={selectedNode} users={users} departments={departments} />
-              </>
-            )}
+                {hasFormAndAssignee && (
+                  <>
+                    <div className="border-t border-border" />
+                    <FormBuilderPanel node={selectedNode} flowName={flowName} />
 
-            {selectedNode.type === 'branch' && (
-              <>
-                <div className="border-t border-border" />
-                <BranchConfigPanel node={selectedNode} />
+                    <div className="border-t border-border" />
+                    <AssigneePanel node={selectedNode} users={users} departments={departments} />
+                  </>
+                )}
+
+                {selectedNode.type === 'branch' && (
+                  <>
+                    <div className="border-t border-border" />
+                    <BranchConfigPanel node={selectedNode} />
+                  </>
+                )}
               </>
             )}
           </div>

@@ -71,6 +71,10 @@ export interface NodeData {
   branchConditions: BranchCondition[]
   slaHours?: number // optional SLA; runtime computes due_at = now() + slaHours
   escalateAfterHours?: number // optional; escalate to manager this many hours after due_at
+  // subflow node fields
+  subflowId?: string
+  subflowName?: string // cached display name so canvas shows it without a fetch
+  waitForCompletion?: boolean
   [key: string]: unknown // required by React Flow's NodeData constraint
 }
 
@@ -227,6 +231,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         action: 'New Action',
         branch: 'Branch',
         complete: 'Complete',
+        subflow: 'Sub-flow',
       }
       const newNode: Node = {
         id,

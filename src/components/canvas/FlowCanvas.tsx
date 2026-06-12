@@ -30,6 +30,7 @@ import { TriggerNode } from './nodes/TriggerNode'
 import { ActionNode } from './nodes/ActionNode'
 import { BranchNode } from './nodes/BranchNode'
 import { CompleteNode } from './nodes/CompleteNode'
+import { SubflowNode } from './nodes/SubflowNode'
 import { NodeToolbar } from './NodeToolbar'
 import ConfigSidebar from './panels/ConfigSidebar'
 
@@ -40,6 +41,7 @@ const nodeTypes = {
   action: ActionNode,
   branch: BranchNode,
   complete: CompleteNode,
+  subflow: SubflowNode,
 }
 
 // ─── Change types that should trigger auto-save ───────────────────────────────
@@ -200,11 +202,16 @@ export default function FlowCanvas({
 
       // Rule 5: trigger and action nodes max 1 outbound edge
       if (
-        (sourceNode.type === 'trigger' || sourceNode.type === 'action') &&
+        (sourceNode.type === 'trigger' ||
+          sourceNode.type === 'action' ||
+          sourceNode.type === 'subflow') &&
         outboundFromSource.length >= 1
       ) {
         return false
       }
+
+      // Rule 9: trigger → subflow is forbidden (subflow cannot be the first step)
+      if (sourceNode.type === 'trigger' && targetNode.type === 'subflow') return false
 
       // Rule 6: branch node max 2 outbound, one per handle (yes/no)
       if (sourceNode.type === 'branch') {

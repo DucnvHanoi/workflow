@@ -97,6 +97,20 @@ export function validateGraph(nodes: SerializedNode[], edges: SerializedEdge[]):
     errors.push({ nodeId: '', nodeName: 'Flow', message: 'Flow must have a Complete node.' })
   }
 
+  // ── First-step guard: node directly after trigger cannot be subflow ─────────
+  const triggerNode = nodes.find((n) => n.type === 'trigger')
+  if (triggerNode) {
+    const firstEdge = edges.find((e) => e.source === triggerNode.id)
+    const firstNode = firstEdge ? nodes.find((n) => n.id === firstEdge.target) : null
+    if (firstNode?.type === 'subflow') {
+      errors.push({
+        nodeId: firstNode.id,
+        nodeName: firstNode.data?.label?.trim() || '(sub-flow)',
+        message: 'A sub-flow cannot be the first step. Add at least one action step before it.',
+      })
+    }
+  }
+
   // ── Per-node checks ────────────────────────────────────────────────────────
 
   for (const node of nodes) {
@@ -110,6 +124,18 @@ export function validateGraph(nodes: SerializedNode[], edges: SerializedEdge[]):
 
     // Trigger + Complete: no further requirements
     if (node.type === 'trigger' || node.type === 'complete') continue
+
+    // Subflow: only requires a target flow to be selected
+    if (node.type === 'subflow') {
+      if (!node.data?.subflowId) {
+        errors.push({
+          nodeId: node.id,
+          nodeName: label,
+          message: 'Sub-flow must have a target flow selected.',
+        })
+      }
+      continue
+    }
 
     // Action + Branch: must have at least one form field
     // Fields live in formSchema inside NodeData

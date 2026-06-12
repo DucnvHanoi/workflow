@@ -603,6 +603,29 @@ export async function getFlows(): Promise<{
   return { flows, error: null }
 }
 
+// ─── getPublishedFlowsForSubflow ─────────────────────────────────────────────
+// Returns id + name for all published flows in the caller's tenant.
+// Used by SubflowConfigPanel to populate the target-flow picker.
+
+export async function getPublishedFlowsForSubflow(): Promise<{
+  flows: { id: string; name: string }[]
+  error: string | null
+}> {
+  const gate = await requireAdminWithTenant()
+  if (!gate.ok) return { flows: [], error: gate.error }
+
+  const { tenantId, db } = gate
+  const { data, error } = await db
+    .from('flows')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'published')
+    .order('name')
+
+  if (error) return { flows: [], error: error.message }
+  return { flows: (data ?? []) as { id: string; name: string }[], error: null }
+}
+
 // ─── deleteFlow ──────────────────────────────────────────────────────────────
 
 export async function deleteFlow(flowId: string): Promise<{ error: string | null }> {
@@ -1472,6 +1495,412 @@ async function notifyFirstFlowCompletion(
   }
 }
 
+// ─── Subflow depth helper ─────────────────────────────────────────────────────
+// Counts how many ancestors an instance has by walking the parent_instance_id
+// chain. Used to enforce the 5-level nesting cap.
+
+async function getInstanceDepth(db: AdminDb, instanceId: string): Promise<number> {
+  let depth = 0
+  let lookupId: string = instanceId
+  for (let i = 0; i < 10; i++) {
+    const id: string = lookupId
+    const { data } = await db
+      .from('flow_instances')
+      .select('parent_instance_id')
+      .eq('id', id)
+      .maybeSingle()
+    const parentId =
+      (data as { parent_instance_id: string | null } | null)?.parent_instance_id ?? null
+    if (!parentId) break
+    lookupId = parentId
+    depth++
+  }
+  return depth
+}
+
+// ─── spawnChildFlow ───────────────────────────────────────────────────────────
+// Internal helper: creates a new flow instance for a sub-flow node.
+// Always inherits the parent's triggered_by user so assignee rules resolve
+// relative to the original requester.
+// Writes a "Triggered by [user] from flow [parentFlowName]" event log.
+
+async function spawnChildFlow(
+  db: AdminDb,
+  childFlowId: string,
+  triggeredByUserId: string,
+  tenantId: string,
+  parentInstanceId: string,
+  parentFlowName: string
+): Promise<{ childInstanceId: string | null; childFlowName: string; error: string | null }> {
+  // Depth check
+  const depth = await getInstanceDepth(db, parentInstanceId)
+  if (depth >= 5) {
+    return {
+      childInstanceId: null,
+      childFlowName: '',
+      error: 'Sub-flow nesting limit reached (max 5 levels).',
+    }
+  }
+
+  // Load child flow
+  const { data: childFlow, error: flowErr } = await db
+    .from('flows')
+    .select('id, name, status, latest_version_id')
+    .eq('id', childFlowId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  if (flowErr || !childFlow) {
+    return { childInstanceId: null, childFlowName: '', error: 'Sub-flow not found.' }
+  }
+  if (childFlow.status !== 'published') {
+    return {
+      childInstanceId: null,
+      childFlowName: String(childFlow.name ?? ''),
+      error: `Sub-flow "${childFlow.name}" is no longer published.`,
+    }
+  }
+  if (!childFlow.latest_version_id) {
+    return {
+      childInstanceId: null,
+      childFlowName: String(childFlow.name ?? ''),
+      error: `Sub-flow "${childFlow.name}" has no published version.`,
+    }
+  }
+
+  const childFlowName = String(childFlow.name ?? 'Sub-flow')
+
+  const { data: version, error: verErr } = await db
+    .from('flow_versions')
+    .select('id, graph')
+    .eq('id', childFlow.latest_version_id)
+    .single()
+
+  if (verErr || !version) {
+    return { childInstanceId: null, childFlowName, error: 'Could not load sub-flow version.' }
+  }
+
+  // Create child instance
+  const { data: childInstance, error: instanceErr } = await db
+    .from('flow_instances')
+    .insert({
+      flow_version_id: version.id,
+      triggered_by: triggeredByUserId,
+      current_step_id: null,
+      status: 'pending',
+      parent_instance_id: parentInstanceId,
+    })
+    .select('id')
+    .single()
+
+  if (instanceErr || !childInstance) {
+    return {
+      childInstanceId: null,
+      childFlowName,
+      error: instanceErr?.message ?? 'Could not create sub-flow instance.',
+    }
+  }
+
+  // Log on child: "Triggered by [user] from flow [parentFlowName]"
+  const triggererName = await resolveUserName(db, triggeredByUserId)
+  await writeEventLog(db, {
+    instanceId: childInstance.id,
+    tenantId,
+    actorId: triggeredByUserId,
+    eventType: 'flow_triggered',
+    description: `Triggered by ${triggererName} from flow "${parentFlowName}".`,
+    metadata: { parentInstanceId, parentFlowName, childFlowId },
+  })
+
+  const graph = version.graph as SerializedGraph
+  const triggerNode = graph.nodes.find((n) => n.type === 'trigger')
+  if (!triggerNode) {
+    return { childInstanceId: childInstance.id, childFlowName, error: null }
+  }
+
+  const firstEdge = graph.edges.find((e) => e.source === triggerNode.id)
+  const firstNode = firstEdge ? graph.nodes.find((n) => n.id === firstEdge.target) : null
+
+  if (!firstNode || firstNode.type === 'complete') {
+    await db
+      .from('flow_instances')
+      .update({ status: 'completed', updated_at: new Date().toISOString() })
+      .eq('id', childInstance.id)
+    await writeEventLog(db, {
+      instanceId: childInstance.id,
+      tenantId,
+      actorId: null,
+      eventType: 'flow_completed',
+      description: 'Sub-flow completed instantly (no steps configured).',
+    })
+    return { childInstanceId: childInstance.id, childFlowName, error: null }
+  }
+
+  // Resolve assignee for child's first step (respects the child flow's own rule)
+  const assigneeRule = (firstNode.data?.assigneeRule ?? null) as { type?: string } | null
+  let assignedTo: string | null = null
+
+  if (assigneeRule?.type) {
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+      const res = await fetch(`${supabaseUrl}/functions/v1/resolve-assignee`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+        body: JSON.stringify({
+          rule: toEdgeFunctionRule(assigneeRule),
+          triggered_by_user_id: triggeredByUserId,
+          tenant_id: tenantId,
+        }),
+      })
+      if (res.ok) {
+        const result = (await res.json()) as { assigned_to_user_id: string | null }
+        if (result.assigned_to_user_id) assignedTo = result.assigned_to_user_id
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  const { data: stepInstance } = await db
+    .from('step_instances')
+    .insert({
+      instance_id: childInstance.id,
+      step_id: firstNode.id,
+      assigned_to: assignedTo,
+      form_data: {},
+      status: 'pending',
+      due_at: computeDueAt(firstNode.data?.slaHours as number | undefined),
+      escalate_after_hours: (firstNode.data?.escalateAfterHours as number | undefined) ?? null,
+    })
+    .select('id')
+    .single()
+
+  if (stepInstance) {
+    await db
+      .from('flow_instances')
+      .update({ current_step_id: stepInstance.id, updated_at: new Date().toISOString() })
+      .eq('id', childInstance.id)
+
+    const stepLabel = (firstNode.data?.label as string | undefined) ?? 'Step'
+    const assigneeName = assignedTo ? await resolveUserName(db, assignedTo) : 'Unassigned'
+    await writeEventLog(db, {
+      instanceId: childInstance.id,
+      stepInstanceId: stepInstance.id,
+      tenantId,
+      actorId: null,
+      eventType: 'step_assigned',
+      description: `"${stepLabel}" assigned to ${assigneeName}.`,
+      metadata: { stepId: firstNode.id, assignedTo },
+    })
+
+    if (assignedTo) {
+      void createNotification({
+        tenantId,
+        userId: assignedTo,
+        type: 'step_assigned',
+        title: `New task: ${stepLabel}`,
+        body: `You've been assigned a step in "${childFlowName}" (started from "${parentFlowName}").`,
+        link: '/tasks',
+      })
+      void resolveUserEmailAndName(db, assignedTo).then((assignee) => {
+        if (assignee) {
+          void sendAssignmentEmail({
+            tenantId,
+            instanceId: childInstance.id,
+            stepInstanceId: stepInstance.id,
+            recipientEmail: assignee.email,
+            recipientName: assignee.name,
+            flowName: childFlowName,
+            stepName: stepLabel,
+            triggeredByName: triggererName,
+          })
+        }
+      })
+    }
+  }
+
+  return { childInstanceId: childInstance.id, childFlowName, error: null }
+}
+
+// ─── resumeParentFlow ─────────────────────────────────────────────────────────
+// Called when a child flow completes. Looks for a parent that was blocking on
+// this child and resumes it by calling advanceFlow from the sub-flow node.
+
+async function resumeParentFlow(
+  db: AdminDb,
+  childInstanceId: string,
+  tenantId: string
+): Promise<void> {
+  const { data: parent } = await db
+    .from('flow_instances')
+    .select('id, triggered_by, resume_from_node_id, flow_version_id')
+    .eq('waiting_for_instance_id', childInstanceId)
+    .eq('status', 'pending')
+    .maybeSingle()
+
+  if (!parent || !parent.resume_from_node_id) return
+
+  // Clear the waiting state
+  await db
+    .from('flow_instances')
+    .update({
+      waiting_for_instance_id: null,
+      resume_from_node_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', parent.id)
+
+  // Load parent graph
+  const { data: version } = await db
+    .from('flow_versions')
+    .select('graph, flows!flow_id(name)')
+    .eq('id', parent.flow_version_id)
+    .single()
+
+  if (!version) return
+
+  const graph = version.graph as SerializedGraph
+  const fls = Array.isArray(version.flows) ? version.flows[0] : version.flows
+  const parentFlowName = ((fls as Record<string, unknown> | null)?.name as string) ?? 'Flow'
+
+  await writeEventLog(db, {
+    instanceId: parent.id,
+    tenantId,
+    actorId: null,
+    eventType: 'flow_triggered',
+    description: `Sub-flow completed. Resuming "${parentFlowName}".`,
+    metadata: { childInstanceId },
+  })
+
+  await advanceFlow(
+    parent.id,
+    parent.resume_from_node_id,
+    graph,
+    parent.triggered_by ?? '',
+    tenantId,
+    {},
+    db,
+    parent.triggered_by ?? '',
+    '',
+    parentFlowName
+  )
+}
+
+// ─── resumeParentOnError ──────────────────────────────────────────────────────
+// Called when a child flow errors. Propagates error to any blocking parent.
+
+async function resumeParentOnError(
+  db: AdminDb,
+  childInstanceId: string,
+  tenantId: string
+): Promise<void> {
+  const { data: parent } = await db
+    .from('flow_instances')
+    .select('id')
+    .eq('waiting_for_instance_id', childInstanceId)
+    .eq('status', 'pending')
+    .maybeSingle()
+
+  if (!parent) return
+
+  await db
+    .from('flow_instances')
+    .update({
+      status: 'error',
+      waiting_for_instance_id: null,
+      resume_from_node_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', parent.id)
+
+  await writeEventLog(db, {
+    instanceId: parent.id,
+    tenantId,
+    actorId: null,
+    eventType: 'flow_error',
+    description: 'Sub-flow encountered an error. Parent flow cannot continue.',
+    metadata: { failedChildInstanceId: childInstanceId },
+  })
+}
+
+// ─── cancelChildInstances ─────────────────────────────────────────────────────
+// Recursively cancels all pending child instances of a given instance and
+// notifies all currently-assigned users on any pending steps.
+
+async function cancelChildInstances(
+  db: AdminDb,
+  parentInstanceId: string,
+  tenantId: string,
+  cancelledByName: string
+): Promise<void> {
+  const { data: children } = await db
+    .from('flow_instances')
+    .select('id, triggered_by')
+    .eq('parent_instance_id', parentInstanceId)
+    .eq('status', 'pending')
+
+  for (const child of children ?? []) {
+    // Find pending assignees to notify before cancelling
+    const { data: pendingSteps } = await db
+      .from('step_instances')
+      .select(
+        'id, assigned_to, step_id, flow_instances!instance_id(flow_versions!flow_version_id(graph))'
+      )
+      .eq('instance_id', child.id)
+      .eq('status', 'pending')
+
+    for (const step of pendingSteps ?? []) {
+      if (!step.assigned_to) continue
+      const fi = Array.isArray(step.flow_instances) ? step.flow_instances[0] : step.flow_instances
+      const fv = fi
+        ? Array.isArray((fi as Record<string, unknown>).flow_versions)
+          ? ((fi as Record<string, unknown>).flow_versions as unknown[])[0]
+          : (fi as Record<string, unknown>).flow_versions
+        : null
+      const graph = (fv as Record<string, unknown> | null)?.graph as SerializedGraph | undefined
+      const stepNode = graph?.nodes.find((n) => n.id === step.step_id)
+      const stepLabel = (stepNode?.data?.label as string | undefined) ?? 'Step'
+
+      void createNotification({
+        tenantId,
+        userId: step.assigned_to,
+        type: 'flow_completed',
+        title: 'Task cancelled',
+        body: `"${stepLabel}" was cancelled because a parent flow was cancelled by ${cancelledByName}.`,
+        link: '/tasks',
+      })
+    }
+
+    // Mark pending steps as skipped
+    await db
+      .from('step_instances')
+      .update({ status: 'skipped' })
+      .eq('instance_id', child.id)
+      .eq('status', 'pending')
+
+    // Cancel the child
+    await db
+      .from('flow_instances')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('id', child.id)
+
+    await writeEventLog(db, {
+      instanceId: child.id,
+      tenantId,
+      actorId: null,
+      eventType: 'flow_cancelled',
+      description: `Cascade-cancelled: parent flow was cancelled by ${cancelledByName}.`,
+    })
+
+    // Recurse for nested children
+    await cancelChildInstances(db, child.id, tenantId, cancelledByName)
+  }
+}
+
 // ─── advanceFlow ─────────────────────────────────────────────────────────────
 // Reads outbound edges from the completed step, evaluates branch conditions
 // when the node is type=branch, picks the correct edge, creates the next
@@ -1663,6 +2092,8 @@ async function advanceFlow(
           conditions: branchConditions,
         },
       })
+      // Error any parent that was blocking on this instance
+      void resumeParentOnError(db, instanceId, tenantId)
       return
     }
 
@@ -1708,6 +2139,91 @@ async function advanceFlow(
       link: `/tasks?open=${instanceId}`,
     })
     void notifyFirstFlowCompletion(db, tenantId, instanceId, flowName)
+
+    // Resume any parent flow that was blocking on this instance
+    void resumeParentFlow(db, instanceId, tenantId)
+    return
+  }
+
+  // 4b. Sub-flow node: spawn child and either pause or continue
+  if (nextNode.type === 'subflow') {
+    const childFlowId = nextNode.data?.subflowId as string | undefined
+    const waitForCompletion = !!nextNode.data?.waitForCompletion
+
+    if (!childFlowId) {
+      await db
+        .from('flow_instances')
+        .update({ status: 'error', updated_at: new Date().toISOString() })
+        .eq('id', instanceId)
+      await writeEventLog(db, {
+        instanceId,
+        tenantId,
+        actorId: null,
+        eventType: 'flow_error',
+        description: 'Sub-flow node has no target flow configured.',
+        metadata: { subflowNodeId: nextNode.id },
+      })
+      return
+    }
+
+    const {
+      childInstanceId,
+      childFlowName,
+      error: spawnErr,
+    } = await spawnChildFlow(db, childFlowId, triggeredByUserId, tenantId, instanceId, flowName)
+
+    if (spawnErr || !childInstanceId) {
+      await db
+        .from('flow_instances')
+        .update({ status: 'error', updated_at: new Date().toISOString() })
+        .eq('id', instanceId)
+      await writeEventLog(db, {
+        instanceId,
+        tenantId,
+        actorId: null,
+        eventType: 'flow_error',
+        description: `Failed to start sub-flow: ${spawnErr ?? 'unknown error'}`,
+        metadata: { subflowNodeId: nextNode.id, childFlowId },
+      })
+      return
+    }
+
+    // Log on parent that the sub-flow was triggered
+    await writeEventLog(db, {
+      instanceId,
+      tenantId,
+      actorId: actorId,
+      eventType: 'step_assigned',
+      description: `Sub-flow "${childFlowName}" triggered.${waitForCompletion ? ' Waiting for it to complete.' : ' Continuing independently.'}`,
+      metadata: { subflowNodeId: nextNode.id, childInstanceId, childFlowId, waitForCompletion },
+    })
+
+    if (waitForCompletion) {
+      // Pause parent: store child ID + which subflow node we're at so resumeParentFlow knows where to continue from
+      await db
+        .from('flow_instances')
+        .update({
+          waiting_for_instance_id: childInstanceId,
+          resume_from_node_id: nextNode.id,
+          current_step_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', instanceId)
+    } else {
+      // Fire-and-continue: advance parent past the subflow node immediately
+      await advanceFlow(
+        instanceId,
+        nextNode.id,
+        graph,
+        triggeredByUserId,
+        tenantId,
+        {},
+        db,
+        actorId,
+        _actorName,
+        flowName
+      )
+    }
     return
   }
 
@@ -2586,6 +3102,7 @@ export async function cancelInstance(
   if (cancelError) return { error: cancelError.message }
 
   // Write event log — note who cancelled + reason if provided
+  const cancellerName = await resolveUserName(db, userId)
   const cancelledBy = isAdmin && !isTriggerer ? 'an administrator' : 'the requester'
   const reasonSuffix = reason?.trim() ? ` Reason: ${reason.trim()}` : ''
   await writeEventLog(db, {
@@ -2596,6 +3113,37 @@ export async function cancelInstance(
     description: `Flow was cancelled by ${cancelledBy}.${reasonSuffix}`,
     metadata: reason?.trim() ? { reason: reason.trim() } : undefined,
   })
+
+  // If this instance had a parent waiting on it, error the parent
+  const { data: waitingParent } = await db
+    .from('flow_instances')
+    .select('id')
+    .eq('waiting_for_instance_id', instanceId)
+    .eq('status', 'pending')
+    .maybeSingle()
+
+  if (waitingParent) {
+    await db
+      .from('flow_instances')
+      .update({
+        status: 'error',
+        waiting_for_instance_id: null,
+        resume_from_node_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', waitingParent.id)
+    await writeEventLog(db, {
+      instanceId: waitingParent.id,
+      tenantId,
+      actorId: null,
+      eventType: 'flow_error',
+      description: `Sub-flow was cancelled. Parent flow cannot continue.`,
+      metadata: { cancelledChildInstanceId: instanceId },
+    })
+  }
+
+  // Cascade-cancel all pending child instances and notify their assignees
+  await cancelChildInstances(db, instanceId, tenantId, cancellerName)
 
   return { error: null }
 }
