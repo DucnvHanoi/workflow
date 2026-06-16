@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 
 const HOUR_MS = 60 * 60 * 1000
+const MINUTE_MS = 60 * 1000
 
 async function countRecent(key: string): Promise<number> {
   const db = createAdminClient()
@@ -28,6 +29,27 @@ export async function checkSignupRate(ip: string): Promise<boolean> {
   const count = await countRecent(key)
   if (count >= 5) return false
   await logAttempt(key)
+  return true
+}
+
+// 60 requests per minute per API key
+export async function checkApiKeyRate(keyId: string): Promise<boolean> {
+  const key = `api_key:${keyId}`
+  const db = createAdminClient()
+  const since = new Date(Date.now() - MINUTE_MS).toISOString()
+  const { count } = await db
+    .from('rate_limit_log')
+    .select('*', { count: 'exact', head: true })
+    .eq('key', key)
+    .gte('created_at', since)
+
+  if ((count ?? 0) >= 60) return false
+
+  const cutoff = new Date(Date.now() - 2 * MINUTE_MS).toISOString()
+  await Promise.all([
+    db.from('rate_limit_log').insert({ key }),
+    db.from('rate_limit_log').delete().lt('created_at', cutoff),
+  ])
   return true
 }
 
