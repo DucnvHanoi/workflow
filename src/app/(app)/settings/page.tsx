@@ -9,7 +9,8 @@ import type { AIUsageLogEntry } from '@/lib/ai/ai-settings-actions'
 import { Users, GitBranch, Building2, Zap, ArrowRight } from 'lucide-react'
 import { TenantNameForm } from '@/components/settings/TenantNameForm'
 import { WebhookSettingsCard } from '@/components/settings/WebhookSettingsCard'
-import { getWebhookUrls } from '@/lib/settings/webhook-actions'
+import { CustomWebhooksCard } from '@/components/settings/CustomWebhooksCard'
+import { getWebhookUrls, getCustomWebhooks } from '@/lib/settings/webhook-actions'
 import { CancellationBanner } from '@/components/settings/CancellationBanner'
 import { CancelAccountDialog } from '@/components/settings/CancelAccountDialog'
 
@@ -271,14 +272,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
     ? `${checkoutBase}?checkout[custom][tenant_id]=${tenantId}`
     : null
 
-  // Integrations tab — webhook URLs
+  // Integrations tab — webhook URLs + custom webhooks
   let webhookUrls: { slackUrl: string | null; teamsUrl: string | null } = {
     slackUrl: null,
     teamsUrl: null,
   }
+  let customWebhooks: Awaited<ReturnType<typeof getCustomWebhooks>>['data'] = []
   if (tab === 'integrations') {
-    const { slackUrl, teamsUrl } = await getWebhookUrls()
-    webhookUrls = { slackUrl, teamsUrl }
+    const [urls, cw] = await Promise.all([getWebhookUrls(), getCustomWebhooks()])
+    webhookUrls = { slackUrl: urls.slackUrl, teamsUrl: urls.teamsUrl }
+    customWebhooks = cw.data
   }
 
   const tabs = [
@@ -371,20 +374,35 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
 
       {/* ── Integrations tab ── */}
       {tab === 'integrations' && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            Webhook Notifications
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Receive step-assignment and SLA alerts directly in Slack or Microsoft Teams.
-          </p>
-          <div className="rounded-xl border bg-card p-6">
-            <WebhookSettingsCard
-              initialSlackUrl={webhookUrls.slackUrl}
-              initialTeamsUrl={webhookUrls.teamsUrl}
-            />
-          </div>
-        </section>
+        <>
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              Webhook Notifications
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Receive step-assignment and SLA alerts directly in Slack or Microsoft Teams.
+            </p>
+            <div className="rounded-xl border bg-card p-6">
+              <WebhookSettingsCard
+                initialSlackUrl={webhookUrls.slackUrl}
+                initialTeamsUrl={webhookUrls.teamsUrl}
+              />
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              Custom Webhooks
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Push flow events to any HTTP endpoint — connect to Zapier, Make.com, n8n, or your own
+              systems. Each request is signed with an HMAC-SHA256 secret.
+            </p>
+            <div className="rounded-xl border bg-card p-6">
+              <CustomWebhooksCard initialWebhooks={customWebhooks} />
+            </div>
+          </section>
+        </>
       )}
 
       {/* ── Billing tab ── */}

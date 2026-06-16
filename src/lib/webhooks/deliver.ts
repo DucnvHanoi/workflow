@@ -1,12 +1,8 @@
 import { createHmac } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
+import type { OutboundWebhookEventType } from '@/lib/webhooks/events'
 
-export type OutboundWebhookEventType =
-  | 'flow_triggered'
-  | 'step_completed'
-  | 'flow_completed'
-  | 'flow_cancelled'
-  | 'step_overdue'
+export type { OutboundWebhookEventType }
 
 export interface OutboundWebhookPayload {
   event: OutboundWebhookEventType

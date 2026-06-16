@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendSlaDigestEmail, sendEscalationEmail } from '@/lib/email/resend'
 import { sendWebhookNotification } from '@/lib/notifications/webhook'
+import { fireWebhookEvent } from '@/lib/webhooks/deliver'
 import type { SerializedGraph } from '@/lib/flows/graph'
 
 export async function GET(request: NextRequest) {
@@ -214,6 +215,16 @@ export async function GET(request: NextRequest) {
       overdueCount: counts.overdueCount,
       dueSoonCount: counts.dueSoonCount,
       taskLink: `${siteUrl}/tasks`,
+    })
+  }
+
+  // Fire step_overdue outbound webhook per overdue step
+  for (const info of stepInfos.filter((s) => s.isOverdue)) {
+    void fireWebhookEvent(info.tenantId, 'step_overdue', {
+      instanceId: info.instanceId,
+      stepId: info.stepInstanceId,
+      stepName: info.stepLabel,
+      flowName: info.flowName,
     })
   }
 

@@ -1424,6 +1424,13 @@ export async function submitStep(
     // ── NEW: store submitted form data in metadata for audit trail
     metadata: { stepId: si.step_id, formData },
   })
+  void fireWebhookEvent(tenantId, 'step_completed', {
+    instanceId: fi?.id ?? si.instance_id,
+    stepId: si.step_id,
+    stepName: stepLabel,
+    flowName: ((fl as Record<string, unknown> | null)?.name as string | undefined) ?? 'Flow',
+    actorName,
+  })
 
   if (fi?.id && fv?.graph) {
     const flowName = ((fl as Record<string, unknown> | null)?.name as string | undefined) ?? 'Flow'
@@ -1958,6 +1965,7 @@ async function advanceFlow(
       eventType: 'flow_completed',
       description: 'Flow completed (no further steps).',
     })
+    void fireWebhookEvent(tenantId, 'flow_completed', { instanceId, flowName })
 
     void createNotification({
       tenantId,
@@ -2136,6 +2144,7 @@ async function advanceFlow(
       eventType: 'flow_completed',
       description: 'Flow completed successfully.',
     })
+    void fireWebhookEvent(tenantId, 'flow_completed', { instanceId, flowName })
 
     void createNotification({
       tenantId,
@@ -3119,6 +3128,12 @@ export async function cancelInstance(
     eventType: 'flow_cancelled',
     description: `Flow was cancelled by ${cancelledBy}.${reasonSuffix}`,
     metadata: reason?.trim() ? { reason: reason.trim() } : undefined,
+  })
+  void fireWebhookEvent(tenantId, 'flow_cancelled', {
+    instanceId,
+    flowName: ((fl as Record<string, unknown> | null)?.name as string | undefined) ?? 'Flow',
+    actorName: cancellerName,
+    reason: reason?.trim() || undefined,
   })
 
   // If this instance had a parent waiting on it, error the parent
