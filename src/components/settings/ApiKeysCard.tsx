@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { Key, Plus, Copy, Check, Trash2, ShieldOff, AlertTriangle } from 'lucide-react'
 import { createApiKey, revokeApiKey, deleteApiKey } from '@/lib/api/key-actions'
 import type { ApiKeyRow } from '@/lib/api/key-actions'
@@ -165,17 +166,20 @@ function GenerateKeyForm({ onCreated }: { onCreated: (raw: string, name: string)
 // ─── Key row actions ──────────────────────────────────────────────────────────
 
 function KeyActions({ keyId, isRevoked }: { keyId: string; isRevoked: boolean }) {
+  const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
   function handleRevoke() {
     startTransition(async () => {
       await revokeApiKey(keyId)
+      router.refresh()
     })
   }
 
   function handleDelete() {
     startTransition(async () => {
       await deleteApiKey(keyId)
+      router.refresh()
     })
   }
 
@@ -251,6 +255,7 @@ function KeyActions({ keyId, isRevoked }: { keyId: string; isRevoked: boolean })
 // ─── Main card ────────────────────────────────────────────────────────────────
 
 export function ApiKeysCard({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
+  const router = useRouter()
   const [keys] = useState<ApiKeyRow[]>(initialKeys)
   const [newKey, setNewKey] = useState<{ raw: string; name: string } | null>(null)
 
@@ -260,7 +265,7 @@ export function ApiKeysCard({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
 
   function handleDialogClose() {
     setNewKey(null)
-    // Keys list refreshes via revalidatePath on server — component will re-render from parent
+    router.refresh()
   }
 
   const activeKeys = keys.filter((k) => !k.revokedAt)
