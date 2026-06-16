@@ -10,7 +10,9 @@ import { Users, GitBranch, Building2, Zap, ArrowRight } from 'lucide-react'
 import { TenantNameForm } from '@/components/settings/TenantNameForm'
 import { WebhookSettingsCard } from '@/components/settings/WebhookSettingsCard'
 import { CustomWebhooksCard } from '@/components/settings/CustomWebhooksCard'
+import { ApiKeysCard } from '@/components/settings/ApiKeysCard'
 import { getWebhookUrls, getCustomWebhooks } from '@/lib/settings/webhook-actions'
+import { getApiKeys } from '@/lib/api/key-actions'
 import { CancellationBanner } from '@/components/settings/CancellationBanner'
 import { CancelAccountDialog } from '@/components/settings/CancelAccountDialog'
 
@@ -272,16 +274,22 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
     ? `${checkoutBase}?checkout[custom][tenant_id]=${tenantId}`
     : null
 
-  // Integrations tab — webhook URLs + custom webhooks
+  // Integrations tab — webhook URLs + custom webhooks + API keys
   let webhookUrls: { slackUrl: string | null; teamsUrl: string | null } = {
     slackUrl: null,
     teamsUrl: null,
   }
   let customWebhooks: Awaited<ReturnType<typeof getCustomWebhooks>>['data'] = []
+  let apiKeys: Awaited<ReturnType<typeof getApiKeys>>['keys'] = []
   if (tab === 'integrations') {
-    const [urls, cw] = await Promise.all([getWebhookUrls(), getCustomWebhooks()])
+    const [urls, cw, keysRes] = await Promise.all([
+      getWebhookUrls(),
+      getCustomWebhooks(),
+      getApiKeys(),
+    ])
     webhookUrls = { slackUrl: urls.slackUrl, teamsUrl: urls.teamsUrl }
     customWebhooks = cw.data
+    apiKeys = keysRes.keys
   }
 
   const tabs = [
@@ -400,6 +408,19 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
             </p>
             <div className="rounded-xl border bg-card p-6">
               <CustomWebhooksCard initialWebhooks={customWebhooks} />
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              API Access
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Generate API keys to trigger flows and poll instance status from external systems
+              (Zapier, Make.com, scripts). Each key is scoped to this workspace.
+            </p>
+            <div className="rounded-xl border bg-card p-6">
+              <ApiKeysCard initialKeys={apiKeys} />
             </div>
           </section>
         </>

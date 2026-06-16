@@ -22,7 +22,7 @@ export async function verifyBearerKey(
   const db = createAdminClient()
   const { data, error } = await db
     .from('tenant_api_keys')
-    .select('id, tenant_id, created_by, revoked_at')
+    .select('id, tenant_id, created_by, revoked_at, call_count_30d')
     .eq('key_hash', keyHash)
     .maybeSingle()
 
@@ -31,7 +31,10 @@ export async function verifyBearerKey(
 
   void db
     .from('tenant_api_keys')
-    .update({ last_used_at: new Date().toISOString() })
+    .update({
+      last_used_at: new Date().toISOString(),
+      call_count_30d: ((data.call_count_30d as number) ?? 0) + 1,
+    })
     .eq('id', data.id)
 
   return {

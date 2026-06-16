@@ -4036,7 +4036,7 @@ Make.com, n8n, and custom integrations without writing platform-specific
 connectors. Every event that already fires createNotification() and
 sendWebhookNotification() is a ready-made source for this new layer.
 
-M1 — Outbound event webhooks (custom URL subscriptions)
+M1 — Outbound event webhooks (custom URL subscriptions) ✅ COMPLETE
 
 - Settings → Integrations: new "Custom Webhooks" section (alongside existing
   Slack/Teams URLs). Admin enters a URL and checks which events to subscribe to.
@@ -4055,7 +4055,7 @@ M1 — Outbound event webhooks (custom URL subscriptions)
   (flow_triggered) in src/lib/flows/actions.ts alongside existing notification
   calls. SLA cron already handles step_overdue.
 
-M2 — REST API trigger endpoint
+M2 — REST API trigger endpoint ✅ COMPLETE
 
 - POST /api/v1/flows/:flowId/trigger
   Auth: Authorization: Bearer {api_key} header (not session cookie).
@@ -4070,19 +4070,47 @@ M2 — REST API trigger endpoint
   so audit trail shows "triggered via API by admin@example.com".
 - GET /api/v1/instances/:instanceId — returns instance status, current step,
   completed steps summary. Useful for polling from external systems.
+- middleware.ts: /api/v1 added to PUBLIC_ROUTES (auth handled inside route
+  by verifyBearerKey, not by the session-cookie middleware).
+- DB: supabase/migrations/20260616110000_tenant_api_keys.sql — tenant_api_keys
+  table (id, tenant_id, name, key_hash UNIQUE, last_used_at, call_count_30d,
+  created_by FK→users, created_at, revoked_at). RLS enabled, no policies
+  (all access via service-role admin client).
+- verifyBearerKey (src/lib/api/auth.ts): SHA-256 hashes the incoming key,
+  looks up key_hash, checks revoked_at, updates last_used_at + call_count_30d
+  (non-atomic increment, acceptable for usage display).
+- checkApiKeyRate (src/lib/rate-limit.ts): 60 req/min per key via rate_limit_log.
+- flow_event_logs: metadata.source = 'api' recorded on flow_triggered event.
 
-M3 — API key management UI
+Verified (2026-06-16) via scripts/verify-api-v1.mjs — 25/25 assertions passed:
+✅ No auth → 401 | Invalid key → 401 | Revoked key → 401
+✅ Non-existent flow → 404 | Trigger published flow → 201
+✅ GET instance → 200 with correct shape
+✅ formData body stored in step_instance
+✅ flow_event_logs metadata.source = 'api'
+✅ No-auth GET → 401
+Skipped: draft-flow test (all flows published) + cross-tenant isolation
+(no admin user in Tenant B to create a second API key).
 
-- Settings → Integrations: "API Access" section (admin only).
-- Generate key: creates a random 64-char hex key, shows it once in a copy-input
-  (never stored in plaintext — only the SHA-256 hash stored in DB).
-- tenant_api_keys table: id, tenant_id, name (label), key_hash TEXT, last_used_at,
-  call_count_30d, created_by FK→users, created_at, revoked_at. Admin SELECT RLS.
-- Rotate / Revoke per key. Multiple keys allowed (e.g., separate keys for
-  Zapier and internal scripts). Revoked keys get a struck-through display.
-- Usage stats: last used date + 30-day call count shown per key row.
-- Public documentation note: POST body schema and event payload schemas
-  documented in /help (KB article) so Zapier/Make builders can self-serve.
+M3 — API key management UI ✅ COMPLETE
+
+- Settings → Integrations: "API Access" section appended below Custom Webhooks.
+- src/lib/api/key-actions.ts ('use server'): getApiKeys(), createApiKey(name),
+  revokeApiKey(keyId), deleteApiKey(keyId). All admin-gated via getSessionClaims()
+  - explicit .eq('tenant_id', tenantId) filter.
+- createApiKey(): randomBytes(32).toString('hex') = 64-char raw key; only
+  SHA-256 hash stored in DB. Returns { rawKey } to caller; never persisted plaintext.
+- ApiKeysCard.tsx (src/components/settings/): client component.
+  - GenerateKeyForm: name input + "Generate key" button.
+  - NewKeyDialog: shows raw key once with monospace copy-input + Copy button +
+    amber "won't be shown again" warning. Dismissed via "Done".
+  - Active keys table: Name | Last used | API calls | Created | Revoke action.
+  - Revoked keys section: struck-through name, revoked date, Delete action.
+  - Revoke: AlertDialog confirm → revokeApiKey() sets revoked_at.
+  - Delete: AlertDialog confirm → deleteApiKey() hard-deletes (revoked rows only).
+  - Footer note with link to /help/rest-api-reference for endpoint docs.
+- call_count_30d incremented in verifyBearerKey on each successful auth
+  (non-atomic, acceptable for a usage display counter).
 
 CROSS-CUTTING NOTES
 
@@ -4092,8 +4120,8 @@ CROSS-CUTTING NOTES
 - Zapier / Make.com apps can be built on top of M1 (event webhooks) and M2
   (trigger API) without any platform-specific connector code on our side.
   Document the webhook format and trigger API in the KB under category 'technical'.
-- Recommended build order: M1 → M3 → M2 (webhooks first unlocks Zapier
-  polling; API keys needed before the trigger endpoint goes live).
+- Build: clean (110 routes). Warnings are pre-existing (no-console, unused
+  imports in unrelated files).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 56. PHASE 20 — SCHEDULED / RECURRING TRIGGERS (ROADMAP)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
