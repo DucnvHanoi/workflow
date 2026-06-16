@@ -241,8 +241,8 @@ New route /settings (24th route) accessible to all authenticated roles — not i
 
 18. PHASE 6 POST-DAY-2 — INVITE EMAIL QA & FORM FIX (COMPLETED)
 
-Verified custom domain email delivery (noreply@bizflow.id.vn):
-.env.local updated to RESEND_FROM_EMAIL=noreply@bizflow.id.vn (verified domain on Resend). No code change was required — resend.ts already reads const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev' at module load. The env-var swap was the only needed change. End-to-end verification via scripts/verify-invite.mjs confirmed Resend accepted the message with status=sent and a real resend_id, logged correctly to notification_logs with email_type='invite'.
+Verified custom domain email delivery (noreply@aitomicflow.com):
+.env.local updated to RESEND_FROM_EMAIL=noreply@aitomicflow.com (verified domain on Resend). No code change was required — resend.ts already reads const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev' at module load. The env-var swap was the only needed change. End-to-end verification via scripts/verify-invite.mjs confirmed Resend accepted the message with status=sent and a real resend_id, logged correctly to notification_logs with email_type='invite'.
 
 Bug fix — InviteForm always showed success toast:
 src/components/auth/invite-form.tsx was wrapping inviteUser() in a try/catch. Since Next.js server actions return discriminated union results ({ success: true } | { success: false, error: string }) rather than throwing, the catch block never fired — every call appeared to succeed even when the action returned { success: false }. Fixed by removing the try/catch and checking result.success directly, calling toast.error(result.error) on failure. Duplicate-invite attempts now correctly show the "A user with this email already exists." error toast instead of a false success.
@@ -252,7 +252,7 @@ Removed a stale multi-line comment on the FROM_EMAIL line that referenced onboar
 
 PENDING — Production environment variables to add in Vercel:
 
-- RESEND_FROM_EMAIL=noreply@bizflow.id.vn (invite + notification emails use verified domain)
+- RESEND_FROM_EMAIL=noreply@aitomicflow.com (invite + notification emails use verified domain)
 - CRON_SECRET=<secret from .env.local> (required for GET /api/cron/sla to accept Vercel's cron trigger)
 
 19. PHASE 7 — ENHANCED USER MANAGEMENT (ROADMAP)
@@ -1608,12 +1608,12 @@ M2 — Vercel env var audit ✅ COMPLETE (commit 19011b7)
     - .env.example created: documents all required env vars with generation
       instructions, production vs local guidance, and "do NOT set in production"
       notes for dev-only vars.
-    - .env.local fixed: RESEND_FROM_EMAIL corrected to noreply@bizflow.id.vn
+    - .env.local fixed: RESEND_FROM_EMAIL corrected to noreply@aitomicflow.com
       (was onboarding@resend.dev); CRON_SECRET generated and added.
 
     Vercel production vars required:
-      NEXT_PUBLIC_SITE_URL=https://bizflow.id.vn
-      RESEND_FROM_EMAIL=noreply@bizflow.id.vn
+      NEXT_PUBLIC_SITE_URL=https://aitomicflow.com
+      RESEND_FROM_EMAIL=noreply@aitomicflow.com
       CRON_SECRET=<64-char hex, copy from .env.local>
       NEXT_PUBLIC_SENTRY_DSN=<from sentry.io>
       SENTRY_AUTH_TOKEN=<optional, for readable stack traces>
@@ -2251,11 +2251,11 @@ zero-JS interactions, or a 'use client' component with useTransition for
 confirm-guarded destructive actions.
 
 44. PHASE 16 — AI CUSTOMER SUPPORT SYSTEM (IN PROGRESS)
-    Theme: handle inbound customer email to contact@bizflow.id.vn automatically.
+    Theme: handle inbound customer email to contact@aitomicflow.com automatically.
     Emails are logged as tickets in Supabase, Claude AI drafts a reply using a
     markdown knowledge base, and a human agent can review / reply / close tickets
     from a dedicated inbox inside the /platform admin area.
-    All support tables are platform-level (no tenant_id) — this is BizFlow's own
+    All support tables are platform-level (no tenant_id) — this is Aitomic Flow's own
     customer support, not a tenant-facing feature.
 
     Milestones:
@@ -2286,7 +2286,7 @@ knowledge_base: id, title, slug UNIQUE, content_markdown, category CHECK
 (general|billing|how-to|account|technical), is_active BOOL,
 search_vector TSVECTOR (auto-updated by trigger using setweight A=title,
 B=content_markdown for Postgres full-text search), created_at, updated_at.
-Seeded with 5 starter articles: What is BizFlow, Pricing & Plans,
+Seeded with 5 starter articles: What is Aitomic Flow, Pricing & Plans,
 How to Invite Users, How to Create a Workflow, Resetting Your Password.
 
 Nav: 'Support' item (Headphones icon) added to /platform layout nav.
@@ -2298,9 +2298,9 @@ Resend was evaluated first but dropped — its inbound webhook intentionally
 omits text/html body and its Emails API is restricted to outbound retrieval.
 Postmark includes TextBody + HtmlBody directly in the webhook payload.
 
-DNS: bizflow.id.vn MX 10 inbound.postmarkapp.com
+DNS: aitomicflow.com MX 10 inbound.postmarkapp.com
 Postmark dashboard → Server → Settings → Inbound → Webhook URL:
-https://www.bizflow.id.vn/api/webhooks/email-inbound?secret=<SUPPORT_INBOUND_SECRET>
+https://www.aitomicflow.com/api/webhooks/email-inbound?secret=<SUPPORT_INBOUND_SECRET>
 
 src/lib/support/inbound.ts:
 
@@ -2331,8 +2331,8 @@ Bug fixes applied during M2 testing (commits 830a936, 42e3d10):
 
 1. Middleware blocked the webhook — /api/webhooks added to PUBLIC_ROUTES in
    src/middleware.ts so Postmark's POST reaches the handler without a session.
-2. Vercel www-redirect — bizflow.id.vn issues a 307 to www.bizflow.id.vn;
-   Postmark/Resend do not follow 307s. Webhook URL must use www.bizflow.id.vn.
+2. Vercel www-redirect — aitomicflow.com issues a 307 to www.aitomicflow.com;
+   Postmark/Resend do not follow 307s. Webhook URL must use www.aitomicflow.com.
 3. Resend payload envelope — Resend wraps fields in { type, data: {...} };
    ResendInboundPayload type and processInboundEmail updated to match.
 
@@ -2358,7 +2358,7 @@ Set in .env.local and in Vercel → Environment Variables → Production.
 - Knowledge base (M5): CRUD markdown articles in /platform/support/knowledge.
   Full-text search via GIN index on search_vector (auto-updated by trigger).
 
-KNOWN GOTCHA — Webhook URL must be www.bizflow.id.vn (not bare domain).
+KNOWN GOTCHA — Webhook URL must be www.aitomicflow.com (not bare domain).
 Vercel redirects the bare domain to www; webhook providers do not follow
 the redirect and log the 307 body ("Redirecting...") as a failed delivery.
 
@@ -2468,7 +2468,7 @@ low + billing → no reply, ticket → pending_human, agent alerted
 ─── Google OAuth Login Fix (COMPLETE) ───────────────────────────────────────
 
 Symptom: clicking "Continue with Google" completed the Google auth flow but
-redirected to the landing page (https://www.bizflow.id.vn/?code=...) instead
+redirected to the landing page (https://www.aitomicflow.com/?code=...) instead
 of the app.
 
 Root cause: Supabase falls back to the Site URL when the redirectTo URL passed
@@ -2495,8 +2495,8 @@ signInWithOAuth passes redirectTo: `${window.location.origin}/auth/callback`.
 If that exact URL is not in Supabase → Auth → URL Configuration → Redirect
 URLs, Supabase silently falls back to the Site URL. Add all variants to avoid
 relying on the middleware intercept:
-https://www.bizflow.id.vn/auth/callback
-https://bizflow.id.vn/auth/callback
+https://www.aitomicflow.com/auth/callback
+https://aitomicflow.com/auth/callback
 http://localhost:3000/auth/callback
 
 ─── Terms of Service & Privacy Policy Pages (COMPLETE) ──────────────────────
@@ -2570,7 +2570,7 @@ Empty states:
 Welcome email:
 
 - Triggered automatically after createTenantAccount() completes (signup flow).
-- Sent via Resend with subject "Welcome to BizFlow — here's how to get started".
+- Sent via Resend with subject "Welcome to Aitomic Flow — here's how to get started".
 - Body: 3-step quick-start guide (create flow, invite user, trigger flow) with
   deep-link buttons. Uses the same branded email template shell as invite emails.
 
@@ -2589,13 +2589,13 @@ How it works:
 
 Slack Incoming Webhooks — admin goes to api.slack.com/apps → creates an app
 → enables Incoming Webhooks → installs to a channel → copies the webhook URL
-(https://hooks.slack.com/services/T.../B.../xxx). BizFlow POSTs a Block Kit
+(https://hooks.slack.com/services/T.../B.../xxx). Aitomic Flow POSTs a Block Kit
 message with the task name, flow name, assignee, due date, and an "Open Task"
-button linking to https://www.bizflow.id.vn/tasks/[id].
+button linking to https://www.aitomicflow.com/tasks/[id].
 
 Microsoft Teams — admin goes to a Teams channel → Manage Channel →
 Connectors → Incoming Webhook → configure → copies the webhook URL
-(https://xxx.webhook.office.com/webhookb2/...). BizFlow POSTs an Adaptive
+(https://xxx.webhook.office.com/webhookb2/...). Aitomic Flow POSTs an Adaptive
 Card payload with the same information.
 
 URL shape detection: if the URL contains hooks.slack.com → Slack format;
@@ -3005,7 +3005,7 @@ requires revision); skip-level provides final publication sign-off.
 45. DOMAIN MIGRATION & REBRAND — aitomicflow.com (COMPLETE ✅)
 
 New domain purchased: aitomicflow.com ("AI" + "tomic" portmanteau of atomic).
-Brand name changed from DragFlow / BizFlow → Aitomic Flow across the entire
+Brand name changed from DragFlow / Aitomic Flow → Aitomic Flow across the entire
 codebase, database, and all platform settings.
 
 ─── Code changes (2 commits on master) ──────────────────────────────────────
@@ -3014,7 +3014,7 @@ Commit d1074b9 — 16 source files updated:
 
 - src/app/layout.tsx: page title + description
 - src/app/page.tsx: all brand names, hello@dragflow.io, app.dragflow.io,
-  support@bizflow.id.vn
+  support@aitomicflow.com
 - src/app/signup/page.tsx: brand name in nav
 - src/lib/auth/signup-actions.ts: confirmation email brand + footer link
 - src/app/privacy/page.tsx + terms/page.tsx: all brand names + email addresses
@@ -3027,7 +3027,7 @@ Commit d1074b9 — 16 source files updated:
 - src/app/platform/support/actions.ts: from_email, from_name, message ID domain
 - src/app/api/cron/sla/route.ts + lib/flows/actions.ts +
   lib/flows/comment-actions.ts + lib/notifications/webhook.ts:
-  siteUrl fallback (https://www.bizflow.id.vn → https://www.aitomicflow.com)
+  siteUrl fallback (https://www.aitomicflow.com → https://www.aitomicflow.com)
 
 Commit 06d4dd8 — email template shell:
 
@@ -3039,8 +3039,8 @@ Commit 06d4dd8 — email template shell:
 
 44 knowledge_base rows updated via direct SQL:
 
-- content_markdown: BizFlow → Aitomic Flow, bizflow.id.vn → aitomicflow.com
-- title: BizFlow → Aitomic Flow
+- content_markdown: Aitomic Flow → Aitomic Flow, aitomicflow.com → aitomicflow.com
+- title: Aitomic Flow → Aitomic Flow
 - slug: bizflow → aitomic-flow (4 slugs: what-is-bizflow,
   what-is-bizflow-vi, user-roles-in-bizflow, user-roles-in-bizflow-vi)
 
@@ -3087,9 +3087,9 @@ Postmark (inbound email):
 ─── KNOWN GOTCHA — two brand names in legacy code ───────────────────────────
 
 The codebase previously used both "DragFlow" (landing page, metadata) and
-"BizFlow" (legal pages, email templates, support). Both are now replaced with
+"Aitomic Flow" (legal pages, email templates, support). Both are now replaced with
 "Aitomic Flow". If old brand names appear anywhere new, grep for both:
-grep -rn "bizflow\|dragflow\|BizFlow\|DragFlow" src/
+grep -rn "bizflow\|dragflow\|Aitomic Flow\|DragFlow" src/
 
 39. PLATFORM AI SETTINGS — CONFIGURABLE INBOUND EMAIL RESPONDER (COMPLETE ✅)
     Build: clean (commit 79d4a60). Migration applied to remote DB.
@@ -3921,6 +3921,11 @@ GALLERY IMAGES (5 screenshots) ✅ DONE (2026-06-10)
 Tool: GoFullPage Chrome extension → shots.so for browser frame
 Browser: Chrome at 1440×900, 100% zoom 1. aitomicflow.com — hero section + pricing 2. aitomicflow.com — pricing cards (Free vs Pro) 3. /flows — flow canvas list view 4. /flows/[id]/edit — drag-and-drop canvas builder (most important) 5. /tasks — task inbox (daily user view)
 
+DEMO VIDEO ✅ DONE
+URL: https://www.loom.com/share/7292229cfbcc48a3bc2c55e119743ee0
+90-second Loom walkthrough: flow builder canvas → step config → publish → trigger → task inbox → complete step → instance history.
+Embed on landing page hero section above the fold.
+
 TAGLINE (60 chars max) — final:
 "Your team always knows what to do next"
 
@@ -4016,8 +4021,243 @@ Happy to answer anything about the product or the build
 ── Landing page pre-launch checklist 🔜 TODO ────────────────────────────────
 
     Before sending any traffic to the landing page:
-    - Add a short demo video (90-second Loom minimum — SaaS buyers need
-      to see it working before signing up)
+    - ✅ Demo video: https://www.loom.com/share/7292229cfbcc48a3bc2c55e119743ee0 — embed in hero section
     - Add Vietnamese copy option or at least Vietnamese hero section text
       (primary target market is Vietnamese SMBs)
     - Add "Book a demo" CTA alongside free signup
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 55. PHASE 19 — OUTBOUND WEBHOOKS & REST API GATEWAY (ROADMAP)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Theme: connect Aitomic Flow to the wider tooling ecosystem. Outbound event
+webhooks let external systems react to flow events in real time. A REST API +
+tenant API keys enable machine-to-machine flow triggering — unlocking Zapier,
+Make.com, n8n, and custom integrations without writing platform-specific
+connectors. Every event that already fires createNotification() and
+sendWebhookNotification() is a ready-made source for this new layer.
+
+M1 — Outbound event webhooks (custom URL subscriptions)
+
+- Settings → Integrations: new "Custom Webhooks" section (alongside existing
+  Slack/Teams URLs). Admin enters a URL and checks which events to subscribe to.
+- Events: flow_triggered | step_completed | flow_completed | flow_cancelled | step_overdue
+- Payload envelope (JSON): { event, tenantId, instanceId, flowId, flowName,
+  stepId?, stepName?, actorEmail?, actorName?, occurredAt }
+- Signing: each webhook URL has a platform-generated secret. Every POST includes
+  X-Webhook-Signature: sha256=<HMAC-SHA256(secret, rawBody)> so receivers can
+  verify authenticity. Mirrors the existing Lemon Squeezy verification pattern.
+- Delivery: fire-and-forget with up to 3 retries (100ms / 1s / 5s backoff).
+  Non-fatal — all delivery attempts logged to a new webhook_delivery_log table
+  (id, webhook_id FK, event, status 'ok'|'failed', http_status, duration_ms, created_at).
+- DB migration: tenant_custom_webhooks table (id, tenant_id, url, secret, events uuid[],
+  is_active, created_at). Admin-only SELECT/UPDATE RLS via app_metadata path.
+- Wired into: advanceFlow (step_completed, flow_completed) and triggerFlow
+  (flow_triggered) in src/lib/flows/actions.ts alongside existing notification
+  calls. SLA cron already handles step_overdue.
+
+M2 — REST API trigger endpoint
+
+- POST /api/v1/flows/:flowId/trigger
+  Auth: Authorization: Bearer {api_key} header (not session cookie).
+  Body: optional JSON { formData: { fieldId: value, ... } } to pre-fill the
+  trigger step's form fields.
+  Response: { instanceId, status: 'pending', detailUrl } (201) or error (400/403/404/429).
+- Tenant isolation: API key is scoped to one tenant — cannot trigger flows
+  belonging to other tenants. Validated by matching api key hash to tenant row.
+- Rate limiting: 60 requests/minute per API key (same Supabase rate_limit_log
+  pattern as signup/invite rate limiting in src/lib/rate-limit.ts).
+- triggered_by set to the API key's owner (the admin who generated the key)
+  so audit trail shows "triggered via API by admin@example.com".
+- GET /api/v1/instances/:instanceId — returns instance status, current step,
+  completed steps summary. Useful for polling from external systems.
+
+M3 — API key management UI
+
+- Settings → Integrations: "API Access" section (admin only).
+- Generate key: creates a random 64-char hex key, shows it once in a copy-input
+  (never stored in plaintext — only the SHA-256 hash stored in DB).
+- tenant_api_keys table: id, tenant_id, name (label), key_hash TEXT, last_used_at,
+  call_count_30d, created_by FK→users, created_at, revoked_at. Admin SELECT RLS.
+- Rotate / Revoke per key. Multiple keys allowed (e.g., separate keys for
+  Zapier and internal scripts). Revoked keys get a struck-through display.
+- Usage stats: last used date + 30-day call count shown per key row.
+- Public documentation note: POST body schema and event payload schemas
+  documented in /help (KB article) so Zapier/Make builders can self-serve.
+
+CROSS-CUTTING NOTES
+
+- The X-Webhook-Signature pattern is identical to the existing Lemon Squeezy
+  webhook verification in src/app/api/webhooks/lemon-squeezy/route.ts —
+  reuse the timingSafeEqual pattern.
+- Zapier / Make.com apps can be built on top of M1 (event webhooks) and M2
+  (trigger API) without any platform-specific connector code on our side.
+  Document the webhook format and trigger API in the KB under category 'technical'.
+- Recommended build order: M1 → M3 → M2 (webhooks first unlocks Zapier
+  polling; API keys needed before the trigger endpoint goes live).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 56. PHASE 20 — SCHEDULED / RECURRING TRIGGERS (ROADMAP)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Theme: flow instances that don't require a human to click "Start." A new
+Schedule trigger node type lets admins configure flows to auto-fire on a
+cron-style schedule — enabling recurring processes like weekly team standups,
+monthly expense submission reminders, quarterly compliance checklists, and
+daily shift handover reports. Builds on the Vercel cron infrastructure already
+in use for the SLA digest and tenant cleanup jobs.
+
+M1 — Schedule trigger node type in the flow builder
+
+- New node type: 'schedule' (alongside 'trigger', 'action', 'branch', 'complete',
+  'sub_flow'). Renders with a Clock icon and a violet tint to distinguish from
+  the human-trigger node.
+- Config panel (ScheduleConfigPanel): two input modes —
+  Simple: frequency select (Daily / Weekly / Monthly) + time picker + day selector.
+  Advanced: raw cron expression input with human-readable preview
+  ("Runs every Monday at 08:00 ICT").
+- scheduleConfig stored on NodeData in graph JSONB:
+  { cronExpression: string, timezone: string }
+  timezone defaults to the tenant admin's browser locale at creation time.
+- Canvas validation: a Schedule node follows the same connection rules as the
+  Trigger node — max 1 outbound edge, no inbound edges, one per graph.
+- The existing Trigger node type is renamed "Manual Trigger" in the UI to
+  distinguish it clearly. No schema change — just a label update.
+- Builder preview: "Next run: Monday 16 Jun 2026, 08:00 ICT" computed from
+  cronExpression + timezone using a lightweight cron parser library.
+- triggerSave() on every config change (same pattern as SLA field in StepConfigPanel).
+
+M2 — Vercel cron scanner (scheduled-flows runner)
+
+- New route: GET /api/cron/scheduled-flows — secured by Authorization: Bearer
+  {CRON_SECRET} (same guard as /api/cron/sla and /api/cron/tenant-cleanup).
+- vercel.json: add entry "_/5 _ \* \* \*" (every 5 minutes) — tight enough to
+  be within 5 minutes of the scheduled time, cheap enough to not abuse.
+- Scanner logic:
+  1. Query all published flows whose latest_version graph contains a node with
+     type='schedule'. Fetch graph JSONB + flows.last_scheduled_at per flow.
+  2. Parse cronExpression for each flow, compute the last expected fire time.
+  3. Fire triggerFlow() for any flow where last_scheduled_at < last expected fire
+     time (or last_scheduled_at IS NULL and flow was published before now).
+  4. Update flows.last_scheduled_at = now() after a successful trigger.
+- DB migration: ADD COLUMN last_scheduled_at TIMESTAMPTZ to flows +
+  ADD COLUMN schedule_paused BOOLEAN NOT NULL DEFAULT FALSE.
+- triggered_by set to null (system trigger) — same pattern as external API trigger.
+  event log records actor as "Scheduled trigger" rather than a user name.
+- Idempotency: the 5-minute cron window means a flow scheduled "every day at 08:00"
+  will only fire once — the last_scheduled_at guard prevents double-firing.
+- Tenant isolation: scanner uses adminClient scoped by tenant_id for each flow.
+
+M3 — Scheduler management UI
+
+- New admin-only page: /admin/scheduled-flows (add to nav under Admin group).
+- Table columns: Flow name (links to editor), Schedule (human-readable from
+  cronExpression), Timezone, Last run, Next run, Paused badge, Instances (30d),
+  Pause/Resume button.
+- "Run now" button fires a one-off triggerFlow() immediately (admin override),
+  logging the actor as the admin user (not null). Useful for testing.
+- Pause/Resume calls a new server action toggleSchedulePause(flowId, paused)
+  which sets flows.schedule_paused. The scanner skips paused flows.
+- Empty state: "No flows have a scheduled trigger yet. Open the flow builder
+  and add a Schedule trigger node."
+- /admin/scheduled-flows added to ADMIN_ONLY_ROUTES in middleware.ts.
+
+CROSS-CUTTING NOTES
+
+- Timezone handling: cronExpression is always stored in UTC-equivalent terms
+  internally. The config panel converts the admin's local time to UTC before
+  persisting. The human-readable preview converts back to the admin's locale
+  for display.
+- A flow can have either a Manual Trigger or a Schedule trigger — not both.
+  The canvas validation prevents adding a second trigger-type node. If the admin
+  wants both, they must clone the flow.
+- Recommended build order: M1 (builder config) → M2 (runner) → M3 (management UI).
+  M2 can be deployed with an empty scheduled-flows list and goes live the moment
+  the first scheduled flow is published.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 57. PHASE 21 — PDF EXPORT OF COMPLETED FLOW INSTANCES (ROADMAP)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Theme: completed workflows need to live outside the app. HR teams want a PDF
+of an approved leave request to attach to their payroll system. Finance teams
+need a signed expense claim as a permanent record. Legal teams need the full
+approval chain for audit. A downloadable PDF summary closes the loop between
+digital workflow and the document-based processes that surround it.
+
+M1 — PDF generation infrastructure
+
+- Library: @react-pdf/renderer (pure Node.js, Vercel-compatible — no Puppeteer
+  or headless Chrome required). Already available from npm; no new service needed.
+- Server action: generateInstancePdf(instanceId) in src/lib/flows/pdf-actions.ts.
+  Access gate: same rules as getFlowTimeline — triggerer, any step assignee,
+  or tenant admin. Non-admin non-participants receive 403.
+- API route: GET /api/flows/instances/[id]/pdf
+  Calls generateInstancePdf(), pipes the React PDF stream to the response with
+  Content-Type: application/pdf, Content-Disposition: attachment; filename="flow-{id}.pdf".
+  Auth: session cookie (not API key) — same guard as other instance routes.
+- 'use server' action alternative: for the admin batch path (M4), also expose
+  a server action that returns a Buffer for ZIP assembly.
+
+M2 — PDF template (InstancePdfDocument React PDF component)
+
+- New file: src/lib/flows/pdf-template.tsx — React PDF Document component.
+- Page header (on every page):
+  Aitomic Flow logo (public/logo.png embedded as base64), flow name,
+  Instance ID (monospace), status badge (Completed / Cancelled),
+  created date and completed date.
+- Per-step sections (one section per completed step_instance, sorted oldest→newest):
+  Step name (bold, with type icon text: Action / Branch / Trigger / Complete).
+  Assignee name + email. Completed date + time. Duration (created → completed).
+  Form field table: two columns — Label | Value. File fields list filename(s)
+  without embedding binaries (storage paths are private; filenames are sufficient).
+  Branch steps: show the Yes/No decision taken with a visual indicator (→ Yes path).
+- Footer (on every page): tenant name, "Generated by Aitomic Flow on {date}", page N of N.
+- Page breaks inserted between steps (Document.wrap prop + Step component uses
+  style={{ break: 'before' }} for longer steps).
+- Colour palette: matches Aitomic Flow UI (slate headings, indigo accents,
+  muted grey field values). PDF fonts: Helvetica (built-in, no font download).
+
+M3 — Download button in instance detail panel
+
+- "Download PDF" button added to InstanceDetailClient header area, positioned
+  alongside the existing Cancel/Reassign admin action buttons.
+- Visibility: shown only when flow_instance.status === 'completed'. Hidden for
+  pending, cancelled, and error instances — incomplete data produces confusing PDFs.
+- Access: same gate as the panel itself (triggerer, assignees, admin). No separate
+  admin-only restriction — if you can see the detail panel, you can download.
+- Behaviour: clicking opens /api/flows/instances/[id]/pdf in a new tab (simplest
+  approach — browser handles the download prompt). No useTransition needed since
+  the navigation is browser-side.
+- Loading state: none needed (new tab opens immediately; PDF renders server-side).
+- Added to both:
+  - tasks-client.tsx slide-in panel (via InstanceDetailClient panel header)
+  - /admin/instances slide-in panel (same component, already reused)
+
+M4 — Batch PDF export from /admin/instances
+
+- "Export PDFs (ZIP)" option added to the existing Export dropdown in
+  instances-client.tsx (alongside current CSV options).
+- Limit: 25 instances per batch. If the active filter returns more, warn and
+  offer to narrow the filter first.
+- Implementation: new API route GET /api/admin/export?type=pdf_zip
+  1. Fetches all instance IDs matching the active filters (reuses existing
+     filter logic from the CSV export route).
+  2. Generates each PDF buffer in parallel (Promise.all with a concurrency
+     cap of 5 to avoid memory pressure on Vercel).
+  3. Assembles a ZIP in-memory using jszip (already installed as a dependency
+     from an earlier phase or installed fresh — check node_modules).
+  4. Streams the ZIP as application/zip with filename workflow-export-{date}.zip.
+- Auth: same admin check as the existing /api/admin/export route.
+- Timeout: Vercel function timeout is 60s (Pro plan). 25 PDFs at ~200ms each
+  = ~5s total. Well within limit for typical instances.
+
+CROSS-CUTTING NOTES
+
+- @react-pdf/renderer renders at build time on the server — no client-side
+  JS bundle impact. The PDF Document component cannot use React hooks or
+  browser APIs; it is a pure data → layout mapping.
+- File attachments: embed only filenames in the PDF, not binaries. Signed URLs
+  expire in 60 seconds; embedding them is unreliable. Add a footer note:
+  "Attachments stored securely in Aitomic Flow — download from the app."
+- The KB article (how-to-export-flow-pdf) should clarify that PDFs include
+  only completed steps — pending or skipped steps are omitted.
+- Recommended build order: M1 → M2 → M3 → M4. M3 is visible to users
+  immediately after M2. M4 (batch) can ship in a follow-up session.

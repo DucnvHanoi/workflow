@@ -12,6 +12,7 @@ import { sendAssignmentEmail } from '@/lib/email/resend'
 import { logAuditEvent } from '@/lib/audit/log'
 import { createNotification } from '@/lib/notifications/create'
 import { sendWebhookNotification } from '@/lib/notifications/webhook'
+import { fireWebhookEvent } from '@/lib/webhooks/deliver'
 import { revalidatePath } from 'next/cache'
 
 export type FlowListItem = {
@@ -814,6 +815,12 @@ export async function triggerFlow(
     eventType: 'flow_triggered',
     description: `${triggererName} started this flow.`,
     metadata: { flowId, versionId: version.id },
+  })
+  void fireWebhookEvent(tenantId, 'flow_triggered', {
+    instanceId: instance.id,
+    flowId,
+    flowName: flow.name as string,
+    actorName: triggererName,
   })
 
   const firstEdge = graph.edges.find((e) => e.source === triggerNode.id)
