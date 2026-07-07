@@ -72,6 +72,12 @@ async function deliverOne(
         method: 'POST',
         headers,
         body,
+        // Do NOT follow redirects: the SSRF guard above only validated the
+        // initial URL. A public host could 3xx-redirect to an internal address
+        // (169.254.169.254, loopback, RFC1918), and redirect-following would
+        // bypass the guard. Legitimate webhook receivers answer 2xx directly;
+        // a 3xx is surfaced as a failed delivery instead.
+        redirect: 'manual',
         signal: AbortSignal.timeout(10_000),
       })
 

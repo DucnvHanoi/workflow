@@ -231,6 +231,9 @@ async function postToWebhook(url: string, body: object): Promise<void> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    // Hosts are allowlisted to Slack/Teams, but don't follow redirects — avoids
+    // any open-redirect on those domains being used to reach internal targets.
+    redirect: 'manual',
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
