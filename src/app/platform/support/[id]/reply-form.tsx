@@ -8,7 +8,7 @@ interface Props {
   currentStatus: string
 }
 
-const STATUS_OPTIONS = ['open', 'pending_human', 'ai_replied', 'closed'] as const
+const STATUS_OPTIONS = ['open', 'pending_human', 'ai_replied', 'closed', 'spam'] as const
 
 export function ReplyForm({ ticketId, currentStatus }: Props) {
   const [isPending, startTransition] = useTransition()

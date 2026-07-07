@@ -9,6 +9,7 @@ const STATUS_BADGE: Record<string, string> = {
   pending_human: 'bg-amber-100 text-amber-700',
   ai_replied: 'bg-indigo-100 text-indigo-700',
   closed: 'bg-slate-100 text-slate-500',
+  spam: 'bg-red-100 text-red-700',
 }
 
 function formatDateTime(iso: string) {

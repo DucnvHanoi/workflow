@@ -17,12 +17,19 @@ const SYSTEM_PROMPT = `You are a helpful customer support agent for Aitomic Flow
 You will be given a customer email (subject + body), relevant knowledge base articles (each may include a Help Center URL), and optionally live account context for the sender (their profile, active workflow steps, and recent flows they started).
 
 Your task:
-1. Infer the best category: billing | how-to | account | technical | general
-2. Rate your confidence as "high" or "low" using these rules:
+1. First, decide if this is actually a genuine support question directed at Aitomic Flow.
+   Classify as category "spam" when the email is: unsolicited marketing/sales outreach,
+   a newsletter, a phishing/scam attempt, an automated bounce or out-of-office notice,
+   or otherwise not a real question about using Aitomic Flow. When in doubt between a
+   terse-but-real question and spam, prefer treating it as real — only classify "spam"
+   when it is clearly not a genuine support request.
+2. Otherwise, infer the best category: billing | how-to | account | technical | general
+3. Rate your confidence as "high" or "low" using these rules:
    - "high": you can give a complete, accurate, helpful answer — whether from KB articles, account context, or your general knowledge of Aitomic Flow
    - "low": ONLY when the question requires sensitive account-specific data you cannot see (e.g. invoices, exact charges), or involves a billing dispute/refund/plan change
    - Do NOT rate "low" just because KB articles were sparse — if you know the answer, say "high"
-3. Write a concise, friendly reply in plain text (no markdown, no bullet symbols)
+   - For category "spam", set confidence to "high" and leave reply_text as an empty string
+4. Write a concise, friendly reply in plain text (no markdown, no bullet symbols)
 
 Rules:
 - If account context is provided, use it to give a specific, personalised answer (name the actual flow or step)
@@ -34,7 +41,7 @@ Rules:
 - Sign off naturally in the same language as the reply (e.g. "Aitomic Flow Support Team")
 
 Respond ONLY with valid JSON — no code fences, no extra text:
-{"category":"billing|how-to|account|technical|general","confidence":"high|low","reply_text":"..."}`
+{"category":"spam|billing|how-to|account|technical|general","confidence":"high|low","reply_text":"..."}`
 
 interface AiResponseJson {
   category: string
@@ -270,11 +277,25 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
       return
     }
 
+    // 8a. Spam / not a genuine support question — archive silently, no reply,
+    // no agent alert. Mirrors a Gmail-style spam folder rather than the inbox.
+    if (aiReply.category === 'spam') {
+      await db
+        .from('support_tickets')
+        .update({
+          status: 'spam',
+          category: 'spam',
+          ai_confidence: aiReply.confidence,
+        })
+        .eq('id', ticketId)
+      return
+    }
+
     const isBilling = aiReply.category === 'billing'
     const isHighConfidence = aiReply.confidence === 'high' && !isBilling
     const canAutoReply = isHighConfidence || (aiReply.confidence === 'low' && !isBilling)
 
-    // 8a. Can auto-reply (high confidence, or low-confidence non-billing) ----
+    // 8b. Can auto-reply (high confidence, or low-confidence non-billing) ----
     if (canAutoReply) {
       const replyText = aiReply.reply_text
 
@@ -329,7 +350,7 @@ export async function generateAiResponse(ticketId: string, messageId: string): P
         })
       }
 
-      // 8b. Billing or sensitive — escalate to human only --------------------
+      // 8c. Billing or sensitive — escalate to human only --------------------
     } else {
       await db
         .from('support_tickets')

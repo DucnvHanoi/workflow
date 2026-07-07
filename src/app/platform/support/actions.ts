@@ -64,6 +64,10 @@ export async function getTickets(statusFilter?: string): Promise<SupportTicketRo
 
   if (statusFilter && statusFilter !== 'all') {
     q = q.eq('status', statusFilter)
+  } else {
+    // 'all' means "all real tickets" — spam is quarantined separately,
+    // same as Gmail's Spam folder being excluded from the main inbox view.
+    q = q.neq('status', 'spam')
   }
 
   const { data, error } = await q

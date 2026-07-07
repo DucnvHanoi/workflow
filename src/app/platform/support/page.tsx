@@ -6,6 +6,7 @@ const STATUS_BADGE: Record<string, string> = {
   pending_human: 'bg-amber-100 text-amber-700',
   ai_replied: 'bg-indigo-100 text-indigo-700',
   closed: 'bg-slate-100 text-slate-500',
+  spam: 'bg-red-100 text-red-700',
 }
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -26,6 +27,7 @@ const STATUS_TABS = [
   { value: 'pending_human', label: 'Needs Review' },
   { value: 'ai_replied', label: 'AI Replied' },
   { value: 'closed', label: 'Closed' },
+  { value: 'spam', label: 'Spam' },
 ]
 
 function formatDate(iso: string) {
@@ -40,18 +42,24 @@ function formatDate(iso: string) {
 export default async function SupportPage({ searchParams }: { searchParams: { status?: string } }) {
   const activeStatus = searchParams.status ?? 'all'
 
-  // Stats always need all tickets; filtered view needs a subset
-  const [allTickets, filteredTickets] = await Promise.all([
+  // Stats always need all tickets; filtered view needs a subset.
+  // getTickets('all') excludes spam (quarantined, like Gmail's Spam folder),
+  // so its count is fetched separately.
+  const [allTickets, spamTickets, filteredTickets] = await Promise.all([
     getTickets('all'),
-    activeStatus === 'all' ? Promise.resolve(null) : getTickets(activeStatus),
+    getTickets('spam'),
+    activeStatus === 'all' || activeStatus === 'spam'
+      ? Promise.resolve(null)
+      : getTickets(activeStatus),
   ])
-  const tickets = filteredTickets ?? allTickets
+  const tickets = activeStatus === 'spam' ? spamTickets : (filteredTickets ?? allTickets)
 
   const stats = {
     open: allTickets.filter((t) => t.status === 'open').length,
     pending_human: allTickets.filter((t) => t.status === 'pending_human').length,
     ai_replied: allTickets.filter((t) => t.status === 'ai_replied').length,
     closed: allTickets.filter((t) => t.status === 'closed').length,
+    spam: spamTickets.length,
   }
 
   return (
@@ -63,12 +71,13 @@ export default async function SupportPage({ searchParams }: { searchParams: { st
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         {[
           { label: 'Open', value: stats.open, color: 'text-blue-600' },
           { label: 'Needs Review', value: stats.pending_human, color: 'text-amber-600' },
           { label: 'AI Replied', value: stats.ai_replied, color: 'text-indigo-600' },
           { label: 'Closed', value: stats.closed, color: 'text-slate-500' },
+          { label: 'Spam', value: stats.spam, color: 'text-red-600' },
         ].map((s) => (
           <div
             key={s.label}
