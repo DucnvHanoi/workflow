@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:makerkit.dev)",
+      "WebFetch(domain:docs.opensaas.sh)",
+      "WebFetch(domain:www.startupbolt.com)",
+      "Bash(Select-Object Name)"
+    ]
+  }
+}
