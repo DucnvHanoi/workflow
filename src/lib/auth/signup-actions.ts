@@ -20,9 +20,21 @@ export async function createTenantAccount(
   // Honeypot — bots fill hidden fields, humans don't
   if (honeypot) return { success: true }
 
-  // Rate limit by IP — 5 signups per hour
+  // Rate limit by IP — 5 signups per hour.
+  // Prefer x-real-ip (set by the Vercel proxy, not client-appendable). The
+  // leftmost x-forwarded-for entry is attacker-controlled — a client can send
+  // its own XFF and the proxy appends the real IP after it — so falling back to
+  // XFF we take the last (proxy-added) entry rather than the spoofable first.
   const headersList = await headers()
-  const ip = headersList.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const xff = headersList.get('x-forwarded-for')
+  const ip =
+    headersList.get('x-real-ip')?.trim() ||
+    xff
+      ?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .pop() ||
+    'unknown'
   const allowed = await checkSignupRate(ip)
   if (!allowed) {
     return { error: 'Too many signup attempts. Please try again in an hour.' }

@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { marked } from 'marked'
 import { slugify } from './utils'
+import { sanitizeHtml } from '@/lib/security/sanitize'
 
 const CATEGORIES = ['general', 'billing', 'account', 'how-to', 'technical'] as const
 
@@ -40,7 +41,7 @@ export function ArticleForm({ mode, defaultValues, action }: Props) {
 
   function togglePreview() {
     if (!preview) {
-      setPreviewHtml(marked(markdownValue, { gfm: true, breaks: true }) as string)
+      setPreviewHtml(sanitizeHtml(marked(markdownValue, { gfm: true, breaks: true }) as string))
     }
     setPreview((p) => !p)
   }

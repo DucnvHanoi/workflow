@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
 import { marked } from 'marked'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sanitizeHtml } from '@/lib/security/sanitize'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,7 +51,9 @@ export default async function HelpArticlePage({ params }: { params: { slug: stri
 
   if (!article) notFound()
 
-  const htmlContent = marked(article.content_markdown ?? '', { gfm: true, breaks: true }) as string
+  const htmlContent = sanitizeHtml(
+    marked(article.content_markdown ?? '', { gfm: true, breaks: true }) as string
+  )
 
   return (
     <div className="min-h-screen bg-slate-50">

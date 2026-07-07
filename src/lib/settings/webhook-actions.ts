@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSessionClaims } from '@/lib/supabase/auth-helpers'
 import { testWebhookUrl } from '@/lib/notifications/webhook'
+import { assertSafeUrl } from '@/lib/security/url-guard'
 import type { OutboundWebhookEventType } from '@/lib/webhooks/events'
 import { fireWebhookEvent } from '@/lib/webhooks/deliver'
 
@@ -115,12 +116,8 @@ export async function createCustomWebhook(
   if (!user || claims?.role !== 'admin') return { data: null, error: 'Unauthorized' }
 
   const trimmed = url.trim()
-  try {
-    new URL(trimmed)
-  } catch {
-    return { data: null, error: 'Invalid URL.' }
-  }
-  if (!trimmed.startsWith('https://')) return { data: null, error: 'URL must use HTTPS.' }
+  const safety = await assertSafeUrl(trimmed)
+  if (!safety.ok) return { data: null, error: safety.reason }
   if (events.length === 0) return { data: null, error: 'Select at least one event.' }
 
   const secret = randomBytes(32).toString('hex')

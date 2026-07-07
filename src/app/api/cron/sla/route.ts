@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { safeEqual } from '@/lib/security/secret'
 import { sendSlaDigestEmail, sendEscalationEmail } from '@/lib/email/resend'
 import { sendWebhookNotification } from '@/lib/notifications/webhook'
 import { fireWebhookEvent } from '@/lib/webhooks/deliver'
@@ -9,7 +10,7 @@ export async function GET(request: NextRequest) {
   // Verify CRON_SECRET — Vercel sends it as a Bearer token
   const authHeader = request.headers.get('authorization')
   const secret = authHeader?.replace('Bearer ', '')
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  if (!process.env.CRON_SECRET || !safeEqual(secret, process.env.CRON_SECRET)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

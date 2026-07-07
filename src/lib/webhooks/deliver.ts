@@ -1,5 +1,6 @@
 import { createHmac } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { assertSafeUrl } from '@/lib/security/url-guard'
 import type { OutboundWebhookEventType } from '@/lib/webhooks/events'
 
 export type { OutboundWebhookEventType }
@@ -38,6 +39,23 @@ async function deliverOne(
     'X-Webhook-Signature': `sha256=${signature}`,
     'X-Aitomic-Event': event,
     'User-Agent': 'AitomicFlow-Webhooks/1.0',
+  }
+
+  // SSRF guard — re-resolve DNS on every delivery so a host that flips to a
+  // private/reserved address after registration is blocked before we fetch it.
+  const safety = await assertSafeUrl(webhook.url)
+  if (!safety.ok) {
+    await db.from('webhook_delivery_log').insert({
+      webhook_id: webhook.id,
+      event_type: event,
+      payload,
+      status: 'failed',
+      attempt: 0,
+      response_status: null,
+      response_body: null,
+      error_message: `Blocked unsafe webhook target: ${safety.reason}`,
+    })
+    return
   }
 
   let lastStatus: number | undefined

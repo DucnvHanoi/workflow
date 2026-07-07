@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { safeEqual } from '@/lib/security/secret'
 import {
   sendDripConfirmEmail,
   sendDripTeamWaitingEmail,
@@ -12,7 +13,7 @@ const DAY_MS = 86_400_000
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
   const secret = authHeader?.replace('Bearer ', '')
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  if (!process.env.CRON_SECRET || !safeEqual(secret, process.env.CRON_SECRET)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

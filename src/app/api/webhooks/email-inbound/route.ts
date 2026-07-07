@@ -2,24 +2,27 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { processInboundEmail, type PostmarkInboundPayload } from '@/lib/support/inbound'
 import { generateAiResponse } from '@/lib/support/ai-responder'
+import { safeEqual } from '@/lib/security/secret'
 
 /**
  * POST /api/webhooks/email-inbound
  *
  * Receives inbound emails forwarded by Postmark.
- * Security: secret query param (?secret=SUPPORT_INBOUND_SECRET).
- * Postmark does not sign inbound payloads, so we guard with a shared secret
- * embedded in the webhook URL configured on the Postmark dashboard.
+ * Postmark does not sign inbound payloads, so we guard with a shared secret.
+ * Preferred: send it in the `X-Inbound-Secret` header (kept out of access logs,
+ * proxies, and Referer). The `?secret=` query param is still accepted for
+ * backwards compatibility with existing Postmark configuration.
  *
  * After parsing and persisting the ticket/message this handler returns 200
  * immediately. The AI response (M3) is triggered asynchronously.
  */
 export async function POST(request: NextRequest) {
   // --- Auth ------------------------------------------------------------------
-  const secret = request.nextUrl.searchParams.get('secret')
+  const secret =
+    request.headers.get('x-inbound-secret') ?? request.nextUrl.searchParams.get('secret')
   const expected = process.env.SUPPORT_INBOUND_SECRET
 
-  if (!expected || secret !== expected) {
+  if (!expected || !safeEqual(secret, expected)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
